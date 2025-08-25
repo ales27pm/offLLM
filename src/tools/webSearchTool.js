@@ -1,4 +1,5 @@
 import { searchService } from '../services/webSearchService';
+import { validate as validateApiKeys } from '../services/utils/apiKeys';
 
 export const webSearchTool = {
     description: 'Search the web for information using multiple providers',
@@ -78,29 +79,3 @@ export const webSearchTool = {
         }
     }
 };
-
-async function validateApiKeys(provider) {
-    const apiKeys = await getApiKeys();
-    
-    switch (provider) {
-        case 'google':
-            return !!(apiKeys.googleApiKey && apiKeys.googleSearchEngineId);
-        case 'bing':
-            return !!apiKeys.bingApiKey;
-        case 'brave':
-            return !!apiKeys.braveApiKey;
-        case 'duckduckgo':
-            return true;
-        default:
-            return false;
-    }
-}
-
-async function getApiKeys() {
-    return {
-        googleApiKey: process.env.GOOGLE_API_KEY,
-        googleSearchEngineId: process.env.GOOGLE_SEARCH_ENGINE_ID,
-        bingApiKey: process.env.BING_API_KEY,
-        braveApiKey: process.env.BRAVE_API_KEY
-    };
-}

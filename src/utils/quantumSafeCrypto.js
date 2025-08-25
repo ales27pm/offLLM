@@ -80,50 +80,79 @@ async function _encryptWithKyber(plaintext, secret) {
     // Convert plaintext to bytes
     const encoder = new TextEncoder();
     const plaintextBytes = encoder.encode(plaintext);
-    
+
+    if (!(secret instanceof Uint8Array)) {
+        secret = new Uint8Array(secret);
+    }
+
     // Use the first 32 bytes of the secret as AES key
     const aesKey = secret.slice(0, 32);
-    
+    const aesKeyWordArray = _uint8ArrayToWordArray(aesKey);
+
     // Generate a random IV
     const iv = CryptoJS.lib.WordArray.random(16);
-    
-    // Encrypt with AES-GCM
+
+    // Encrypt with AES-CBC (CryptoJS doesn't support GCM natively)
     const encrypted = CryptoJS.AES.encrypt(
-        CryptoJS.enc.Hex.parse(Array.from(plaintextBytes).map(b => b.toString(16).padStart(2, '0')).join('')),
-        CryptoJS.enc.Hex.parse(Array.from(aesKey).map(b => b.toString(16).padStart(2, '0')).join('')),
-        { iv, mode: CryptoJS.mode.GCM }
+        _uint8ArrayToWordArray(plaintextBytes),
+        aesKeyWordArray,
+        { iv, mode: CryptoJS.mode.CBC, padding: CryptoJS.pad.Pkcs7 }
     );
-    
-    // Combine IV and ciphertext
-    const result = new Uint8Array(iv.words.length * 4 + encrypted.ciphertext.words.length * 4);
-    result.set(new Uint8Array(iv.words.buffer), 0);
-    result.set(new Uint8Array(encrypted.ciphertext.words.buffer), iv.words.length * 4);
-    
+
+    // Combine IV and ciphertext safely
+    const ivBytes = _wordArrayToUint8Array(iv);
+    const cipherBytes = _wordArrayToUint8Array(encrypted.ciphertext);
+    const result = new Uint8Array(ivBytes.length + cipherBytes.length);
+    result.set(ivBytes, 0);
+    result.set(cipherBytes, ivBytes.length);
+
     return result;
 }
 
 async function _decryptWithKyber(encrypted, secret) {
     try {
+        if (!(secret instanceof Uint8Array)) {
+            secret = new Uint8Array(secret);
+        }
+
         // Use the first 32 bytes of the secret as AES key
         const aesKey = secret.slice(0, 32);
-        
+        const aesKeyWordArray = _uint8ArrayToWordArray(aesKey);
+
         // Extract IV and ciphertext
         const iv = encrypted.slice(0, 16);
         const ciphertext = encrypted.slice(16);
-        
-        // Decrypt with AES-GCM
+
+        // Decrypt with AES-CBC
         const decrypted = CryptoJS.AES.decrypt(
-            { ciphertext: CryptoJS.enc.Hex.parse(Array.from(ciphertext).map(b => b.toString(16).padStart(2, '0')).join('')) },
-            CryptoJS.enc.Hex.parse(Array.from(aesKey).map(b => b.toString(16).padStart(2, '0')).join('')),
-            { iv: CryptoJS.enc.Hex.parse(Array.from(iv).map(b => b.toString(16).padStart(2, '0')).join('')), mode: CryptoJS.mode.GCM }
+            { ciphertext: _uint8ArrayToWordArray(ciphertext) },
+            aesKeyWordArray,
+            { iv: _uint8ArrayToWordArray(iv), mode: CryptoJS.mode.CBC, padding: CryptoJS.pad.Pkcs7 }
         );
-        
+
         // Convert back to string
         return decrypted.toString(CryptoJS.enc.Utf8);
     } catch (error) {
         console.error('Kyber decryption failed:', error);
         throw new Error('Failed to decrypt with Kyber');
     }
+}
+
+function _wordArrayToUint8Array(wordArray) {
+    const { words, sigBytes } = wordArray;
+    const result = new Uint8Array(sigBytes);
+    for (let i = 0; i < sigBytes; i++) {
+        result[i] = (words[i >>> 2] >>> (24 - (i & 3) * 8)) & 0xff;
+    }
+    return result;
+}
+
+function _uint8ArrayToWordArray(u8Array) {
+    const words = [];
+    for (let i = 0; i < u8Array.length; i++) {
+        words[i >>> 2] |= u8Array[i] << (24 - (i & 3) * 8);
+    }
+    return CryptoJS.lib.WordArray.create(words, u8Array.length);
 }
 
 export async function rotateKeys() {
