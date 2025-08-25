@@ -12,7 +12,9 @@ RCT_EXPORT_MODULE();
 
 RCT_REMAP_METHOD(createEvent,
                  title:(NSString *)title
-                 date:(NSString *)isoDate
+                 startDate:(NSString *)isoDate
+                 endDate:(NSString *)endIsoDate
+                 durationSeconds:(NSNumber *)durationSeconds
                  location:(NSString *)location
                  notes:(NSString *)notes
                  resolver:(RCTPromiseResolveBlock)resolve
@@ -28,15 +30,37 @@ RCT_REMAP_METHOD(createEvent,
     EKEvent *event = [EKEvent eventWithEventStore:self->_eventStore];
     event.title = title;
 
-    NSDateComponents *components = [[NSDateComponents alloc] init];
     NSISO8601DateFormatter *formatter = [[NSISO8601DateFormatter alloc] init];
     NSDate *startDate = [formatter dateFromString:isoDate];
     if (!startDate) {
-      reject(@"DATE_ERROR", @"Invalid ISO date", nil);
+      reject(@"DATE_ERROR", @"Invalid ISO start date", nil);
       return;
     }
+
+    NSDate *endDate = nil;
+    if (endIsoDate != nil && [endIsoDate isKindOfClass:[NSString class]] && [endIsoDate length] > 0) {
+      endDate = [formatter dateFromString:endIsoDate];
+      if (!endDate) {
+        reject(@"DATE_ERROR", @"Invalid ISO end date", nil);
+        return;
+      }
+    }
+
+    if (endDate == nil && durationSeconds != nil && [durationSeconds isKindOfClass:[NSNumber class]]) {
+      endDate = [startDate dateByAddingTimeInterval:[durationSeconds doubleValue]];
+    }
+
+    if (endDate == nil) {
+      endDate = [startDate dateByAddingTimeInterval:3600];
+    }
+
+    if ([endDate compare:startDate] != NSOrderedDescending) {
+      reject(@"DATE_ERROR", @"End date must be after start date", nil);
+      return;
+    }
+
     event.startDate = startDate;
-    event.endDate = [startDate dateByAddingTimeInterval:3600];
+    event.endDate = endDate;
     event.location = location;
     event.notes = notes;
     event.calendar = [self->_eventStore defaultCalendarForNewEvents];

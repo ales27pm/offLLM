@@ -1,5 +1,5 @@
 import React, { useEffect, useState } from 'react';
-import { View, Text, ActivityIndicator, StyleSheet } from 'react-native';
+import { View, Text, ActivityIndicator, StyleSheet, Platform } from 'react-native';
 import LLMService from './services/llmService';
 import { ToolRegistry } from './architecture/toolSystem';
 import { builtInTools } from './architecture/toolSystem';
@@ -25,9 +25,11 @@ function App() {
       Object.entries(builtInTools).forEach(([name, tool]) => {
         toolRegistry.registerTool(name, tool);
       });
-      Object.entries(iosTools).forEach(([name, tool]) => {
-        toolRegistry.registerTool(name, tool);
-      });
+      if (Platform.OS === 'ios') {
+        Object.entries(iosTools).forEach(([name, tool]) => {
+          toolRegistry.registerTool(name, { execute: tool });
+        });
+      }
       
       // Initialize plugin manager
       const pluginManager = new PluginManager();
