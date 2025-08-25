@@ -8,6 +8,7 @@ export class PluginManager {
         this.activePlugins = new Set();
         this.hooks = new Map();
         this.originals = new Map();
+        this.overrides = new Map();
     }
 
     registerPlugin(name, plugin) {
@@ -148,15 +149,29 @@ export class PluginManager {
     }
 
     _replaceModuleFunction(modulePath, implementation) {
+        if (!this.overrides) {
+            this.overrides = new Map();
+        }
+        if (!this.originals.has(modulePath)) {
+            const parts = modulePath.split('.');
+            const moduleName = parts[0];
+            const functionName = parts[1];
+            this.originals.set(modulePath, global[moduleName][functionName]);
+        }
+        this.overrides.set(modulePath, implementation);
+    }
+
+    getModuleFunction(modulePath) {
+        if (this.overrides && this.overrides.has(modulePath)) {
+            return this.overrides.get(modulePath);
+        }
+        if (this.originals.has(modulePath)) {
+            return this.originals.get(modulePath);
+        }
         const parts = modulePath.split('.');
         const moduleName = parts[0];
         const functionName = parts[1];
-        
-        if (!this.originals.has(modulePath)) {
-            this.originals.set(modulePath, global[moduleName][functionName]);
-        }
-        
-        global[moduleName][functionName] = implementation;
+        return global[moduleName][functionName];
     }
 
     _restoreModuleFunction(modulePath) {

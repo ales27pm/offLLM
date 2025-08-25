@@ -12,12 +12,21 @@ const ExtractedContent = ({ content, onLinkPress }) => {
   }
 
   const handleLinkPress = (event, href) => {
-    if (onLinkPress) {
-      onLinkPress(href);
-    } else {
-      Linking.openURL(href).catch(err => 
-        console.error('Failed to open URL:', err)
-      );
+    if (typeof href !== 'string' || !href.trim()) {
+      console.error('Invalid URL: href is empty or not a string');
+      return;
+    }
+    try {
+      const url = new URL(href);
+      if (onLinkPress) {
+        onLinkPress(href);
+      } else {
+        Linking.openURL(href).catch(err =>
+          console.error('Failed to open URL:', err)
+        );
+      }
+    } catch (e) {
+      console.error('Invalid URL:', href, e);
     }
   };
 
