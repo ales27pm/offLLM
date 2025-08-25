@@ -3,6 +3,7 @@ import { View, Text, ActivityIndicator, StyleSheet } from 'react-native';
 import LLMService from './services/llmService';
 import { ToolRegistry } from './architecture/toolSystem';
 import { builtInTools } from './architecture/toolSystem';
+import iosTools from './tools/iosTools';
 import { PluginManager } from './architecture/pluginManager';
 import { DependencyInjector } from './architecture/dependencyInjector';
 
@@ -22,6 +23,9 @@ function App() {
       // Initialize tool registry
       const toolRegistry = new ToolRegistry();
       Object.entries(builtInTools).forEach(([name, tool]) => {
+        toolRegistry.registerTool(name, tool);
+      });
+      Object.entries(iosTools).forEach(([name, tool]) => {
         toolRegistry.registerTool(name, tool);
       });
       
