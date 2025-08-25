@@ -1,6 +1,20 @@
-import { NativeModules } from 'react-native';
+import { NativeModules, Platform } from 'react-native';
 
-const { CalendarTurboModule, MessagesTurboModule } = NativeModules;
+const isIOS = Platform.OS === 'ios';
+
+function getCalendarModule() {
+  if (isIOS && NativeModules.CalendarTurboModule) {
+    return NativeModules.CalendarTurboModule;
+  }
+  throw new Error('CalendarTurboModule is unavailable on non-iOS platforms');
+}
+
+function getMessagesModule() {
+  if (isIOS && NativeModules.MessagesTurboModule) {
+    return NativeModules.MessagesTurboModule;
+  }
+  throw new Error('MessagesTurboModule is unavailable on non-iOS platforms');
+}
 
 /**
  * Create a new calendar event.
@@ -13,7 +27,8 @@ const { CalendarTurboModule, MessagesTurboModule } = NativeModules;
  * @returns {Promise<object>} Result with success flag and event identifier
  */
 export async function createCalendarEvent(title, startDate, endDate = null, durationSeconds = null, location = '', notes = '') {
-  return CalendarTurboModule.createEvent(title, startDate, endDate, durationSeconds, location, notes);
+  const module = getCalendarModule();
+  return module.createEvent(title, startDate, endDate, durationSeconds, location, notes);
 }
 
 /**
@@ -23,7 +38,8 @@ export async function createCalendarEvent(title, startDate, endDate = null, dura
  * @returns {Promise<object>} Result with success flag
  */
 export async function sendMessage(phoneNumber, body) {
-  return MessagesTurboModule.sendMessage(phoneNumber, body);
+  const module = getMessagesModule();
+  return module.sendMessage(phoneNumber, body);
 }
 
 export default {
