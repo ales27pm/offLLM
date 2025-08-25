@@ -1,13 +1,10 @@
-const plugins = new Map();
-const hooks = new Map();
-const originals = new Map();
-
 export class PluginManager {
     constructor() {
         this.plugins = new Map();
         this.activePlugins = new Set();
         this.hooks = new Map();
-        this.originals = new Map();
+        // Map of modulePath -> { orig, override? }
+        this.modulePatches = new Map();
     }
 
     registerPlugin(name, plugin) {
@@ -37,7 +34,10 @@ export class PluginManager {
             
             if (plugin.replace) {
                 for (const [target, implementation] of Object.entries(plugin.replace)) {
-                    this._replaceModuleFunction(target, implementation);
+                    // Only patch global/module functions when a module path is provided
+                    if (target.includes('.')) {
+                        this._replaceModuleFunction(target, implementation);
+                    }
                 }
             }
             
@@ -71,7 +71,9 @@ export class PluginManager {
             
             if (plugin.replace) {
                 for (const [target] of Object.entries(plugin.replace)) {
-                    this._restoreModuleFunction(target);
+                    if (target.includes('.')) {
+                        this._restoreModuleFunction(target);
+                    }
                 }
             }
             
@@ -148,39 +150,52 @@ export class PluginManager {
     }
 
     _replaceModuleFunction(modulePath, implementation) {
-        const parts = modulePath.split('.');
-        const moduleName = parts[0];
-        const functionName = parts[1];
-        
-        if (!this.originals.has(modulePath)) {
-            this.originals.set(modulePath, global[moduleName][functionName]);
+        const [moduleName, functionName] = modulePath.split('.');
+        const module = global[moduleName];
+        if (!module || !moduleName || !functionName) {
+            console.warn(`Module path ${modulePath} not found for replacement`);
+            return;
         }
-        
-        global[moduleName][functionName] = implementation;
+        if (!this.modulePatches.has(modulePath)) {
+            this.modulePatches.set(modulePath, { orig: module[functionName] });
+        }
+        const entry = this.modulePatches.get(modulePath);
+        entry.override = implementation;
+        module[functionName] = implementation;
+    }
+
+    getModuleFunction(modulePath) {
+        const entry = this.modulePatches.get(modulePath);
+        if (entry) {
+            return entry.override || entry.orig;
+        }
+        const [moduleName, functionName] = modulePath.split('.');
+        const module = global[moduleName];
+        if (!module) return undefined;
+        return module[functionName];
     }
 
     _restoreModuleFunction(modulePath) {
-        if (this.originals.has(modulePath)) {
-            const parts = modulePath.split('.');
-            const moduleName = parts[0];
-            const functionName = parts[1];
-            
-            global[moduleName][functionName] = this.originals.get(modulePath);
-            this.originals.delete(modulePath);
+        const entry = this.modulePatches.get(modulePath);
+        if (!entry) return;
+        const [moduleName, functionName] = modulePath.split('.');
+        const module = global[moduleName];
+        if (module) {
+            module[functionName] = entry.orig;
         }
+        this.modulePatches.delete(modulePath);
     }
 
     _extendModule(moduleName, extensions) {
         if (!global[moduleName]) {
             global[moduleName] = {};
         }
-        
+
         for (const [key, value] of Object.entries(extensions)) {
             const fullPath = `${moduleName}.${key}`;
-            if (!this.originals.has(fullPath) && global[moduleName][key] !== undefined) {
-                this.originals.set(fullPath, global[moduleName][key]);
+            if (!this.modulePatches.has(fullPath) && global[moduleName][key] !== undefined) {
+                this.modulePatches.set(fullPath, { orig: global[moduleName][key] });
             }
-            
             global[moduleName][key] = value;
         }
     }
@@ -188,9 +203,10 @@ export class PluginManager {
     _removeModuleExtensions(moduleName, keys) {
         for (const key of keys) {
             const fullPath = `${moduleName}.${key}`;
-            if (this.originals.has(fullPath)) {
-                global[moduleName][key] = this.originals.get(fullPath);
-                this.originals.delete(fullPath);
+            const entry = this.modulePatches.get(fullPath);
+            if (entry) {
+                global[moduleName][key] = entry.orig;
+                this.modulePatches.delete(fullPath);
             } else {
                 delete global[moduleName][key];
             }

@@ -20,6 +20,7 @@
     "@react-native-community/slider": "^4.4.2",
     "@react-native-fs/fs": "^2.20.0",
     "crypto-js": "^4.1.1",
+    "react-native-config": "^1.5.0",
     "langchain": "^0.0.187",
     "noble-post-quantum": "^1.0.0",
     "react": "18.2.0",
@@ -31,7 +32,8 @@
     "transformers.js": "^2.4.0",
     "jsdom": "^22.0.0",
     "react-native-readability": "^0.2.0",
-    "react-native-render-html": "^6.3.4"
+    "react-native-render-html": "^6.3.4",
+    "tiktoken": "^1.0.7"
   },
   "devDependencies": {
     "@babel/core": "^7.20.0",

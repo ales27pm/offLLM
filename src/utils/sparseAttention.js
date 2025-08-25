@@ -114,11 +114,32 @@ function clusterVectors(vectors, numClusters) {
         }));
     }
     
-    // Simple k-means clustering implementation
+    // K-means++ centroid initialization
     let centroids = [];
-    for (let i = 0; i < numClusters; i++) {
-        const randomIndex = Math.floor(Math.random() * vectors.length);
-        centroids.push(vectors[randomIndex]);
+    const firstIndex = Math.floor(Math.random() * vectors.length);
+    centroids.push(vectors[firstIndex]);
+
+    while (centroids.length < numClusters) {
+        const distances = vectors.map(vector => {
+            let minDist = Infinity;
+            for (const centroid of centroids) {
+                const dist = vector.reduce((sum, val, idx) => sum + Math.pow(val - centroid[idx], 2), 0);
+                if (dist < minDist) minDist = dist;
+            }
+            return minDist;
+        });
+
+        const totalDist = distances.reduce((a, b) => a + b, 0);
+        let r = Math.random() * totalDist;
+        let nextIndex = 0;
+        for (let i = 0; i < distances.length; i++) {
+            r -= distances[i];
+            if (r <= 0) {
+                nextIndex = i;
+                break;
+            }
+        }
+        centroids.push(vectors[nextIndex]);
     }
     
     let clusters = Array(numClusters).fill().map(() => ({ indices: [] }));
