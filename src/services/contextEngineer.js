@@ -2,12 +2,18 @@ import { NativeModules, Platform } from 'react-native';
 import LLMService from './llmService';
 import { cosineSimilarity } from '../utils/vectorUtils';
 import { applySparseAttention } from '../utils/sparseAttention';
+import { encoding_for_model } from 'tiktoken';
 
 export class ContextEvaluator {
   constructor() {
     this.relevanceThreshold = 0.65;
     this.qualityThreshold = 0.7;
     this.useHierarchicalAttention = true;
+    try {
+      this.tokenizer = encoding_for_model('gpt-3.5-turbo');
+    } catch (e) {
+      this.tokenizer = null;
+    }
   }
 
   async evaluateContext(query, contextItems) {
@@ -191,9 +197,11 @@ export class ContextEngineer {
     }
     
     if (conversationHistory.length > 10) {
-      baseTokens = Math.max(256, baseTokens * 0.7);
+      baseTokens = Math.max(256, Math.floor(baseTokens * 0.7));
     }
-    
+
+    baseTokens = Math.floor(baseTokens);
+
     return {
       maxContextTokens: baseTokens,
       queryTokens: Math.floor(baseTokens * 0.2),
@@ -288,6 +296,13 @@ export class ContextEngineer {
   }
 
   _estimateTokens(text) {
+    if (this.tokenizer) {
+      try {
+        return this.tokenizer.encode(text).length;
+      } catch (e) {
+        return Math.ceil(text.length / 4);
+      }
+    }
     return Math.ceil(text.length / 4);
   }
 

@@ -2,8 +2,12 @@ import { NativeModules, Platform } from 'react-native';
 import { getDeviceProfile } from '../utils/deviceUtils';
 import { PluginManager } from '../architecture/pluginManager';
 import { DependencyInjector } from '../architecture/dependencyInjector';
+import { registerLLMPlugins } from '../architecture/pluginSetup';
+import { setupLLMDI } from '../architecture/diSetup';
 
 class LLMService {
+  #pendingQuantAdjust = null;
+
   constructor() {
     this.isWeb = Platform.OS === 'web';
     this.isReady = false;
@@ -12,75 +16,41 @@ class LLMService {
       size: 0,
       maxSize: 512
     };
-    
+
     this.pluginManager = new PluginManager();
     this.dependencyInjector = new DependencyInjector();
-    
+
     if (!this.isWeb) {
       this.nativeModule = NativeModules[Platform.OS === 'ios' ? 'MLXTurboModule' : 'LlamaTurboModule'];
     }
-    
+
     this.deviceProfile = getDeviceProfile();
     this.performanceMetrics = {
       totalInferenceTime: 0,
       inferenceCount: 0,
       averageInferenceTime: 0
     };
-    
-    this._registerPlugins();
-    this._setupDependencyInjection();
+
+    registerLLMPlugins(this.pluginManager, this);
+    setupLLMDI(this.dependencyInjector, this);
   }
 
-  _registerPlugins() {
-    this.pluginManager.registerPlugin('sparseAttention', {
-      initialize: async () => {
-        console.log('Sparse attention plugin initialized');
-      },
-      replace: {
-        'generate': async function(prompt, maxTokens, temperature, options = {}) {
-          const useSparse = options.useSparseAttention || 
-                           this.deviceProfile.tier === 'low' ||
-                           this.kvCache.size > this.kvCache.maxSize * 0.8;
-          
-          if (this.isWeb) {
-            return this._generateWeb(prompt, maxTokens, temperature);
+  #scheduleQuantizationAdjustment() {
+    if (!this.#pendingQuantAdjust) {
+      this.#pendingQuantAdjust = new Promise(resolve => {
+        setTimeout(async () => {
+          try {
+            await this.adjustQuantization();
+          } catch (e) {
+            console.error('Quantization adjustment failed:', e);
           }
-          
-          return await this.nativeModule.generate(
-            prompt, 
-            maxTokens, 
-            temperature, 
-            useSparse
-          );
-        }
-      }
-    });
-
-    this.pluginManager.registerPlugin('adaptiveQuantization', {
-      initialize: async () => {
-        console.log('Adaptive quantization plugin initialized');
-      },
-      extend: {
-        'LLMService': {
-          adjustQuantization: async function() {
-            const metrics = await this.getPerformanceMetrics();
-            const { averageInferenceTime, memoryUsage } = metrics;
-            
-            if (averageInferenceTime > 1000 || memoryUsage > 0.8) {
-              await this._switchQuantization('Q4_0');
-            } else if (averageInferenceTime < 300 && memoryUsage < 0.6) {
-              await this._switchQuantization('Q8_0');
-            }
-          }
-        }
-      }
-    });
-  }
-
-  _setupDependencyInjection() {
-    this.dependencyInjector.register('deviceProfile', this.deviceProfile);
-    this.dependencyInjector.register('performanceMetrics', this.performanceMetrics);
-    this.dependencyInjector.register('kvCache', this.kvCache);
+          resolve();
+        }, 0);
+      }).finally(() => {
+        this.#pendingQuantAdjust = null;
+      });
+    }
+    return this.#pendingQuantAdjust;
   }
 
   async loadModel(modelPath) {
@@ -119,7 +89,7 @@ class LLMService {
           [prompt, maxTokens, temperature, options], this);
       } else {
         response = this.isWeb
-          ? await this._generateWeb(prompt, maxTokens, temperature)
+          ? await this.generateWeb(prompt, maxTokens, temperature)
           : await this.nativeModule.generate(prompt, maxTokens, temperature, false);
       }
       
@@ -138,13 +108,14 @@ class LLMService {
       
       if (this.kvCache.size > this.kvCache.maxSize) {
         const excess = this.kvCache.size - this.kvCache.maxSize;
+        this.kvCache.tokens = this.kvCache.tokens.slice(excess);
         this.kvCache.size = this.kvCache.maxSize;
       }
-      
+
       if (this.pluginManager.isPluginEnabled('adaptiveQuantization')) {
-        setTimeout(() => this.adjustQuantization(), 0);
+        await this.#scheduleQuantizationAdjustment();
       }
-      
+
       return {
         ...response,
         kvCacheSize: this.kvCache.size,
@@ -261,7 +232,7 @@ class LLMService {
     }
   }
   
-  async _generateWeb(prompt, maxTokens, temperature) {
+  async generateWeb(prompt, maxTokens, temperature) {
     return {
       text: "Web implementation response",
       tokensGenerated: 50,

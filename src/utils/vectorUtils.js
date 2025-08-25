@@ -16,10 +16,13 @@ export function cosineSimilarity(vecA, vecB) {
 
 export function quantizeVector(vector, bits = 4) {
     if (!vector || vector.length === 0) return [];
-    
+
     const maxVal = Math.max(...vector.map(Math.abs));
+    if (maxVal === 0) {
+        return new Array(vector.length).fill(0);
+    }
     const scale = Math.pow(2, bits - 1) - 1;
-    
+
     return vector.map(val => {
         const normalized = val / maxVal;
         return Math.round(normalized * scale);
@@ -28,9 +31,10 @@ export function quantizeVector(vector, bits = 4) {
 
 export function dequantizeVector(quantized, maxVal, bits = 4) {
     if (!quantized || quantized.length === 0) return [];
-    
+    if (typeof maxVal !== 'number' || maxVal === 0) return [];
+
     const scale = Math.pow(2, bits - 1) - 1;
-    
+
     return quantized.map(qVal => {
         return (qVal / scale) * maxVal;
     });
@@ -108,15 +112,18 @@ export function averageVectors(vectors) {
     if (!vectors || vectors.length === 0) {
         return [];
     }
-    
+
     const dimension = vectors[0].length;
+    if (!vectors.every(v => v.length === dimension)) {
+        return [];
+    }
     const result = new Array(dimension).fill(0);
-    
+
     for (const vector of vectors) {
         for (let i = 0; i < dimension; i++) {
             result[i] += vector[i];
         }
     }
-    
+
     return result.map(sum => sum / vectors.length);
 }

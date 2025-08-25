@@ -7,11 +7,29 @@ export function getDeviceProfile() {
     
     try {
         if (Platform.OS === 'ios') {
-            totalMemory = NativeModules.DeviceInfo?.getTotalMemory?.() || 2000;
-            processorCores = NativeModules.DeviceInfo?.getProcessorCount?.() || 2;
+            totalMemory = NativeModules.DeviceInfo?.getTotalMemory?.();
+            processorCores = NativeModules.DeviceInfo?.getProcessorCount?.();
+
+            if (!totalMemory) {
+                console.warn('[DeviceProfile] getTotalMemory unavailable, using fallback value 4000MB');
+                totalMemory = 4000;
+            }
+            if (!processorCores) {
+                console.warn('[DeviceProfile] getProcessorCount unavailable, using fallback value 4 cores');
+                processorCores = 4;
+            }
         } else {
-            totalMemory = NativeModules.DeviceInfo?.totalMemory?.() || 2000;
-            processorCores = NativeModules.DeviceInfo?.processorCores?.() || 2;
+            totalMemory = NativeModules.DeviceInfo?.totalMemory?.();
+            processorCores = NativeModules.DeviceInfo?.processorCores?.();
+
+            if (!totalMemory) {
+                console.warn('[DeviceProfile] totalMemory unavailable, using fallback value 4000MB');
+                totalMemory = 4000;
+            }
+            if (!processorCores) {
+                console.warn('[DeviceProfile] processorCores unavailable, using fallback value 4 cores');
+                processorCores = 4;
+            }
         }
         
         // Determine device tier based on memory and processor
@@ -105,17 +123,21 @@ export function getRecommendedModelConfig(deviceProfile) {
 
 export function formatBytes(bytes, decimals = 2) {
     if (bytes === 0) return '0 Bytes';
-    
+
     const k = 1024;
     const dm = decimals < 0 ? 0 : decimals;
-    const sizes = ['Bytes', 'KB', 'MB', 'GB', 'TB'];
-    
+    const sizes = ['Bytes', 'KB', 'MB', 'GB', 'TB', 'PB', 'EB', 'ZB', 'YB'];
+
     const i = Math.floor(Math.log(bytes) / Math.log(k));
-    
-    return parseFloat((bytes / Math.pow(k, i)).toFixed(dm)) + ' ' + sizes[i];
+    const index = Math.min(i, sizes.length - 1);
+
+    return parseFloat((bytes / Math.pow(k, index)).toFixed(dm)) + ' ' + sizes[index];
 }
 
 export function formatMilliseconds(ms, decimals = 1) {
+    if (ms < 0) {
+        return 'Invalid duration';
+    }
     if (ms < 1000) {
         return ms.toFixed(decimals) + 'ms';
     } else if (ms < 60000) {
