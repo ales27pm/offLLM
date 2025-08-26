@@ -1,25 +1,40 @@
-import React, { useRef, useEffect } from 'react';
-import { View, Text, ScrollView, TextInput, TouchableOpacity, StyleSheet } from 'react-native';
+import React from "react";
+import {
+  View,
+  Text,
+  TextInput,
+  TouchableOpacity,
+  StyleSheet,
+  FlatList,
+} from "react-native";
 
-export default function ChatInterface({ messages, input, onInputChange, onSend, isRecording, onMicPress }) {
-  const scrollViewRef = useRef(null);
-
-  useEffect(() => {
-    scrollViewRef.current?.scrollToEnd({ animated: true });
-  }, [messages]);
+export default function ChatInterface({
+  messages,
+  input,
+  onInputChange,
+  onSend,
+  isRecording,
+  onMicPress,
+}) {
+  const renderItem = ({ item }) => (
+    <View
+      style={
+        item.role === "user" ? styles.userMessage : styles.assistantMessage
+      }
+    >
+      <Text style={styles.messageText}>{item.content}</Text>
+    </View>
+  );
 
   return (
     <View style={styles.container}>
-      <ScrollView style={styles.messages} ref={scrollViewRef}>
-        {messages.map(msg => (
-          <View
-            key={msg.id}
-            style={msg.sender === 'user' ? styles.userMessage : styles.assistantMessage}
-          >
-            <Text style={styles.messageText}>{msg.text}</Text>
-          </View>
-        ))}
-      </ScrollView>
+      <FlatList
+        style={styles.messages}
+        data={messages}
+        renderItem={renderItem}
+        keyExtractor={(item) => item.id}
+        inverted
+      />
       <View style={styles.inputContainer}>
         <TextInput
           style={styles.textInput}
@@ -35,7 +50,7 @@ export default function ChatInterface({ messages, input, onInputChange, onSend, 
           onPress={isRecording ? undefined : onMicPress}
           style={[styles.micButton, isRecording && styles.micButtonActive]}
         >
-          <Text style={styles.micButtonText}>{isRecording ? '…' : '🎤'}</Text>
+          <Text style={styles.micButtonText}>{isRecording ? "…" : "🎤"}</Text>
         </TouchableOpacity>
       </View>
     </View>
@@ -43,51 +58,51 @@ export default function ChatInterface({ messages, input, onInputChange, onSend, 
 }
 
 const styles = StyleSheet.create({
-  container: { flex: 1, paddingTop: 50, backgroundColor: '#f5f5f5' },
+  container: { flex: 1, paddingTop: 50, backgroundColor: "#f5f5f5" },
   messages: { flex: 1, paddingHorizontal: 15 },
   userMessage: {
-    alignSelf: 'flex-end',
-    backgroundColor: '#D1E8FF',
+    alignSelf: "flex-end",
+    backgroundColor: "#D1E8FF",
     padding: 10,
     borderRadius: 8,
     marginVertical: 4,
-    maxWidth: '80%'
+    maxWidth: "80%",
   },
   assistantMessage: {
-    alignSelf: 'flex-start',
-    backgroundColor: '#E8E8E8',
+    alignSelf: "flex-start",
+    backgroundColor: "#E8E8E8",
     padding: 10,
     borderRadius: 8,
     marginVertical: 4,
-    maxWidth: '80%'
+    maxWidth: "80%",
   },
-  messageText: { fontSize: 16, color: '#333' },
+  messageText: { fontSize: 16, color: "#333" },
   inputContainer: {
-    flexDirection: 'row',
-    alignItems: 'center',
+    flexDirection: "row",
+    alignItems: "center",
     paddingHorizontal: 10,
     paddingVertical: 5,
     borderTopWidth: 1,
-    borderTopColor: '#ccc'
+    borderTopColor: "#ccc",
   },
   textInput: {
     flex: 1,
     minHeight: 40,
     maxHeight: 100,
-    backgroundColor: '#fff',
+    backgroundColor: "#fff",
     borderRadius: 20,
     paddingHorizontal: 15,
     paddingVertical: 8,
-    marginRight: 10
+    marginRight: 10,
   },
   sendButton: {
-    backgroundColor: '#007AFF',
+    backgroundColor: "#007AFF",
     paddingVertical: 10,
     paddingHorizontal: 15,
-    borderRadius: 20
+    borderRadius: 20,
   },
-  sendButtonText: { color: '#fff', fontWeight: 'bold' },
+  sendButtonText: { color: "#fff", fontWeight: "bold" },
   micButton: { marginLeft: 5, padding: 10 },
   micButtonActive: { opacity: 0.5 },
-  micButtonText: { fontSize: 22 }
+  micButtonText: { fontSize: 22 },
 });

@@ -1,63 +1,49 @@
-import { Readability } from "@mozilla/readability";
-import { JSDOM } from "jsdom";
+import cheerio from "cheerio";
 import { Platform } from "react-native";
 
 class ReadabilityService {
   constructor() {
     this.cache = new Map();
-    this.cacheTimeout = 15 * 60 * 1000; // 15 minutes cache
+    this.cacheTimeout = 15 * 60 * 1000; // 15 minutes
   }
 
   async extractContent(html, url) {
     try {
       const cacheKey = this.generateCacheKey(html, url);
       const cached = this.cache.get(cacheKey);
-
       if (cached && Date.now() - cached.timestamp < this.cacheTimeout) {
         return cached.content;
       }
 
-      const dom = new JSDOM(html, {
-        url: url,
-        pretendToBeVisual: true,
-        resources: "usable",
-        runScripts: "dangerously",
-      });
+      const $ = cheerio.load(html);
+      $("script, style, nav, footer, header, aside").remove();
 
-      await new Promise((resolve) => {
-        const { document } = dom.window;
-        if (
-          document.readyState === "complete" ||
-          document.readyState === "interactive"
-        ) {
-          resolve();
-        } else {
-          const onContentLoaded = () => {
-            document.removeEventListener("DOMContentLoaded", onContentLoaded);
-            resolve();
-          };
-          document.addEventListener("DOMContentLoaded", onContentLoaded);
-          setTimeout(resolve, 100);
-        }
-      });
-
-      const reader = new Readability(dom.window.document);
-      const article = reader.parse();
-
-      if (!article) {
-        throw new Error("Failed to extract content with Readability");
+      // Prefer main content containers if present
+      let text = "";
+      if ($("article").length) {
+        text = $("article").text().replace(/\s+/g, " ").trim();
+      } else if ($("main").length) {
+        text = $("main").text().replace(/\s+/g, " ").trim();
+      } else {
+        text = $("body").text().replace(/\s+/g, " ").trim();
       }
 
-      const cleanedContent = this.cleanContent(article, dom.window.document);
+      const wordCount = text.split(/\s+/).length;
+      const metadata = {
+        title: $("title").text().trim() || $("h1").first().text().trim(),
+        byline:
+          $("meta[name='author']").attr("content") ||
+          $(".author").first().text().trim(),
+        readingTime: Math.ceil(wordCount / 200),
+        publishedTime: this.extractPublishedTime($),
+        url,
+      };
 
-      this.cache.set(cacheKey, {
-        content: cleanedContent,
-        timestamp: Date.now(),
-      });
-
-      return cleanedContent;
+      const content = { text, metadata };
+      this.cache.set(cacheKey, { content, timestamp: Date.now() });
+      return content;
     } catch (error) {
-      console.error("Readability extraction failed:", error);
+      console.error("Error extracting content:", error);
       throw new Error(`Content extraction failed: ${error.message}`);
     }
   }
@@ -78,7 +64,7 @@ class ReadabilityService {
 
       if (!response.ok) {
         throw new Error(
-          `HTTP error ${response.status}: ${response.statusText}`,
+          `HTTP error ${response.status}: ${response.statusText}`
         );
       }
 
@@ -98,62 +84,6 @@ class ReadabilityService {
     return `${url}_${hash}`;
   }
 
-  cleanContent(article, document) {
-    if (!article) return null;
-
-    const content = {
-      title: article.title || "",
-      content: article.content || "",
-      textContent: article.textContent || "",
-      excerpt: article.excerpt || "",
-      byline: article.byline || "",
-      length: article.length || 0,
-      siteName: this.extractSiteName(article, document) || "",
-      publishedTime: this.extractPublishedTime(article, document) || "",
-      language: this.detectLanguage(article.textContent) || "en",
-      readingTime: this.calculateReadingTime(article.textContent),
-    };
-
-    content.content = this.optimizeForMobile(content.content);
-
-    return content;
-  }
-
-  optimizeForMobile(html) {
-    if (!html) return "";
-
-    let optimized = html
-      .replace(/<img[^>]+srcset="[^"]*"[^>]*>/gi, "")
-      .replace(/<img[^>]+sizes="[^"]*"[^>]*>/gi, "")
-      .replace(/<iframe[^>]*>[\s\S]*?<\/iframe>/gi, "")
-      .replace(/<script[^>]*>[\s\S]*?<\/script>/gi, "")
-      .replace(/<style[^>]*>[\s\S]*?<\/style>/gi, "");
-
-    optimized = optimized
-      .replace(/<div[^>]*>/gi, "")
-      .replace(/<\/div>/gi, "")
-      .replace(/<span[^>]*>/gi, "")
-      .replace(/<\/span>/gi, "");
-
-    return optimized;
-  }
-
-  extractSiteName(article, document) {
-    if (article.siteName) return article.siteName;
-
-    try {
-      const urlString = article.url || (document && document.URL) || "";
-      const url = new URL(urlString);
-      return url.hostname.replace("www.", "");
-    } catch (e) {
-      return "";
-    }
-  }
-
-  /**
-   * Validates and normalizes a date string.
-   * Returns the ISO string if valid, otherwise returns an empty string.
-   */
   normalizePublishedTime(value) {
     if (!value || typeof value !== "string") return "";
     const date = new Date(value.trim());
@@ -163,14 +93,7 @@ class ReadabilityService {
     return "";
   }
 
-  extractPublishedTime(article, document) {
-    if (article?.publishedTime) {
-      const normalized = this.normalizePublishedTime(article.publishedTime);
-      if (normalized) return normalized;
-    }
-
-    if (!document) return "";
-
+  extractPublishedTime(source, document) {
     const selectors = [
       'meta[property="article:published_time"]',
       'meta[name="pubdate"]',
@@ -181,35 +104,38 @@ class ReadabilityService {
       "time[datetime]",
     ];
 
-    for (const selector of selectors) {
-      const element = document.querySelector(selector);
-      if (element) {
-        const rawValue =
-          element.getAttribute("content") ||
-          element.getAttribute("datetime") ||
-          element.textContent ||
-          "";
-        const normalized = this.normalizePublishedTime(rawValue);
-        if (normalized) return normalized;
+    if (typeof source === "function") {
+      const $ = source;
+      for (const selector of selectors) {
+        const element = $(selector).first();
+        if (element && element.length) {
+          const rawValue =
+            element.attr("content") ||
+            element.attr("datetime") ||
+            element.text();
+          const normalized = this.normalizePublishedTime(rawValue);
+          if (normalized) return normalized;
+        }
+      }
+      return "";
+    }
+
+    if (document && typeof document.querySelector === "function") {
+      for (const selector of selectors) {
+        const element = document.querySelector(selector);
+        if (element) {
+          const rawValue =
+            element.getAttribute("content") ||
+            element.getAttribute("datetime") ||
+            element.textContent ||
+            "";
+          const normalized = this.normalizePublishedTime(rawValue);
+          if (normalized) return normalized;
+        }
       }
     }
 
     return "";
-  }
-
-  detectLanguage(text) {
-    const englishWords = ["the", "and", "of", "to", "a", "in", "is", "it"];
-    const wordCount = englishWords.filter((word) =>
-      text.toLowerCase().includes(` ${word} `),
-    ).length;
-
-    return wordCount > 3 ? "en" : "unknown";
-  }
-
-  calculateReadingTime(text) {
-    const wordsPerMinute = 200;
-    const wordCount = text.split(/\s+/).length;
-    return Math.ceil(wordCount / wordsPerMinute);
   }
 
   getUserAgent() {
