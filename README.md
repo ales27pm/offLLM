@@ -13,8 +13,8 @@ chat interface allows you to talk to the assistant via text or voice.
   Android and MLX on iOS. Models can be swapped by placing the file on
   your device and updating the path in `App.js`.
 - **Chat interface** with support for multi‑turn conversations. Messages are
-  displayed in a scrollable list and you can speak queries using the built
-  in microphone button. Responses are read aloud using `react‑native‑tts`.
+  displayed in a scrollable list and you can speak queries using the built-in
+  microphone button. Responses are read aloud using `react‑native‑tts`.
 - **Emotion awareness** – the assistant detects basic emotions in your
   requests (happy, sad, angry, etc.) and can tailor its responses
   accordingly. Emotion cues are passed to the LLM in the prompt.
