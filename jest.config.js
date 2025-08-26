@@ -3,4 +3,7 @@ module.exports = {
     "^.+\\.[jt]sx?$": "babel-jest",
   },
   testEnvironment: "node",
+  coverageThreshold: {
+    global: { lines: 40 }
+  },
 };

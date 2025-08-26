@@ -1,12 +1,15 @@
 import { useRef, useEffect } from "react";
 import Tts from "react-native-tts";
 import LLMService from "../services/llmService";
-import { HNSWVectorStore } from "../utils/hnswVectorStore";
 import useLLMStore from "../store/llmStore";
+import VectorMemory from "../memory/VectorMemory";
+import ProsodyDetector from "../emotion/ProsodyDetector";
+import { getEnv } from "../config";
 
 export function useChat() {
   const { messages, addMessage, setIsGenerating } = useLLMStore();
-  const vectorStoreRef = useRef(null);
+  const memoryRef = useRef(null);
+  const prosodyRef = useRef(new ProsodyDetector());
 
   useEffect(() => {
     Tts.setDefaultRate(0.53);
@@ -14,9 +17,11 @@ export function useChat() {
   }, []);
 
   const initVectorStore = async () => {
-    const vs = new HNSWVectorStore();
-    await vs.initialize({ quantization: "scalar" });
-    vectorStoreRef.current = vs;
+    if (getEnv("MEMORY_ENABLED") === "true") {
+      const vm = new VectorMemory();
+      await vm.load();
+      memoryRef.current = vm;
+    }
   };
 
   const detectEmotion = (text) => {
@@ -37,7 +42,7 @@ export function useChat() {
   };
 
   const getContext = async (query) => {
-    if (!vectorStoreRef.current) {
+    if (!memoryRef.current) {
       console.warn(
         "Context retrieval failed: vector store is not initialized.",
       );
@@ -45,7 +50,7 @@ export function useChat() {
     }
     try {
       const embedding = await LLMService.embed(query);
-      const results = await vectorStoreRef.current.searchVectors(embedding, 3);
+      const results = await memoryRef.current.recall(embedding, 3);
       return results.map((r) => r.content).join("\n\n");
     } catch (e) {
       console.warn("Context retrieval failed:", e);
@@ -60,10 +65,18 @@ export function useChat() {
     try {
       setIsGenerating(true);
       const emotion = detectEmotion(query);
+      let audioEmotion = null;
+      try {
+        const res = await prosodyRef.current.analyze(new Float32Array());
+        if (res.confidence > 0.5) audioEmotion = res.emotion;
+      } catch (e) {
+        audioEmotion = null;
+      }
       const context = await getContext(query);
       let prompt = query;
-      if (emotion) {
-        prompt = `The user sounds ${emotion}. ${prompt}`;
+      const finalEmotion = audioEmotion || emotion;
+      if (finalEmotion) {
+        prompt = `The user sounds ${finalEmotion}. ${prompt}`;
       }
       if (context) {
         prompt = `Context:\n${context}\n\n${prompt}`;
@@ -73,6 +86,16 @@ export function useChat() {
       });
       const reply = response.text;
       addMessage({ role: "assistant", content: reply });
+      if (memoryRef.current) {
+        const userEmb = await LLMService.embed(query);
+        await memoryRef.current.remember([
+          { vector: userEmb, content: query, metadata: { role: "user" } },
+        ]);
+        const respEmb = await LLMService.embed(reply);
+        await memoryRef.current.remember([
+          { vector: respEmb, content: reply, metadata: { role: "assistant" } },
+        ]);
+      }
       Tts.stop();
       const speechText = reply.replace(
         /([.?!])\s+/g,
