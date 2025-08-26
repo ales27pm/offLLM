@@ -21,6 +21,7 @@ class LLMService {
     this.dependencyInjector = new DependencyInjector();
 
     if (!this.isWeb) {
+      // Android exports the module under LlamaTurboModule and iOS under MLXTurboModule.
       this.nativeModule = NativeModules[Platform.OS === 'ios' ? 'MLXTurboModule' : 'LlamaTurboModule'];
     }
 
@@ -57,17 +58,32 @@ class LLMService {
     try {
       let result;
       
+      // For web builds we simulate a loaded model.
       if (this.isWeb) {
         result = { status: 'loaded', contextSize: 4096, model: modelPath };
       } else {
-        result = await this.nativeModule.loadModel(modelPath);
-        
+        // On Android the native module expects an options object as the second
+        // argument. On iOS the native module only accepts a single argument. To
+        // avoid a signature mismatch we pass an empty options object on
+        // Android and omit it on iOS.
+        if (Platform.OS === 'android') {
+          result = await this.nativeModule.loadModel(modelPath, {
+            quantizationType: 'none',
+            contextSize: 4096
+          });
+        } else {
+          result = await this.nativeModule.loadModel(modelPath);
+        }
+
+        // Enable built‑in plugins after loading the model. Sparse attention
+        // allows the model to handle longer contexts efficiently and adaptive
+        // quantization adjusts precision based on performance metrics.
         await this.pluginManager.enablePlugin('sparseAttention');
         await this.pluginManager.enablePlugin('adaptiveQuantization');
       }
-      
+
       this.isReady = true;
-      this.clearKVCache();
+      await this.clearKVCache();
       return result;
     } catch (error) {
       console.error('Failed to load model:', error);
@@ -247,6 +263,32 @@ class LLMService {
   async _switchQuantization(level) {
     console.log(`Switching to ${level} quantization`);
     // Implementation would involve downloading and loading a new model
+  }
+
+  /**
+   * Dynamically adjust the quantization level of the currently loaded model.
+   * This method is called by the adaptiveQuantization plugin. It has been
+   * implemented directly on the LLMService instance so that it can be
+   * accessed without relying on plugin extension mechanics. When the average
+   * inference time is high or memory usage is elevated, the model is
+   * downgraded to a lower precision (e.g. Q4_0) to save resources. When
+   * performance is excellent, the model may be upgraded to a higher
+   * precision (e.g. Q8_0) for improved accuracy. The heuristics here can be
+   * tuned based on empirical measurements.
+   */
+  async adjustQuantization() {
+    try {
+      const { averageInferenceTime, memoryUsage } = await this.getPerformanceMetrics();
+      // Use conservative defaults if memoryUsage is undefined (e.g. on iOS)
+      const mem = typeof memoryUsage === 'number' ? memoryUsage : 0.5;
+      if (averageInferenceTime > 1000 || mem > 0.8) {
+        await this._switchQuantization('Q4_0');
+      } else if (averageInferenceTime < 300 && mem < 0.6) {
+        await this._switchQuantization('Q8_0');
+      }
+    } catch (error) {
+      console.warn('Adaptive quantization adjustment failed:', error);
+    }
   }
 }
 

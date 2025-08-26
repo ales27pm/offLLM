@@ -1,8 +1,7 @@
 import React, { useEffect, useState } from 'react';
 import { View, Text, ActivityIndicator, StyleSheet, Platform } from 'react-native';
 import LLMService from './services/llmService';
-import { ToolRegistry } from './architecture/toolSystem';
-import { builtInTools } from './architecture/toolSystem';
+import { ToolRegistry, builtInTools } from './architecture/toolSystem';
 import {
   createCalendarEventTool,
   sendMessageTool,
@@ -33,10 +32,16 @@ import {
 } from './tools/iosTools';
 import { PluginManager } from './architecture/pluginManager';
 import { DependencyInjector } from './architecture/dependencyInjector';
+import ChatInterface from './components/ChatInterface';
+import { useSpeechRecognition } from './hooks/useSpeechRecognition';
+import { useChat } from './hooks/useChat';
 
 function App() {
   const [initialized, setInitialized] = useState(false);
   const [error, setError] = useState(null);
+  const [input, setInput] = useState('');
+  const { messages, send, initVectorStore } = useChat();
+  const { isRecording, start } = useSpeechRecognition(send, err => console.warn('Speech recognition error', err));
 
   useEffect(() => {
     initializeApp();
@@ -44,16 +49,13 @@ function App() {
 
   const initializeApp = async () => {
     try {
-      // Initialize dependency injection
       const dependencyInjector = new DependencyInjector();
-      
-      // Initialize tool registry
       const toolRegistry = new ToolRegistry();
       Object.entries(builtInTools).forEach(([name, tool]) => {
         toolRegistry.registerTool(name, tool);
       });
       if (Platform.OS === 'ios') {
-        const iosToolList = [
+        [
           createCalendarEventTool,
           sendMessageTool,
           makePhoneCallTool,
@@ -80,84 +82,66 @@ function App() {
           takePhotoTool,
           pickFileTool,
           openUrlTool
-        ];
-        iosToolList.forEach(tool => {
+        ].forEach(tool => {
           toolRegistry.registerTool(tool.name, tool);
         });
       }
-      
-      // Initialize plugin manager
       const pluginManager = new PluginManager();
-      
-      // Load default model
       await LLMService.loadModel('path/to/default/model');
-      
-      // Register dependencies
+      await initVectorStore();
       dependencyInjector.register('toolRegistry', toolRegistry);
       dependencyInjector.register('pluginManager', pluginManager);
       dependencyInjector.register('llmService', LLMService);
-      
       setInitialized(true);
-    } catch (error) {
-      console.error('App initialization failed:', error);
-      setError(error.message);
+    } catch (err) {
+      console.error('App initialization failed:', err);
+      setError(err.message);
     }
+  };
+
+  const handleSend = text => {
+    const message = text || input;
+    send(message);
+    setInput('');
   };
 
   if (error) {
     return (
-      <View style={styles.container}>
-        <Text style={styles.error}>Initialization Error: {error}</Text>
+      <View style={styles.centered}>
+        <Text style={styles.errorText}>Error initializing app: {error}</Text>
       </View>
     );
   }
 
   if (!initialized) {
     return (
-      <View style={styles.container}>
+      <View style={styles.centered}>
         <ActivityIndicator size="large" />
-        <Text style={styles.loading}>Initializing LLM Application...</Text>
+        <Text style={styles.loading}>Initializing...</Text>
       </View>
     );
   }
 
   return (
-    <View style={styles.container}>
-      <Text style={styles.title}>Offline LLM Application</Text>
-      <Text style={styles.subtitle}>Ready to use</Text>
-    </View>
+    <ChatInterface
+      messages={messages}
+      input={input}
+      onInputChange={setInput}
+      onSend={() => handleSend()}
+      isRecording={isRecording}
+      onMicPress={start}
+    />
   );
 }
 
 const styles = StyleSheet.create({
-  container: {
+  centered: {
     flex: 1,
     justifyContent: 'center',
-    alignItems: 'center',
-    backgroundColor: '#f5f5f5',
-    padding: 20
+    alignItems: 'center'
   },
-  title: {
-    fontSize: 24,
-    fontWeight: 'bold',
-    marginBottom: 10,
-    color: '#333'
-  },
-  subtitle: {
-    fontSize: 16,
-    color: '#666',
-    marginBottom: 20
-  },
-  loading: {
-    marginTop: 20,
-    fontSize: 16,
-    color: '#666'
-  },
-  error: {
-    fontSize: 16,
-    color: 'red',
-    textAlign: 'center'
-  }
+  loading: { marginTop: 20 },
+  errorText: { color: 'red' }
 });
 
 export default App;
