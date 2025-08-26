@@ -9,7 +9,14 @@ export const toolRegistry = {
   tools: new Map(),
 
   register(name, tool) {
+    if (!tool || typeof tool.execute !== "function") {
+      throw new Error(`Invalid tool ${name}: missing execute()`);
+    }
     this.tools.set(name, tool);
+  },
+
+  unregister(name) {
+    return this.tools.delete(name);
   },
 
   getTool(name) {
