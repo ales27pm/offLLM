@@ -5,21 +5,32 @@ import {
   showMapTool,
 } from "../../tools/iosTools";
 
-export const toolRegistry = {
-  tools: new Map(),
+const createToolRegistry = () => {
+  const tools = new Map();
 
-  register(name, tool) {
-    this.tools.set(name, tool);
-  },
+  return {
+    register(name, tool) {
+      if (!tool || typeof tool.execute !== "function") {
+        throw new Error(`Invalid tool ${name}: missing execute()`);
+      }
+      tools.set(name, tool);
+    },
 
-  getTool(name) {
-    return this.tools.get(name);
-  },
+    unregister(name) {
+      return tools.delete(name);
+    },
 
-  getAvailableTools() {
-    return Array.from(this.tools.values());
-  },
+    getTool(name) {
+      return tools.get(name);
+    },
+
+    getAvailableTools() {
+      return Array.from(tools.values());
+    },
+  };
 };
+
+export const toolRegistry = createToolRegistry();
 
 // Register native tools
 toolRegistry.register("get_battery_info", getBatteryInfoTool);
