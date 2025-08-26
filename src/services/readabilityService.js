@@ -16,15 +16,30 @@ class ReadabilityService {
       }
 
       const $ = cheerio.load(html);
+      $("script, style, nav, footer, header, aside").remove();
+
+      // Prefer main content containers if present
+      let text = "";
+      if ($("article").length) {
+        text = $("article").text().replace(/\s+/g, " ").trim();
+      } else if ($("main").length) {
+        text = $("main").text().replace(/\s+/g, " ").trim();
+      } else {
+        text = $("body").text().replace(/\s+/g, " ").trim();
+      }
+
+      const wordCount = text.split(/\s+/).length;
       const metadata = {
         title: $("title").text().trim() || $("h1").first().text().trim(),
+        byline:
+          $("meta[name='author']").attr("content") ||
+          $(".author").first().text().trim(),
+        readingTime: Math.ceil(wordCount / 200),
+        publishedTime: this.extractPublishedTime($),
         url,
       };
 
-      $("script, style, nav, footer, header, aside").remove();
-      const text = $("body").text().replace(/\s+/g, " ").trim();
-
-      const content = { text, metadata, html: $.html() };
+      const content = { text, metadata };
       this.cache.set(cacheKey, { content, timestamp: Date.now() });
       return content;
     } catch (error) {
@@ -49,7 +64,7 @@ class ReadabilityService {
 
       if (!response.ok) {
         throw new Error(
-          `HTTP error ${response.status}: ${response.statusText}`,
+          `HTTP error ${response.status}: ${response.statusText}`
         );
       }
 
@@ -78,14 +93,7 @@ class ReadabilityService {
     return "";
   }
 
-  extractPublishedTime(article, document) {
-    if (article?.publishedTime) {
-      const normalized = this.normalizePublishedTime(article.publishedTime);
-      if (normalized) return normalized;
-    }
-
-    if (!document) return "";
-
+  extractPublishedTime(source, document) {
     const selectors = [
       'meta[property="article:published_time"]',
       'meta[name="pubdate"]',
@@ -96,16 +104,34 @@ class ReadabilityService {
       "time[datetime]",
     ];
 
-    for (const selector of selectors) {
-      const element = document.querySelector(selector);
-      if (element) {
-        const rawValue =
-          element.getAttribute("content") ||
-          element.getAttribute("datetime") ||
-          element.textContent ||
-          "";
-        const normalized = this.normalizePublishedTime(rawValue);
-        if (normalized) return normalized;
+    if (typeof source === "function") {
+      const $ = source;
+      for (const selector of selectors) {
+        const element = $(selector).first();
+        if (element && element.length) {
+          const rawValue =
+            element.attr("content") ||
+            element.attr("datetime") ||
+            element.text();
+          const normalized = this.normalizePublishedTime(rawValue);
+          if (normalized) return normalized;
+        }
+      }
+      return "";
+    }
+
+    if (document && typeof document.querySelector === "function") {
+      for (const selector of selectors) {
+        const element = document.querySelector(selector);
+        if (element) {
+          const rawValue =
+            element.getAttribute("content") ||
+            element.getAttribute("datetime") ||
+            element.textContent ||
+            "";
+          const normalized = this.normalizePublishedTime(rawValue);
+          if (normalized) return normalized;
+        }
       }
     }
 

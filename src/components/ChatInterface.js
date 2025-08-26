@@ -32,7 +32,7 @@ export default function ChatInterface({
         style={styles.messages}
         data={messages}
         renderItem={renderItem}
-        keyExtractor={(_item, index) => index.toString()}
+        keyExtractor={(item) => item.id}
         inverted
       />
       <View style={styles.inputContainer}>
