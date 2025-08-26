@@ -1,4 +1,3 @@
-import cheerio from "cheerio";
 import { Platform } from "react-native";
 
 class ReadabilityService {
@@ -15,7 +14,8 @@ class ReadabilityService {
         return cached.content;
       }
 
-      const $ = cheerio.load(html);
+      const { load } = await import("cheerio");
+      const $ = load(html);
       $("script, style, nav, footer, header, aside").remove();
 
       // Prefer main content containers if present

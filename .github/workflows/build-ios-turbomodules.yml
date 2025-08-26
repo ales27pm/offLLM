@@ -22,16 +22,19 @@ jobs:
       - name: Install dependencies
         run: npm ci
       - uses: actions/cache@v3
+        if: ${{ hashFiles('ios/MyOfflineLLMApp/Podfile') != '' }}
         with:
           path: ios/MyOfflineLLMApp/Pods
           key: ${{ runner.os }}-pods-${{ hashFiles('ios/MyOfflineLLMApp/Podfile.lock') }}
           restore-keys: |
             ${{ runner.os }}-pods-
       - name: Install Pods
+        if: ${{ hashFiles('ios/MyOfflineLLMApp/Podfile') != '' }}
         run: pod install --project-directory=ios/MyOfflineLLMApp
       - name: Run tests
         run: npm test
       - name: Build TurboModules
+        if: ${{ hashFiles('ios/MyOfflineLLMApp/MyOfflineLLMApp.xcodeproj/project.pbxproj') != '' }}
         run: |
           xcodebuild \
             -project ios/MyOfflineLLMApp/MyOfflineLLMApp.xcodeproj \
