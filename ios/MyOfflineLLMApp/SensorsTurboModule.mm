@@ -1,17 +1,17 @@
 #import <React/RCTBridgeModule.h>
 #import <CoreMotion/CoreMotion.h>
 
-@interface RCT_EXTERN_MODULE(SensorsTurboModule, NSObject)
-
-RCT_EXTERN_METHOD(getSensorData:(NSString *)type duration:(NSInteger)duration resolver:(RCTPromiseResolveBlock)resolve rejecter:(RCTPromiseRejectBlock)reject)
-
+@interface SensorsTurboModule : NSObject <RCTBridgeModule>
 @end
 
 @implementation SensorsTurboModule {
   CMMotionManager *_motionManager;
 }
 
-RCT_EXPORT_METHOD(getSensorData:(NSString *)type duration:(NSInteger)duration resolver:(RCTPromiseResolveBlock)resolve rejecter:(RCTPromiseRejectBlock)reject) {
+RCT_EXPORT_MODULE();
+
+RCT_EXPORT_METHOD(getSensorData:(NSString *)type duration:(NSInteger)duration resolver:(RCTPromiseResolveBlock)resolve rejecter:(RCTPromiseRejectBlock)reject)
+{
   _motionManager = [[CMMotionManager alloc] init];
   if ([type isEqualToString:@"accelerometer"]) {
     _motionManager.accelerometerUpdateInterval = 0.1;

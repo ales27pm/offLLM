@@ -1,15 +1,12 @@
 #import <React/RCTBridgeModule.h>
 #import <MediaPlayer/MediaPlayer.h>
 
-@interface RCT_EXTERN_MODULE(MusicTurboModule, NSObject)
-
-RCT_EXTERN_METHOD(playMusic:(NSString *)query resolver:(RCTPromiseResolveBlock)resolve rejecter:(RCTPromiseRejectBlock)reject)
-
-RCT_EXTERN_METHOD(searchLibrary:(NSString *)query type:(NSString *)type resolver:(RCTPromiseResolveBlock)resolve rejecter:(RCTPromiseRejectBlock)reject)
-
+@interface MusicTurboModule : NSObject <RCTBridgeModule>
 @end
 
 @implementation MusicTurboModule
+
+RCT_EXPORT_MODULE();
 
 RCT_EXPORT_METHOD(playMusic:(NSString *)query resolver:(RCTPromiseResolveBlock)resolve rejecter:(RCTPromiseRejectBlock)reject) {
   [MPMediaLibrary requestAuthorization:^(MPMediaLibraryAuthorizationStatus status) {

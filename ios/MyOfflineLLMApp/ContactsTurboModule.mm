@@ -1,15 +1,12 @@
 #import <React/RCTBridgeModule.h>
 #import <Contacts/Contacts.h>
 
-@interface RCT_EXTERN_MODULE(ContactsTurboModule, NSObject)
-
-RCT_EXTERN_METHOD(findContact:(NSString *)query resolver:(RCTPromiseResolveBlock)resolve rejecter:(RCTPromiseRejectBlock)reject)
-
-RCT_EXTERN_METHOD(addContact:(NSString *)name phone:(NSString *)phone email:(NSString *)email resolver:(RCTPromiseResolveBlock)resolve rejecter:(RCTPromiseRejectBlock)reject)
-
+@interface ContactsTurboModule : NSObject <RCTBridgeModule>
 @end
 
 @implementation ContactsTurboModule
+
+RCT_EXPORT_MODULE();
 
 RCT_EXPORT_METHOD(findContact:(NSString *)query resolver:(RCTPromiseResolveBlock)resolve rejecter:(RCTPromiseRejectBlock)reject) {
   CNContactStore *store = [[CNContactStore alloc] init];

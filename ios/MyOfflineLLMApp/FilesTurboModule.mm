@@ -1,18 +1,15 @@
 #import <React/RCTBridgeModule.h>
+#import <React/RCTUtils.h>
 #import <UIKit/UIKit.h>
 
-@interface RCT_EXTERN_MODULE(FilesTurboModule, NSObject)
-
-RCT_EXTERN_METHOD(pickFile:(NSString *)type resolver:(RCTPromiseResolveBlock)resolve rejecter:(RCTPromiseRejectBlock)reject)
-
-@end
-
-@interface FilesTurboModule () <UIDocumentPickerDelegate>
+@interface FilesTurboModule : NSObject <RCTBridgeModule, UIDocumentPickerDelegate>
 @property(nonatomic, strong) RCTPromiseResolveBlock resolver;
 @property(nonatomic, strong) RCTPromiseRejectBlock rejecter;
 @end
 
 @implementation FilesTurboModule
+
+RCT_EXPORT_MODULE();
 
 RCT_EXPORT_METHOD(pickFile:(NSString *)type resolver:(RCTPromiseResolveBlock)resolve rejecter:(RCTPromiseRejectBlock)reject) {
   self.resolver = resolve;
@@ -21,8 +18,14 @@ RCT_EXPORT_METHOD(pickFile:(NSString *)type resolver:(RCTPromiseResolveBlock)res
     UIDocumentPickerViewController *picker = [[UIDocumentPickerViewController alloc] initWithDocumentTypes:@[@"public.item"] inMode:UIDocumentPickerModeImport];
     picker.allowsMultipleSelection = NO;
     picker.delegate = self;
-    UIViewController *root = [[[UIApplication sharedApplication] keyWindow] rootViewController];
-    [root presentViewController:picker animated:YES completion:nil];
+    UIViewController *root = RCTPresentedViewController();
+    if (root) {
+      [root presentViewController:picker animated:YES completion:nil];
+    } else if (self.rejecter) {
+      self.rejecter(@"no_view_controller", @"Unable to find root view controller", nil);
+      self.resolver = nil;
+      self.rejecter = nil;
+    }
   });
 }
 

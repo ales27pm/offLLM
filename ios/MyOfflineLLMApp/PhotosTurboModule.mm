@@ -1,21 +1,19 @@
 #import <React/RCTBridgeModule.h>
+#import <React/RCTUtils.h>
 #import <Photos/Photos.h>
 #import <UIKit/UIKit.h>
 
-@interface RCT_EXTERN_MODULE(PhotosTurboModule, NSObject)
-
-RCT_EXTERN_METHOD(pickPhoto:(RCTPromiseResolveBlock)resolve rejecter:(RCTPromiseRejectBlock)reject)
-
-@end
-
-@interface PhotosTurboModule () <UIImagePickerControllerDelegate, UINavigationControllerDelegate>
+@interface PhotosTurboModule : NSObject <RCTBridgeModule, UIImagePickerControllerDelegate, UINavigationControllerDelegate>
 @property(nonatomic, strong) RCTPromiseResolveBlock resolver;
 @property(nonatomic, strong) RCTPromiseRejectBlock rejecter;
 @end
 
 @implementation PhotosTurboModule
 
-RCT_EXPORT_METHOD(pickPhoto:(RCTPromiseResolveBlock)resolve rejecter:(RCTPromiseRejectBlock)reject) {
+RCT_EXPORT_MODULE();
+
+RCT_EXPORT_METHOD(pickPhoto:(RCTPromiseResolveBlock)resolve rejecter:(RCTPromiseRejectBlock)reject)
+{
   self.resolver = resolve;
   self.rejecter = reject;
   [PHPhotoLibrary requestAuthorization:^(PHAuthorizationStatus status) {
@@ -30,8 +28,14 @@ RCT_EXPORT_METHOD(pickPhoto:(RCTPromiseResolveBlock)resolve rejecter:(RCTPromise
       picker.sourceType = UIImagePickerControllerSourceTypePhotoLibrary;
       picker.mediaTypes = @[@"public.image"];
       picker.delegate = self;
-      UIViewController *root = [[[UIApplication sharedApplication] keyWindow] rootViewController];
-      [root presentViewController:picker animated:YES completion:nil];
+      UIViewController *root = RCTPresentedViewController();
+      if (root) {
+        [root presentViewController:picker animated:YES completion:nil];
+      } else if (self.rejecter) {
+        self.rejecter(@"no_view_controller", @"Unable to find root view controller", nil);
+        self.resolver = nil;
+        self.rejecter = nil;
+      }
     });
   }];
 }

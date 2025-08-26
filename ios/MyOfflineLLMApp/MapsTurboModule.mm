@@ -2,17 +2,12 @@
 #import <MapKit/MapKit.h>
 #import <CoreLocation/CoreLocation.h>
 
-@interface RCT_EXTERN_MODULE(MapsTurboModule, NSObject)
-
-RCT_EXTERN_METHOD(showMap:(double)latitude longitude:(double)longitude title:(NSString *)title)
-
-RCT_EXTERN_METHOD(getDirections:(NSString *)from to:(NSString *)to mode:(NSString *)mode resolver:(RCTPromiseResolveBlock)resolve rejecter:(RCTPromiseRejectBlock)reject)
-
-RCT_EXTERN_METHOD(searchPlaces:(NSString *)query near:(NSString *)near resolver:(RCTPromiseResolveBlock)resolve rejecter:(RCTPromiseRejectBlock)reject)
-
+@interface MapsTurboModule : NSObject <RCTBridgeModule>
 @end
 
 @implementation MapsTurboModule
+
+RCT_EXPORT_MODULE();
 
 RCT_EXPORT_METHOD(showMap:(double)latitude longitude:(double)longitude title:(NSString *)title) {
   MKMapItem *mapItem = [[MKMapItem alloc] init];

@@ -2,14 +2,7 @@
 #import <React/RCTEventEmitter.h>
 #import <CoreLocation/CoreLocation.h>
 
-@interface RCT_EXTERN_MODULE(LocationTurboModule, RCTEventEmitter)
-
-RCT_EXTERN_METHOD(getCurrentLocation:(NSString *)accuracy resolver:(RCTPromiseResolveBlock)resolve rejecter:(RCTPromiseRejectBlock)reject)
-
-RCT_EXTERN_METHOD(startUpdates:(NSInteger)interval)
-
-RCT_EXTERN_METHOD(stopUpdates)
-
+@interface LocationTurboModule : RCTEventEmitter <RCTBridgeModule, CLLocationManagerDelegate>
 @end
 
 @implementation LocationTurboModule {

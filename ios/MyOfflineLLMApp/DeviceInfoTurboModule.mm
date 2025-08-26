@@ -2,15 +2,15 @@
 #import <UIKit/UIKit.h>
 #import <sys/utsname.h>
 
-@interface RCT_EXTERN_MODULE(DeviceInfoTurboModule, NSObject)
-
-RCT_EXTERN_METHOD(getDeviceInfo:(RCTPromiseResolveBlock)resolve rejecter:(RCTPromiseRejectBlock)reject)
-
+@interface DeviceInfoTurboModule : NSObject <RCTBridgeModule>
 @end
 
 @implementation DeviceInfoTurboModule
 
-RCT_EXPORT_METHOD(getDeviceInfo:(RCTPromiseResolveBlock)resolve rejecter:(RCTPromiseRejectBlock)reject) {
+RCT_EXPORT_MODULE();
+
+RCT_EXPORT_METHOD(getDeviceInfo:(RCTPromiseResolveBlock)resolve rejecter:(RCTPromiseRejectBlock)reject)
+{
   struct utsname systemInfo;
   uname(&systemInfo);
   NSString *machine = [NSString stringWithCString:systemInfo.machine encoding:NSUTF8StringEncoding];

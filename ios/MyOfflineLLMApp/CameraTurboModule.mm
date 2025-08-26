@@ -1,20 +1,18 @@
 #import <React/RCTBridgeModule.h>
+#import <React/RCTUtils.h>
 #import <UIKit/UIKit.h>
 
-@interface RCT_EXTERN_MODULE(CameraTurboModule, NSObject)
-
-RCT_EXTERN_METHOD(takePhoto:(double)quality resolver:(RCTPromiseResolveBlock)resolve rejecter:(RCTPromiseRejectBlock)reject)
-
-@end
-
-@interface CameraTurboModule () <UIImagePickerControllerDelegate, UINavigationControllerDelegate>
+@interface CameraTurboModule : NSObject <RCTBridgeModule, UIImagePickerControllerDelegate, UINavigationControllerDelegate>
 @property(nonatomic, strong) RCTPromiseResolveBlock resolver;
 @property(nonatomic, strong) RCTPromiseRejectBlock rejecter;
 @end
 
 @implementation CameraTurboModule
 
-RCT_EXPORT_METHOD(takePhoto:(double)quality resolver:(RCTPromiseResolveBlock)resolve rejecter:(RCTPromiseRejectBlock)reject) {
+RCT_EXPORT_MODULE();
+
+RCT_EXPORT_METHOD(takePhoto:(double)quality resolver:(RCTPromiseResolveBlock)resolve rejecter:(RCTPromiseRejectBlock)reject)
+{
   self.resolver = resolve;
   self.rejecter = reject;
   dispatch_async(dispatch_get_main_queue(), ^{
@@ -22,8 +20,14 @@ RCT_EXPORT_METHOD(takePhoto:(double)quality resolver:(RCTPromiseResolveBlock)res
     picker.sourceType = UIImagePickerControllerSourceTypeCamera;
     picker.cameraCaptureMode = UIImagePickerControllerCameraCaptureModePhoto;
     picker.delegate = self;
-    UIViewController *root = [[[UIApplication sharedApplication] keyWindow] rootViewController];
-    [root presentViewController:picker animated:YES completion:nil];
+    UIViewController *root = RCTPresentedViewController();
+    if (root) {
+      [root presentViewController:picker animated:YES completion:nil];
+    } else if (self.rejecter) {
+      self.rejecter(@"no_view_controller", @"Unable to find root view controller", nil);
+      self.resolver = nil;
+      self.rejecter = nil;
+    }
   });
 }
 
