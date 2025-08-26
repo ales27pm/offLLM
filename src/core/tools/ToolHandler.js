@@ -1,0 +1,46 @@
+export default class ToolHandler {
+  constructor(toolRegistry) {
+    this.toolRegistry = toolRegistry;
+    this.callRegex = /TOOL_CALL: (\w+) \((.+)\)/g;
+  }
+
+  parse(response) {
+    const matches = [...response.matchAll(this.callRegex)];
+    return matches.map(([, name, args]) => ({
+      name,
+      args: this._parseArgs(args),
+    }));
+  }
+
+  _parseArgs(argString) {
+    const args = {};
+    const regex =
+      /([\w]+)=('([^'\\]*(\\.[^'\\]*)*)'|"([^"\\]*(\\.[^"\\]*)*)")/g;
+    let match;
+    while ((match = regex.exec(argString)) !== null) {
+      let value = match[3] !== undefined ? match[3] : match[5];
+      value = value.replace(/\\(['"\\])/g, "$1");
+      args[match[1]] = value;
+    }
+    const expected = (argString.match(/([\w]+)=('|")/g) || []).length;
+    if (Object.keys(args).length !== expected) {
+      throw new Error("Malformed argument string: " + argString);
+    }
+    return args;
+  }
+
+  async execute(calls) {
+    const results = [];
+    for (const { name, args } of calls) {
+      const tool = this.toolRegistry.getTool(name);
+      if (!tool) continue;
+      try {
+        const res = await tool.execute(args);
+        results.push({ role: "tool", name, content: JSON.stringify(res) });
+      } catch (e) {
+        results.push({ role: "tool", name, content: `Error: ${e.message}` });
+      }
+    }
+    return results;
+  }
+}
