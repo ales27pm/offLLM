@@ -41,6 +41,8 @@ The assistant can optionally store vector embeddings of conversation snippets in
    npx react-native run-ios   # or run-android
    ```
 
+   > A stub `android/gradlew` script is included so CI environments can invoke `npm run build:android` without the Android SDK. Replace this stub with a full Gradle wrapper for real builds.
+
 2. Place a compatible Llama model file on your device (e.g. in the app's
    documents directory) and update the path in `App.js` where
    `LLMService.loadModel` is called. Quantized models (Q4 or Q5) are
