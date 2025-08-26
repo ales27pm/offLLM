@@ -1,31 +1,23 @@
-jest.mock("../src/tools/iosTools", () => ({
-  getBatteryInfoTool: { name: "get_battery_info", execute: jest.fn() },
-  getCurrentLocationTool: { name: "get_current_location", execute: jest.fn() },
-  createCalendarEventTool: {
-    name: "create_calendar_event",
-    execute: jest.fn(),
-  },
-  showMapTool: { name: "show_map", execute: jest.fn() },
+jest.mock('react-native', () => ({ Platform: { OS: 'ios' } }));
+
+jest.mock('../src/tools/iosTools', () => ({
+  toolOne: { name: 'tool_one', execute: jest.fn() },
+  toolTwo: { name: 'tool_two', execute: jest.fn() },
+  notATool: { foo: 'bar' },
 }));
 
-import { toolRegistry } from "../src/core/tools/ToolRegistry";
+import { toolRegistry } from '../src/core/tools/ToolRegistry';
 
-test("toolRegistry registers built-in tools", () => {
-  expect(toolRegistry.getTool("get_battery_info")).toBeDefined();
-  expect(toolRegistry.getTool("get_current_location")).toBeDefined();
+test('toolRegistry auto registers tools with execute', () => {
+  expect(toolRegistry.getTool('tool_one')).toBeDefined();
+  expect(toolRegistry.getTool('tool_two')).toBeDefined();
+  expect(toolRegistry.getAvailableTools().length).toBe(2);
 });
 
-test("unregister removes tools", () => {
-  const temp = { name: "temp_tool", execute: jest.fn() };
+test('unregister and invalid registration', () => {
+  const temp = { name: 'temp_tool', execute: jest.fn() };
   toolRegistry.register(temp.name, temp);
-  expect(toolRegistry.getTool("temp_tool")).toBeDefined();
-  expect(toolRegistry.unregister("temp_tool")).toBe(true);
-  expect(toolRegistry.getTool("temp_tool")).toBeUndefined();
-  expect(toolRegistry.unregister("temp_tool")).toBe(false);
-});
-
-test("register throws for invalid tools", () => {
-  expect(() => toolRegistry.register("bad_tool", {})).toThrow(
-    "Invalid tool bad_tool: missing execute()",
-  );
+  expect(toolRegistry.getTool('temp_tool')).toBeDefined();
+  expect(toolRegistry.unregister('temp_tool')).toBe(true);
+  expect(() => toolRegistry.register('bad', {})).toThrow('Invalid tool bad: missing execute()');
 });

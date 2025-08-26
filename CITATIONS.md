@@ -11,3 +11,7 @@ When referencing an image or diagram, include the relative file path to the asse
 ```
 
 This ensures that visual resources can be accurately traced to their source within the repository.
+
+## Libraries
+
+- [hnswlib](https://github.com/nmslib/hnswlib) – hierarchical navigable small world graphs for similarity search (Apache 2.0).

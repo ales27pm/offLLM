@@ -14,8 +14,19 @@ test("ToolHandler parses mixed-quote arguments", () => {
   });
 });
 
-test("ToolHandler throws on malformed args", () => {
-  expect(() => handler._parseArgs('a=\'one b="two"')).toThrow(
-    "Malformed argument string"
+test("ToolHandler parses nested JSON and paths", () => {
+  const args = handler._parseArgs(
+    "config='{\"a\":1,\"b\":{\"c\":2}}' path=\"C:\\\\Program Files\\\\App\""
   );
+  expect(args).toEqual({
+    config: { a: 1, b: { c: 2 } },
+    path: "C:\\Program Files\\App",
+  });
+});
+
+test("ToolHandler throws on malformed args", () => {
+  expect(() => handler._parseArgs("a='one b=\"two\""))
+    .toThrow("Malformed argument string");
+  expect(() => handler._parseArgs("json='{\"a\":1"))
+    .toThrow("Malformed argument string");
 });

@@ -20,7 +20,19 @@ export default class ToolHandler {
     while ((match = regex.exec(argString)) !== null) {
       let value = match[3] !== undefined ? match[3] : match[5];
       value = value.replace(/\\(['"\\])/g, "$1");
-      args[match[1]] = value;
+      const trimmed = value.trim();
+      try {
+        if (
+          (trimmed.startsWith("{") && trimmed.endsWith("}")) ||
+          (trimmed.startsWith("[") && trimmed.endsWith("]"))
+        ) {
+          args[match[1]] = JSON.parse(trimmed);
+        } else {
+          args[match[1]] = value;
+        }
+      } catch (e) {
+        throw new Error("Malformed argument string: " + argString);
+      }
     }
     const expected = (argString.match(/([\w]+)=('|")/g) || []).length;
     if (Object.keys(args).length !== expected) {

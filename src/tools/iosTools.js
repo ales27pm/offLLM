@@ -290,6 +290,13 @@ export const pickFileTool = {
   execute: async params => await FilesTurboModule.pickFile(params.type || 'any')
 };
 
+export const openRecentFileTool = {
+  name: 'open_recent_file',
+  description: 'Open the most recently used file',
+  parameters: {},
+  execute: async () => await FilesTurboModule.openRecent()
+};
+
 // URL
 export const openUrlTool = {
   name: 'open_url',
@@ -303,6 +310,22 @@ export const openUrlTool = {
       return { success: true };
     }
     throw new Error('Cannot open URL');
+  }
+};
+
+export const openSettingsTool = {
+  name: 'open_settings',
+  description: 'Open device settings',
+  parameters: {
+    section: { type: 'string', required: false }
+  },
+  execute: async params => {
+    const url = params.section ? `app-settings:${params.section}` : 'app-settings:';
+    if (await Linking.canOpenURL(url)) {
+      await Linking.openURL(url);
+      return { success: true };
+    }
+    throw new Error('Cannot open settings');
   }
 };
 

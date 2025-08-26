@@ -47,10 +47,10 @@ function App() {
   const [initialized, setInitialized] = useState(false);
   const [error, setError] = useState(null);
   const [input, setInput] = useState("");
-  const { send, initVectorStore } = useChat();
+  const { send } = useChat();
   const { messages } = useLLMStore();
   const { isRecording, start } = useSpeechRecognition(send, (err) =>
-    console.warn("Speech recognition error", err),
+    console.warn("Speech recognition error", err)
   );
 
   useEffect(() => {
@@ -98,7 +98,6 @@ function App() {
       }
       const pluginManager = new PluginManager();
       await LLMService.loadModel("path/to/default/model");
-      await initVectorStore();
       dependencyInjector.register("toolRegistry", toolRegistry);
       dependencyInjector.register("pluginManager", pluginManager);
       dependencyInjector.register("llmService", LLMService);
