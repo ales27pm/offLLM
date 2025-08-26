@@ -39,6 +39,11 @@ jobs:
           else
             echo 'No Podfile found; skipping pod install'
           fi
+      - name: Generate Xcode project
+        run: |
+          brew install xcodegen
+          cd ios/MyOfflineLLMApp
+          xcodegen generate
       - name: Run tests
         run: npm test
       - name: Build TurboModules

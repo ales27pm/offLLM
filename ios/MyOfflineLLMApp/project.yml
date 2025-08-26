@@ -1,0 +1,14 @@
+name: MyOfflineLLMApp
+options:
+  bundleIdPrefix: com.offllm
+targets:
+  MyOfflineLLMApp:
+    type: framework
+    platform: iOS
+    deploymentTarget: "13.0"
+    sources:
+      - path: .
+        excludes:
+          - project.yml
+    settings:
+      PRODUCT_BUNDLE_IDENTIFIER: com.offllm.MyOfflineLLMApp
