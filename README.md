@@ -97,5 +97,8 @@ project, preventing "future Xcode project file format" errors. The workflow emit
 are missing, so CI logs explicitly note skipped steps. Lightweight stubs for required React Native entry points live in
 `ios/MyOfflineLLMApp/ReactStubs.m`, allowing the TurboModules to compile in isolation during CI builds.
 
+Minimal React Native header shims reside in `ios/MyOfflineLLMApp/React`, defining the essential macros and types used by the
+TurboModules so they can build without a full React Native checkout.
+
 See `CITATIONS.md` for references and inspiration. Contributions are
 welcome!
