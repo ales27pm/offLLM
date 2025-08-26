@@ -13,3 +13,5 @@ targets:
           - project.yml
     settings:
       PRODUCT_BUNDLE_IDENTIFIER: com.offllm.MyOfflineLLMApp
+      HEADER_SEARCH_PATHS:
+        - "$(PROJECT_DIR)/../../node_modules/react-native/React/**"
