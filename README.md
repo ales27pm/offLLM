@@ -63,5 +63,21 @@ release include:
   `extractFromUrl()` instead of the non‑existent `extract()` method.
 - **Adaptive quantization** implemented directly on `LLMService`.
 
+## Testing
+
+Run the Jest suite with:
+
+```bash
+npm test
+```
+
+For coverage in CI environments, use:
+
+```bash
+npm run test:ci
+```
+
+The repository also includes a GitHub Actions workflow that builds iOS TurboModules on macOS runners.
+
 See `CITATIONS.md` for references and inspiration. Contributions are
 welcome!
