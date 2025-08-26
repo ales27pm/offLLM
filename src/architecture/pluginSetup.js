@@ -9,7 +9,12 @@ export function registerLLMPlugins(pluginManager, context) {
         if (context.isWeb) {
           return context.generateWeb(prompt, maxTokens, temperature);
         }
-        return context.nativeModule.generate(prompt, maxTokens, temperature, useSparse);
+        const generateOptions = {
+          maxTokens,
+          temperature,
+          useSparseAttention: useSparse
+        };
+        return context.nativeModule.generate(prompt, generateOptions);
       }
     }
   });

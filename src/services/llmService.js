@@ -101,12 +101,19 @@ class LLMService {
       
       let response;
       if (this.pluginManager.isPluginEnabled('sparseAttention')) {
-        response = await this.pluginManager.execute('generate', 
+        response = await this.pluginManager.execute('generate',
           [prompt, maxTokens, temperature, options], this);
       } else {
-        response = this.isWeb
-          ? await this.generateWeb(prompt, maxTokens, temperature)
-          : await this.nativeModule.generate(prompt, maxTokens, temperature, false);
+        if (this.isWeb) {
+          response = await this.generateWeb(prompt, maxTokens, temperature);
+        } else {
+          const generateOptions = {
+            maxTokens,
+            temperature,
+            ...options
+          };
+          response = await this.nativeModule.generate(prompt, generateOptions);
+        }
       }
       
       const inferenceTime = Date.now() - startTime;
