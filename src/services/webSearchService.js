@@ -27,7 +27,10 @@ export class SearchService {
     const enriched = [];
     for (const r of results) {
       try {
-        const content = await readabilityService.extract(r.url);
+        // Use extractFromUrl instead of extract. The extract() method does not
+        // exist on ReadabilityService; extractFromUrl fetches the page and
+        // returns parsed content.
+        const content = await readabilityService.extractFromUrl(r.url);
         enriched.push({
           ...r,
           content,

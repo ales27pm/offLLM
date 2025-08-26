@@ -16,17 +16,9 @@ export function registerLLMPlugins(pluginManager, context) {
 
   pluginManager.registerPlugin('adaptiveQuantization', {
     initialize: async () => console.log('Adaptive quantization plugin initialized'),
-    extend: {
-      LLMService: {
-        adjustQuantization: async function () {
-          const { averageInferenceTime, memoryUsage } = await this.getPerformanceMetrics();
-          if (averageInferenceTime > 1000 || memoryUsage > 0.8) {
-            await this._switchQuantization('Q4_0');
-          } else if (averageInferenceTime < 300 && memoryUsage < 0.6) {
-            await this._switchQuantization('Q8_0');
-          }
-        }
-      }
-    }
+    // The actual quantization adjustment logic now lives on the LLMService
+    // instance. See src/services/llmService.js. No need to extend the global
+    // LLMService prototype. Enabling this plugin simply allows
+    // LLMService.scheduleQuantizationAdjustment to run.
   });
 }
