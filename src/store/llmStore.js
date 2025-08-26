@@ -11,13 +11,16 @@ const useLLMStore = create((set) => ({
         ...state.messages,
         {
           id:
-            message.id ??
-            `${Date.now()}-${Math.random().toString(36).slice(2)}`,
-          ...message,
-        },
-      ],
-    })),
-  setMessages: (messages) =>
+            generateResponse: async (prompt, llmService) => {
+              if (!prompt || typeof prompt !== 'string' || !prompt.trim()) {
+                return;
+              }
+              const { addMessage, setIsGenerating } = get();
+              addMessage({ role: "user", content: prompt.trim() });
+              setIsGenerating(true);
+              try {
+                const response = await llmService.generate(prompt.trim());
+                const text = response?.text ?? response;
     set({
       messages: messages.map((m) => ({
         id: m.id ?? `${Date.now()}-${Math.random().toString(36).slice(2)}`,
