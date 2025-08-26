@@ -1,9 +1,9 @@
-#import <React/RCTBridgeModule.h>
-#import <React/RCTUtils.h>
+#import "PhotosTurboModule.h"
+#import "React/RCTUtils.h"
 #import <Photos/Photos.h>
 #import <UIKit/UIKit.h>
 
-@interface PhotosTurboModule : NSObject <RCTBridgeModule, UIImagePickerControllerDelegate, UINavigationControllerDelegate>
+@interface PhotosTurboModule ()
 @property(nonatomic, strong) RCTPromiseResolveBlock resolver;
 @property(nonatomic, strong) RCTPromiseRejectBlock rejecter;
 @end

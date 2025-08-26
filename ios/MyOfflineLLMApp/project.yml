@@ -11,6 +11,8 @@ targets:
       - path: .
         excludes:
           - project.yml
+    publicHeaders:
+      - MyOfflineLLMApp.h
     settings:
       PRODUCT_BUNDLE_IDENTIFIER: com.offllm.MyOfflineLLMApp
       HEADER_SEARCH_PATHS:
