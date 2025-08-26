@@ -27,7 +27,7 @@
     "react": "18.2.0",
     "react-native": "0.72.4",
     "react-native-sqlite-storage": "^6.0.1",
-    "react-native-voice": "^0.3.0",
+    "@react-native-voice/voice": "^3.2.4",
     "react-native-tts": "^4.1.0",
     "rxdb": "^15.0.0",
     "@xenova/transformers": "^2.17.2",
