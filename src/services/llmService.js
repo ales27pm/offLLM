@@ -106,7 +106,7 @@ class LLMService {
         response = await this.pluginManager.execute(
           "generate",
           [prompt, maxTokens, temperature, options],
-          this,
+          this
         );
       } else {
         if (this.isWeb) {
@@ -261,7 +261,7 @@ class LLMService {
     }
   }
 
-  async generateWeb(prompt, maxTokens, temperature) {
+  async generateWeb(_prompt, _maxTokens, _temperature) {
     return {
       text: "Web implementation response",
       tokensGenerated: 50,
@@ -269,7 +269,7 @@ class LLMService {
     };
   }
 
-  async _embedWeb(text) {
+  async _embedWeb(_text) {
     return Array(512).fill(0.5);
   }
 

@@ -21,23 +21,34 @@ jobs:
           cache: "npm"
       - name: Install dependencies
         run: npm ci
-      - uses: actions/cache@v3
+      - name: Cache Pods
         if: ${{ hashFiles('ios/MyOfflineLLMApp/Podfile') != '' }}
+        uses: actions/cache@v3
         with:
           path: ios/MyOfflineLLMApp/Pods
           key: ${{ runner.os }}-pods-${{ hashFiles('ios/MyOfflineLLMApp/Podfile.lock') }}
           restore-keys: |
             ${{ runner.os }}-pods-
+      - name: Skip Pod cache
+        if: ${{ hashFiles('ios/MyOfflineLLMApp/Podfile') == '' }}
+        run: echo 'No Podfile found; skipping Pod cache'
       - name: Install Pods
-        if: ${{ hashFiles('ios/MyOfflineLLMApp/Podfile') != '' }}
-        run: pod install --project-directory=ios/MyOfflineLLMApp
+        run: |
+          if [ -f ios/MyOfflineLLMApp/Podfile ]; then
+            pod install --project-directory=ios/MyOfflineLLMApp
+          else
+            echo 'No Podfile found; skipping pod install'
+          fi
       - name: Run tests
         run: npm test
       - name: Build TurboModules
-        if: ${{ hashFiles('ios/MyOfflineLLMApp/MyOfflineLLMApp.xcodeproj/project.pbxproj') != '' }}
         run: |
-          xcodebuild \
-            -project ios/MyOfflineLLMApp/MyOfflineLLMApp.xcodeproj \
-            -scheme MyOfflineLLMApp \
-            -destination 'generic/platform=iOS Simulator' \
-            CODE_SIGNING_ALLOWED=NO
+          if [ -f ios/MyOfflineLLMApp/MyOfflineLLMApp.xcodeproj/project.pbxproj ]; then
+            xcodebuild \
+              -project ios/MyOfflineLLMApp/MyOfflineLLMApp.xcodeproj \
+              -scheme MyOfflineLLMApp \
+              -destination 'generic/platform=iOS Simulator' \
+              CODE_SIGNING_ALLOWED=NO
+          else
+            echo 'No Xcode project found; skipping build'
+          fi
