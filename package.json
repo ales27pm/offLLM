@@ -33,6 +33,12 @@
     "jsdom": "^22.0.0",
     "react-native-readability": "^0.2.0",
     "react-native-render-html": "^6.3.4",
+    "react-native-sensors": "^7.3.6",
+    "react-native-device-info": "^10.3.0",
+    "react-native-contacts": "^7.0.8",
+    "react-native-music-control": "^1.4.1",
+    "react-native-flashlight": "^1.0.3",
+    "react-native-vibration": "^0.1.1",
     "tiktoken": "^1.0.7"
   },
   "devDependencies": {

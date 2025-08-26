@@ -3,7 +3,34 @@ import { View, Text, ActivityIndicator, StyleSheet, Platform } from 'react-nativ
 import LLMService from './services/llmService';
 import { ToolRegistry } from './architecture/toolSystem';
 import { builtInTools } from './architecture/toolSystem';
-import iosTools from './tools/iosTools';
+import {
+  createCalendarEventTool,
+  sendMessageTool,
+  makePhoneCallTool,
+  getCallHistoryTool,
+  getCurrentLocationTool,
+  startLocationUpdatesTool,
+  stopLocationUpdatesTool,
+  showMapTool,
+  getDirectionsTool,
+  searchPlacesTool,
+  findContactTool,
+  addContactTool,
+  playMusicTool,
+  getMusicLibraryTool,
+  getBatteryInfoTool,
+  getSensorDataTool,
+  setClipboardTool,
+  getClipboardTool,
+  vibrateTool,
+  toggleFlashlightTool,
+  getDeviceInfoTool,
+  setBrightnessTool,
+  pickPhotoTool,
+  takePhotoTool,
+  pickFileTool,
+  openUrlTool
+} from './tools/iosTools';
 import { PluginManager } from './architecture/pluginManager';
 import { DependencyInjector } from './architecture/dependencyInjector';
 
@@ -26,8 +53,36 @@ function App() {
         toolRegistry.registerTool(name, tool);
       });
       if (Platform.OS === 'ios') {
-        Object.entries(iosTools).forEach(([name, tool]) => {
-          toolRegistry.registerTool(name, { execute: tool });
+        const iosToolList = [
+          createCalendarEventTool,
+          sendMessageTool,
+          makePhoneCallTool,
+          getCallHistoryTool,
+          getCurrentLocationTool,
+          startLocationUpdatesTool,
+          stopLocationUpdatesTool,
+          showMapTool,
+          getDirectionsTool,
+          searchPlacesTool,
+          findContactTool,
+          addContactTool,
+          playMusicTool,
+          getMusicLibraryTool,
+          getBatteryInfoTool,
+          getSensorDataTool,
+          setClipboardTool,
+          getClipboardTool,
+          vibrateTool,
+          toggleFlashlightTool,
+          getDeviceInfoTool,
+          setBrightnessTool,
+          pickPhotoTool,
+          takePhotoTool,
+          pickFileTool,
+          openUrlTool
+        ];
+        iosToolList.forEach(tool => {
+          toolRegistry.registerTool(tool.name, tool);
         });
       }
       
