@@ -1,8 +1,10 @@
 package com.myofflinellmapp;
 
+import android.Manifest;
 import android.content.ContentProviderOperation;
 import android.content.ContentResolver;
 import android.database.Cursor;
+import android.net.Uri;
 import android.provider.ContactsContract;
 import androidx.annotation.NonNull;
 import com.facebook.react.bridge.Promise;
@@ -15,6 +17,8 @@ import com.facebook.react.bridge.WritableNativeArray;
 import com.facebook.react.bridge.WritableNativeMap;
 import com.facebook.react.module.annotations.ReactModule;
 import java.util.ArrayList;
+import java.util.Arrays;
+import java.util.List;
 
 /**
  * ContactsTurboModule provides basic contact lookup and insertion on
@@ -39,100 +43,59 @@ public class ContactsTurboModule extends ReactContextBaseJavaModule {
     @ReactMethod
     public void findContact(String query, Promise promise) {
         ReactApplicationContext ctx = getReactApplicationContext();
-        ContentResolver resolver = ctx.getContentResolver();
-        WritableArray resultArray = new WritableNativeArray();
-        Cursor contactsCursor = null;
-        try {
-            String selection = ContactsContract.Contacts.DISPLAY_NAME + " LIKE ?";
-            String[] args = new String[]{"%" + query + "%"};
-            contactsCursor = resolver.query(
-                    ContactsContract.Contacts.CONTENT_URI,
-                    new String[]{ContactsContract.Contacts._ID, ContactsContract.Contacts.DISPLAY_NAME},
-                    selection, args, null);
-            if (contactsCursor != null) {
-                while (contactsCursor.moveToNext()) {
-                    String contactId = contactsCursor.getString(0);
-                    String name = contactsCursor.getString(1);
-                    WritableArray phonesArray = new WritableNativeArray();
-                    Cursor phoneCursor = resolver.query(
-                            ContactsContract.CommonDataKinds.Phone.CONTENT_URI,
-                            new String[]{ContactsContract.CommonDataKinds.Phone.NUMBER},
-                            ContactsContract.CommonDataKinds.Phone.CONTACT_ID + "=?",
-                            new String[]{contactId}, null);
-                    if (phoneCursor != null) {
-                        while (phoneCursor.moveToNext()) {
-                            String phoneNumber = phoneCursor.getString(0);
-                            phonesArray.pushString(phoneNumber);
-                        }
-                        phoneCursor.close();
-                    }
-                    WritableArray emailArray = new WritableNativeArray();
-                    Cursor emailCursor = resolver.query(
-                            ContactsContract.CommonDataKinds.Email.CONTENT_URI,
-                            new String[]{ContactsContract.CommonDataKinds.Email.ADDRESS},
-                            ContactsContract.CommonDataKinds.Email.CONTACT_ID + "=?",
-                            new String[]{contactId}, null);
-                    if (emailCursor != null) {
-                        while (emailCursor.moveToNext()) {
-                            String email = emailCursor.getString(0);
-                            emailArray.pushString(email);
-                        }
-                        emailCursor.close();
-                    }
-                    WritableMap contactMap = new WritableNativeMap();
-                    contactMap.putString("name", name != null ? name : "");
-                    contactMap.putArray("phones", phonesArray);
-                    contactMap.putArray("emails", emailArray);
-                    resultArray.pushMap(contactMap);
+        if (!ModuleUtils.hasPermission(ctx, Manifest.permission.READ_CONTACTS)) {
+            promise.reject("permission_denied", "Contacts access denied");
+            return;
+        }
+        ContentResolver cr = ctx.getContentResolver();
+        WritableArray results = new WritableNativeArray();
+        try (Cursor contacts = cr.query(
+                ContactsContract.Contacts.CONTENT_URI,
+                new String[]{ContactsContract.Contacts._ID, ContactsContract.Contacts.DISPLAY_NAME},
+                ContactsContract.Contacts.DISPLAY_NAME + " LIKE ?",
+                new String[]{"%" + query + "%"},
+                null)) {
+            if (contacts != null) {
+                while (contacts.moveToNext()) {
+                    String id = contacts.getString(0);
+                    String name = contacts.getString(1);
+                    List<String> phones = queryStrings(cr, ContactsContract.CommonDataKinds.Phone.CONTENT_URI, id, ContactsContract.CommonDataKinds.Phone.NUMBER);
+                    List<String> emails = queryStrings(cr, ContactsContract.CommonDataKinds.Email.CONTENT_URI, id, ContactsContract.CommonDataKinds.Email.ADDRESS);
+                    results.pushMap(buildContactMap(name, phones, emails));
                 }
             }
-            promise.resolve(resultArray);
-        } catch (SecurityException e) {
-            promise.reject("permission_denied", "Contacts access denied", e);
+            promise.resolve(results);
+        } catch (SecurityException se) {
+            ModuleUtils.rejectWithException(promise, "permission_denied", se);
         } catch (Exception e) {
-            promise.reject("search_error", e.getMessage(), e);
-        } finally {
-            if (contactsCursor != null) contactsCursor.close();
+            ModuleUtils.rejectWithException(promise, "search_error", e);
         }
     }
 
     @ReactMethod
     public void addContact(String name, String phone, String email, Promise promise) {
+        if (name == null || name.trim().isEmpty()) {
+            promise.reject("invalid_name", "Name is required");
+            return;
+        }
+        ReactApplicationContext ctx = getReactApplicationContext();
+        if (!ModuleUtils.hasPermission(ctx, Manifest.permission.WRITE_CONTACTS)) {
+            promise.reject("permission_denied", "Contacts access denied");
+            return;
+        }
         try {
+            NameParts np = parseName(name);
             ArrayList<ContentProviderOperation> ops = new ArrayList<>();
             ops.add(ContentProviderOperation.newInsert(ContactsContract.RawContacts.CONTENT_URI)
                     .withValue(ContactsContract.RawContacts.ACCOUNT_TYPE, null)
                     .withValue(ContactsContract.RawContacts.ACCOUNT_NAME, null)
                     .build());
-            // Split name into given, middle and family parts for better display. At
-            // minimum the full name is stored as given name.
-            String givenName = name;
-            String middleName = null;
-            String familyName = null;
-            if (name != null) {
-                String[] parts = name.trim().split("\\s+");
-                if (parts.length == 1) {
-                    givenName = parts[0];
-                } else if (parts.length == 2) {
-                    givenName = parts[0];
-                    familyName = parts[1];
-                } else if (parts.length > 2) {
-                    givenName = parts[0];
-                    familyName = parts[parts.length - 1];
-                    StringBuilder middle = new StringBuilder();
-                    for (int i = 1; i < parts.length - 1; i++) {
-                        if (i > 1) middle.append(" ");
-                        middle.append(parts[i]);
-                    }
-                    middleName = middle.toString();
-                }
-            }
             ops.add(ContentProviderOperation.newInsert(ContactsContract.Data.CONTENT_URI)
                     .withValueBackReference(ContactsContract.Data.RAW_CONTACT_ID, 0)
                     .withValue(ContactsContract.Data.MIMETYPE, ContactsContract.CommonDataKinds.StructuredName.CONTENT_ITEM_TYPE)
-                    .withValue(ContactsContract.CommonDataKinds.StructuredName.GIVEN_NAME, givenName)
-                    .withValue(ContactsContract.CommonDataKinds.StructuredName.MIDDLE_NAME, middleName)
-                    .withValue(ContactsContract.CommonDataKinds.StructuredName.FAMILY_NAME, familyName)
+                    .withValue(ContactsContract.CommonDataKinds.StructuredName.GIVEN_NAME, np.given)
+                    .withValue(ContactsContract.CommonDataKinds.StructuredName.MIDDLE_NAME, np.middle)
+                    .withValue(ContactsContract.CommonDataKinds.StructuredName.FAMILY_NAME, np.family)
                     .build());
             if (phone != null && !phone.isEmpty()) {
                 ops.add(ContentProviderOperation.newInsert(ContactsContract.Data.CONTENT_URI)
@@ -150,15 +113,60 @@ public class ContactsTurboModule extends ReactContextBaseJavaModule {
                         .withValue(ContactsContract.CommonDataKinds.Email.TYPE, ContactsContract.CommonDataKinds.Email.TYPE_HOME)
                         .build());
             }
-            ContentResolver resolver = getReactApplicationContext().getContentResolver();
-            resolver.applyBatch(ContactsContract.AUTHORITY, ops);
+            ctx.getContentResolver().applyBatch(ContactsContract.AUTHORITY, ops);
             WritableMap res = new WritableNativeMap();
             res.putBoolean("success", true);
             promise.resolve(res);
-        } catch (SecurityException e) {
-            promise.reject("permission_denied", "Contacts access denied", e);
+        } catch (SecurityException se) {
+            ModuleUtils.rejectWithException(promise, "permission_denied", se);
         } catch (Exception e) {
-            promise.reject("save_error", e.getMessage(), e);
+            ModuleUtils.rejectWithException(promise, "save_error", e);
         }
+    }
+
+    private List<String> queryStrings(ContentResolver cr, Uri uri, String contactId, String column) {
+        List<String> out = new ArrayList<>();
+        try (Cursor c = cr.query(uri, new String[]{column}, ContactsContract.Data.CONTACT_ID + "=?", new String[]{contactId}, null)) {
+            if (c != null) {
+                while (c.moveToNext()) {
+                    out.add(c.getString(0));
+                }
+            }
+        }
+        return out;
+    }
+
+    private WritableArray toWritableArray(List<String> list) {
+        WritableArray arr = new WritableNativeArray();
+        for (String s : list) {
+            arr.pushString(s);
+        }
+        return arr;
+    }
+
+    private WritableMap buildContactMap(String name, List<String> phones, List<String> emails) {
+        WritableMap map = new WritableNativeMap();
+        map.putString("name", name == null ? "" : name);
+        map.putArray("phones", toWritableArray(phones));
+        map.putArray("emails", toWritableArray(emails));
+        return map;
+    }
+
+    private static class NameParts {
+        String given;
+        String middle;
+        String family;
+    }
+
+    private NameParts parseName(String fullName) {
+        NameParts np = new NameParts();
+        if (fullName == null) return np;
+        String[] parts = fullName.trim().split("\\s+");
+        if (parts.length > 0) np.given = parts[0];
+        if (parts.length > 1) np.family = parts[parts.length - 1];
+        if (parts.length > 2) {
+            np.middle = String.join(" ", Arrays.copyOfRange(parts, 1, parts.length - 1));
+        }
+        return np;
     }
 }

@@ -41,6 +41,9 @@ public class DeviceInfoTurboModule extends ReactContextBaseJavaModule {
             result.putString("systemName", "Android");
             result.putString("systemVersion", Build.VERSION.RELEASE != null ? Build.VERSION.RELEASE : "");
             result.putString("name", Build.DEVICE != null ? Build.DEVICE : "");
+            // Note: ANDROID_ID may change after a factory reset and may not be unique on all
+            // devices, such as emulators and some tablets. Use with caution if you require a
+            // stable or unique identifier.
             String androidId = Settings.Secure.getString(getReactApplicationContext().getContentResolver(), Settings.Secure.ANDROID_ID);
             result.putString("identifierForVendor", androidId != null ? androidId : "unknown");
             PowerManager pm = (PowerManager) getReactApplicationContext().getSystemService(Context.POWER_SERVICE);
@@ -48,7 +51,7 @@ public class DeviceInfoTurboModule extends ReactContextBaseJavaModule {
             result.putBoolean("isLowPowerMode", isLowPower);
             promise.resolve(result);
         } catch (Exception e) {
-            promise.reject("DEVICE_INFO_ERROR", e.getMessage(), e);
+            ModuleUtils.rejectWithException(promise, "DEVICE_INFO_ERROR", e);
         }
     }
 }

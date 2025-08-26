@@ -52,8 +52,16 @@ public class FlashlightTurboModule extends ReactContextBaseJavaModule {
                     break;
                 }
             }
-            if (torchId == null && ids.length > 0) {
-                torchId = ids[0];
+            if (torchId == null) {
+                // Fallback: find any camera with a flash (regardless of lens facing)
+                for (String id : ids) {
+                    CameraCharacteristics c = cameraManager.getCameraCharacteristics(id);
+                    Boolean flashAvailable = c.get(CameraCharacteristics.FLASH_INFO_AVAILABLE);
+                    if (flashAvailable != null && flashAvailable) {
+                        torchId = id;
+                        break;
+                    }
+                }
             }
             if (torchId == null) {
                 promise.reject("no_torch", "No camera with flash available");
@@ -64,7 +72,7 @@ public class FlashlightTurboModule extends ReactContextBaseJavaModule {
             res.putBoolean("success", true);
             promise.resolve(res);
         } catch (CameraAccessException e) {
-            promise.reject("lock_error", e.getMessage(), e);
+            ModuleUtils.rejectWithException(promise, "lock_error", e);
         }
     }
 }

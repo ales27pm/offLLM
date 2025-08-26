@@ -14,8 +14,10 @@ import com.facebook.react.bridge.ReactContextBaseJavaModule;
 import com.facebook.react.bridge.ReactMethod;
 import com.facebook.react.module.annotations.ReactModule;
 import java.text.ParseException;
-import java.text.SimpleDateFormat;
-import java.util.Date;
+import java.time.LocalDateTime;
+import java.time.OffsetDateTime;
+import java.time.ZoneId;
+import java.time.format.DateTimeFormatter;
 import java.util.Locale;
 
 /**
@@ -83,11 +85,11 @@ public class CalendarTurboModule extends ReactContextBaseJavaModule {
             result.putString("eventId", String.valueOf(id));
             promise.resolve(result);
         } catch (ParseException e) {
-            promise.reject("DATE_ERROR", "Invalid ISO date", e);
+            ModuleUtils.rejectWithException(promise, "DATE_ERROR", e);
         } catch (SecurityException e) {
-            promise.reject("PERMISSION_DENIED", "Calendar permission denied", e);
+            ModuleUtils.rejectWithException(promise, "PERMISSION_DENIED", e);
         } catch (Exception e) {
-            promise.reject("CALENDAR_ERROR", e.getMessage(), e);
+            ModuleUtils.rejectWithException(promise, "CALENDAR_ERROR", e);
         }
     }
 
@@ -110,11 +112,21 @@ public class CalendarTurboModule extends ReactContextBaseJavaModule {
     }
 
     private long parseIsoDate(String iso) throws ParseException {
-        // Use a simple date format that can parse basic ISO 8601 timestamps. It
-        // will fall back to default timezone if no offset is provided.
-        SimpleDateFormat sdf = new SimpleDateFormat("yyyy-MM-dd'T'HH:mm:ssX", Locale.US);
-        Date date = sdf.parse(iso);
-        if (date == null) throw new ParseException("Unable to parse", 0);
-        return date.getTime();
+        // Robustly parse ISO 8601 timestamps, supporting optional milliseconds and timezone.
+        try {
+            DateTimeFormatter formatterWithZone = DateTimeFormatter.ofPattern("yyyy-MM-dd'T'HH:mm:ss[.SSS]X")
+                    .withLocale(Locale.US);
+            OffsetDateTime odt = OffsetDateTime.parse(iso, formatterWithZone);
+            return odt.toInstant().toEpochMilli();
+        } catch (Exception e) {
+            try {
+                DateTimeFormatter formatterNoZone = DateTimeFormatter.ofPattern("yyyy-MM-dd'T'HH:mm:ss[.SSS]")
+                        .withLocale(Locale.US);
+                LocalDateTime ldt = LocalDateTime.parse(iso, formatterNoZone);
+                return ldt.atZone(ZoneId.systemDefault()).toInstant().toEpochMilli();
+            } catch (Exception ex) {
+                throw new ParseException("Unable to parse: " + iso, 0);
+            }
+        }
     }
 }

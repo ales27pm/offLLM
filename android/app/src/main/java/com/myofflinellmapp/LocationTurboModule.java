@@ -3,14 +3,12 @@ package com.myofflinellmapp;
 import android.Manifest;
 import android.annotation.SuppressLint;
 import android.content.Context;
-import android.content.pm.PackageManager;
 import android.location.Location;
 import android.location.LocationListener;
 import android.location.LocationManager;
 import android.os.Bundle;
 import android.os.Looper;
 import androidx.annotation.NonNull;
-import androidx.core.content.ContextCompat;
 import com.facebook.react.bridge.Promise;
 import com.facebook.react.bridge.ReactApplicationContext;
 import com.facebook.react.bridge.ReactContextBaseJavaModule;
@@ -55,7 +53,9 @@ public class LocationTurboModule extends ReactContextBaseJavaModule {
             return;
         }
         // Check permissions
-        if (!hasLocationPermission()) {
+        if (!ModuleUtils.hasAnyPermission(getReactApplicationContext(),
+                Manifest.permission.ACCESS_FINE_LOCATION,
+                Manifest.permission.ACCESS_COARSE_LOCATION)) {
             promise.reject("permission_denied", "Location permission denied");
             return;
         }
@@ -79,17 +79,25 @@ public class LocationTurboModule extends ReactContextBaseJavaModule {
         try {
             manager.requestSingleUpdate(provider, singleListener, Looper.getMainLooper());
         } catch (SecurityException e) {
-            promise.reject("permission_denied", "Location permission denied", e);
+            ModuleUtils.rejectWithException(promise, "permission_denied", e);
         }
     }
 
+    /**
+     * Starts continuous location updates. Intervals below 1000&nbsp;ms (including
+     * negative values) are clamped to 1000&nbsp;ms.
+     *
+     * @param intervalMillis desired update interval in milliseconds
+     */
     @ReactMethod
     public void startUpdates(int intervalMillis) {
         LocationManager manager = (LocationManager) getReactApplicationContext().getSystemService(Context.LOCATION_SERVICE);
         if (manager == null) return;
         String provider = chooseProvider(manager, "high");
         if (provider == null) return;
-        if (!hasLocationPermission()) return;
+        if (!ModuleUtils.hasAnyPermission(getReactApplicationContext(),
+                Manifest.permission.ACCESS_FINE_LOCATION,
+                Manifest.permission.ACCESS_COARSE_LOCATION)) return;
         if (continuousListener != null) {
             manager.removeUpdates(continuousListener);
             continuousListener = null;
@@ -105,8 +113,9 @@ public class LocationTurboModule extends ReactContextBaseJavaModule {
             @Override public void onProviderEnabled(@NonNull String provider) {}
             @Override public void onProviderDisabled(@NonNull String provider) {}
         };
+        int interval = Math.max(1000, intervalMillis);
         try {
-            manager.requestLocationUpdates(provider, Math.max(1000, intervalMillis), 0f, continuousListener, Looper.getMainLooper());
+            manager.requestLocationUpdates(provider, interval, 0f, continuousListener, Looper.getMainLooper());
         } catch (SecurityException ignored) {
             // permission denied
         }
@@ -123,12 +132,6 @@ public class LocationTurboModule extends ReactContextBaseJavaModule {
             }
             continuousListener = null;
         }
-    }
-
-    private boolean hasLocationPermission() {
-        ReactApplicationContext ctx = getReactApplicationContext();
-        return ContextCompat.checkSelfPermission(ctx, Manifest.permission.ACCESS_FINE_LOCATION) == PackageManager.PERMISSION_GRANTED ||
-                ContextCompat.checkSelfPermission(ctx, Manifest.permission.ACCESS_COARSE_LOCATION) == PackageManager.PERMISSION_GRANTED;
     }
 
     private String chooseProvider(LocationManager manager, String accuracy) {
@@ -157,7 +160,7 @@ public class LocationTurboModule extends ReactContextBaseJavaModule {
         if (location.hasAltitude()) map.putDouble("altitude", location.getAltitude());
         if (location.hasAccuracy()) map.putDouble("accuracy", location.getAccuracy());
         if (location.hasSpeed()) map.putDouble("speed", location.getSpeed());
-        if (location.hasBearing()) map.putDouble("course", location.getBearing());
+        if (location.hasBearing()) map.putDouble("bearing", location.getBearing());
         return map;
     }
 }

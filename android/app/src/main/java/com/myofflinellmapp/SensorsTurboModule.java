@@ -75,13 +75,17 @@ public class SensorsTurboModule extends ReactContextBaseJavaModule {
             @Override
             public void onAccuracyChanged(Sensor sensor, int accuracy) {}
         };
+        if (duration <= 0) {
+            promise.reject("invalid_duration", "Duration must be positive and non-zero.");
+            return;
+        }
         try {
             sensorManager.registerListener(listener, sensor, SensorManager.SENSOR_DELAY_GAME);
         } catch (Exception e) {
-            promise.reject("sensor_error", e.getMessage(), e);
+            ModuleUtils.rejectWithException(promise, "sensor_error", e);
             return;
         }
-        int durationMs = Math.max(0, duration);
+        int durationMs = duration;
         new Handler(Looper.getMainLooper()).postDelayed(() -> {
             sensorManager.unregisterListener(listener);
             int samples = count[0];
