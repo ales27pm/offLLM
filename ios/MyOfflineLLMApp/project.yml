@@ -1,6 +1,7 @@
 name: MyOfflineLLMApp
 options:
   bundleIdPrefix: com.offllm
+  xcodeVersion: "15.4"
 targets:
   MyOfflineLLMApp:
     type: framework

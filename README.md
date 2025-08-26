@@ -91,8 +91,9 @@ npm run test:ci
 ```
 
 The repository also includes a GitHub Actions workflow that generates the iOS Xcode project using XcodeGen and builds
-TurboModules on macOS runners. The spec lives at `ios/MyOfflineLLMApp/project.yml` and the workflow emits clear messages when
-Podfiles or Xcode projects are missing, so CI logs explicitly note skipped steps.
+TurboModules on macOS runners. The spec lives at `ios/MyOfflineLLMApp/project.yml`, where the `xcodeVersion` is pinned to
+`15.4` to match the CI environment. The workflow emits clear messages when Podfiles or Xcode projects are missing, so CI logs
+explicitly note skipped steps.
 
 See `CITATIONS.md` for references and inspiration. Contributions are
 welcome!
