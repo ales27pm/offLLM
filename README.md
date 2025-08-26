@@ -90,7 +90,8 @@ For coverage in CI environments, use:
 npm run test:ci
 ```
 
-The repository also includes a GitHub Actions workflow that builds iOS TurboModules on macOS runners.
+The repository also includes a GitHub Actions workflow that builds iOS TurboModules on macOS runners. The workflow emits clear
+messages when Podfiles or Xcode projects are missing, so CI logs explicitly note skipped steps.
 
 See `CITATIONS.md` for references and inspiration. Contributions are
 welcome!
