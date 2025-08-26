@@ -44,6 +44,8 @@ jobs:
           brew install xcodegen
           cd ios/MyOfflineLLMApp
           xcodegen generate
+          # Force project format compatible with Xcode 15
+          perl -0 -i -pe 's/objectVersion = \d+/objectVersion = 56/' MyOfflineLLMApp.xcodeproj/project.pbxproj
       - name: Run tests
         run: npm test
       - name: Build TurboModules
