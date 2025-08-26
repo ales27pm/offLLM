@@ -25,10 +25,19 @@ class ReadabilityService {
       });
 
       await new Promise((resolve) => {
-        if (dom.window.document.readyState === "complete") {
+        const { document } = dom.window;
+        if (
+          document.readyState === "complete" ||
+          document.readyState === "interactive"
+        ) {
           resolve();
         } else {
-          dom.window.addEventListener("load", resolve);
+          const onContentLoaded = () => {
+            document.removeEventListener("DOMContentLoaded", onContentLoaded);
+            resolve();
+          };
+          document.addEventListener("DOMContentLoaded", onContentLoaded);
+          setTimeout(resolve, 100);
         }
       });
 
@@ -84,9 +93,7 @@ class ReadabilityService {
   generateCacheKey(html, url) {
     let hash = 0;
     for (let i = 0; i < html.length; i++) {
-      const char = html.charCodeAt(i);
-      hash = (hash << 5) - hash + char;
-      hash = hash & hash;
+      hash = (hash * 31 + html.charCodeAt(i)) >>> 0;
     }
     return `${url}_${hash}`;
   }
@@ -101,7 +108,7 @@ class ReadabilityService {
       excerpt: article.excerpt || "",
       byline: article.byline || "",
       length: article.length || 0,
-      siteName: this.extractSiteName(article) || "",
+      siteName: this.extractSiteName(article, document) || "",
       publishedTime: this.extractPublishedTime(article, document) || "",
       language: this.detectLanguage(article.textContent) || "en",
       readingTime: this.calculateReadingTime(article.textContent),
@@ -118,9 +125,9 @@ class ReadabilityService {
     let optimized = html
       .replace(/<img[^>]+srcset="[^"]*"[^>]*>/gi, "")
       .replace(/<img[^>]+sizes="[^"]*"[^>]*>/gi, "")
-      .replace(/<iframe[^>]*>.*?<\/iframe>/gi, "")
-      .replace(/<script[^>]*>.*?<\/script>/gi, "")
-      .replace(/<style[^>]*>.*?<\/style>/gi, "");
+      .replace(/<iframe[^>]*>[\s\S]*?<\/iframe>/gi, "")
+      .replace(/<script[^>]*>[\s\S]*?<\/script>/gi, "")
+      .replace(/<style[^>]*>[\s\S]*?<\/style>/gi, "");
 
     optimized = optimized
       .replace(/<div[^>]*>/gi, "")
@@ -131,20 +138,35 @@ class ReadabilityService {
     return optimized;
   }
 
-  extractSiteName(article) {
+  extractSiteName(article, document) {
     if (article.siteName) return article.siteName;
 
     try {
-      const url = new URL(article.url || "");
+      const urlString = article.url || (document && document.URL) || "";
+      const url = new URL(urlString);
       return url.hostname.replace("www.", "");
     } catch (e) {
       return "";
     }
   }
 
+  /**
+   * Validates and normalizes a date string.
+   * Returns the ISO string if valid, otherwise returns an empty string.
+   */
+  normalizePublishedTime(value) {
+    if (!value || typeof value !== "string") return "";
+    const date = new Date(value.trim());
+    if (!isNaN(date.getTime()) && date.getFullYear() > 1970) {
+      return date.toISOString();
+    }
+    return "";
+  }
+
   extractPublishedTime(article, document) {
     if (article?.publishedTime) {
-      return article.publishedTime;
+      const normalized = this.normalizePublishedTime(article.publishedTime);
+      if (normalized) return normalized;
     }
 
     if (!document) return "";
@@ -162,12 +184,13 @@ class ReadabilityService {
     for (const selector of selectors) {
       const element = document.querySelector(selector);
       if (element) {
-        return (
+        const rawValue =
           element.getAttribute("content") ||
           element.getAttribute("datetime") ||
           element.textContent ||
-          ""
-        );
+          "";
+        const normalized = this.normalizePublishedTime(rawValue);
+        if (normalized) return normalized;
       }
     }
 
@@ -209,4 +232,4 @@ class ReadabilityService {
   }
 }
 
-export default new ReadabilityService();
+export default ReadabilityService;
