@@ -53,9 +53,29 @@ RCT_EXPORT_METHOD(addContact:(NSString *)name phone:(NSString *)phone email:(NSS
       return;
     }
     CNMutableContact *contact = [[CNMutableContact alloc] init];
-    NSArray *nameParts = [name componentsSeparatedByString:@" "];
-    contact.givenName = nameParts.firstObject;
-    contact.familyName = [nameParts count] > 1 ? nameParts.lastObject : @"";
+    // Improved name parsing: handle given, middle, and family names
+    NSString *givenName = @"";
+    NSString *middleName = @"";
+    NSString *familyName = @"";
+
+    NSArray *nameParts = [name componentsSeparatedByCharactersInSet:[NSCharacterSet whitespaceCharacterSet]];
+    nameParts = [nameParts filteredArrayUsingPredicate:[NSPredicate predicateWithFormat:@"length > 0"]];
+
+    if ([nameParts count] == 1) {
+      givenName = nameParts[0];
+    } else if ([nameParts count] == 2) {
+      givenName = nameParts[0];
+      familyName = nameParts[1];
+    } else if ([nameParts count] > 2) {
+      givenName = nameParts[0];
+      familyName = nameParts.lastObject;
+      NSRange middleRange = NSMakeRange(1, nameParts.count - 2);
+      middleName = [[nameParts subarrayWithRange:middleRange] componentsJoinedByString:@" "];
+    }
+
+    contact.givenName = givenName;
+    contact.middleName = middleName;
+    contact.familyName = familyName;
     if (phone) {
       CNPhoneNumber *phoneNumber = [CNPhoneNumber phoneNumberWithStringValue:phone];
       contact.phoneNumbers = @[[CNLabeledValue labeledValueWithLabel:CNLabelPhoneNumberMobile value:phoneNumber]];

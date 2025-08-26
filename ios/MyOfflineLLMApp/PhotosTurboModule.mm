@@ -8,29 +8,47 @@ RCT_EXTERN_METHOD(pickPhoto:(RCTPromiseResolveBlock)resolve rejecter:(RCTPromise
 
 @end
 
+@interface PhotosTurboModule () <UIImagePickerControllerDelegate, UINavigationControllerDelegate>
+@property(nonatomic, strong) RCTPromiseResolveBlock resolver;
+@property(nonatomic, strong) RCTPromiseRejectBlock rejecter;
+@end
+
 @implementation PhotosTurboModule
 
 RCT_EXPORT_METHOD(pickPhoto:(RCTPromiseResolveBlock)resolve rejecter:(RCTPromiseRejectBlock)reject) {
+  self.resolver = resolve;
+  self.rejecter = reject;
   [PHPhotoLibrary requestAuthorization:^(PHAuthorizationStatus status) {
     if (status != PHAuthorizationStatusAuthorized) {
-      reject(@"permission_denied", @"Photos access denied", nil);
+      if (self.rejecter) self.rejecter(@"permission_denied", @"Photos access denied", nil);
+      self.resolver = nil;
+      self.rejecter = nil;
       return;
     }
-    UIImagePickerController *picker = [[UIImagePickerController alloc] init];
-    picker.sourceType = UIImagePickerControllerSourceTypePhotoLibrary;
-    picker.mediaTypes = @[@"public.image"];
-    UIViewController *root = [[[UIApplication sharedApplication] keyWindow] rootViewController];
-    [root presentViewController:picker animated:YES completion:nil];
-    // Placeholder completion block, actual implementation would use delegate
-    picker.completionWithItemsHandler = ^(UIImagePickerController *pickerController, NSDictionary *info) {
-      NSURL *url = info[UIImagePickerControllerImageURL];
-      if (url) {
-        resolve(@{ @"url": url.absoluteString });
-      } else {
-        reject(@"pick_error", @"No photo selected", nil);
-      }
-    };
+    dispatch_async(dispatch_get_main_queue(), ^{
+      UIImagePickerController *picker = [[UIImagePickerController alloc] init];
+      picker.sourceType = UIImagePickerControllerSourceTypePhotoLibrary;
+      picker.mediaTypes = @[@"public.image"];
+      picker.delegate = self;
+      UIViewController *root = [[[UIApplication sharedApplication] keyWindow] rootViewController];
+      [root presentViewController:picker animated:YES completion:nil];
+    });
   }];
+}
+
+- (void)imagePickerController:(UIImagePickerController *)picker didFinishPickingMediaWithInfo:(NSDictionary<UIImagePickerControllerInfoKey,id> *)info {
+  NSURL *url = info[UIImagePickerControllerImageURL];
+  if (self.resolver) self.resolver(@{ @"url": url.absoluteString ?: @"" });
+  self.resolver = nil;
+  self.rejecter = nil;
+  [picker dismissViewControllerAnimated:YES completion:nil];
+}
+
+- (void)imagePickerControllerDidCancel:(UIImagePickerController *)picker {
+  if (self.rejecter) self.rejecter(@"pick_cancel", @"User cancelled photo picker", nil);
+  self.resolver = nil;
+  self.rejecter = nil;
+  [picker dismissViewControllerAnimated:YES completion:nil];
 }
 
 @end
