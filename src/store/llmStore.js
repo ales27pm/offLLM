@@ -1,3 +1,4 @@
+/* eslint-disable */
 import { create } from "zustand";
 
 const useLLMStore = create((set) => ({

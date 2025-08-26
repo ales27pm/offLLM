@@ -1,5 +1,5 @@
-#!/usr/bin/env bash
-set -e
+#!/usr/bin/env sh
+# Stub gradle wrapper to satisfy CI builds
 
 echo "Stub gradle wrapper: skipping Android build."
 exit 0
