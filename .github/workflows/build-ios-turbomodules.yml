@@ -2,23 +2,39 @@ name: Build iOS TurboModules
 
 on:
   push:
-    branches: [ main ]
+    branches: [main]
   pull_request:
-    branches: [ main ]
+    branches: [main]
+
+concurrency:
+  group: ios-turbomodules-${{ github.ref }}
+  cancel-in-progress: true
 
 jobs:
   build:
-    runs-on: macos-latest
+    runs-on: macos-14
     steps:
       - uses: actions/checkout@v4
       - uses: actions/setup-node@v4
         with:
           node-version: 18
+          cache: "npm"
       - name: Install dependencies
-        run: |
-          npm install
-          cd ios && pod install --quiet
+        run: npm ci
+      - uses: actions/cache@v3
+        with:
+          path: ios/MyOfflineLLMApp/Pods
+          key: ${{ runner.os }}-pods-${{ hashFiles('ios/MyOfflineLLMApp/Podfile.lock') }}
+          restore-keys: |
+            ${{ runner.os }}-pods-
+      - name: Install Pods
+        run: pod install --project-directory=ios/MyOfflineLLMApp
+      - name: Run tests
+        run: npm test
       - name: Build TurboModules
         run: |
-          cd ios
-          xcodebuild -workspace MyOfflineLLMApp.xcworkspace -scheme MyOfflineLLMApp -configuration Release -sdk iphonesimulator build
+          xcodebuild \
+            -project ios/MyOfflineLLMApp/MyOfflineLLMApp.xcodeproj \
+            -scheme MyOfflineLLMApp \
+            -destination 'generic/platform=iOS Simulator' \
+            CODE_SIGNING_ALLOWED=NO
