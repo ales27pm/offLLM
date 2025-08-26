@@ -28,7 +28,7 @@ public class LlamaTurboModule extends ReactContextBaseJavaModule {
     public static final String NAME = "LlamaTurboModule";
 
     // Native methods are implemented in the accompanying C++ file.
-    private native long nativeLoadModel(String modelPath, String quantizationType, int contextSize, int maxThreads);
+    private native long nativeLoadModel(String modelPath, int contextSize, int maxThreads);
     private native String nativeGenerate(long ctxPtr, String prompt, int maxTokens, float temperature, boolean useSparseAttention);
     private native float[] nativeEmbed(long ctxPtr, String text);
     private native void nativeClearKVCache(long ctxPtr);
@@ -61,23 +61,16 @@ public class LlamaTurboModule extends ReactContextBaseJavaModule {
 
     /**
      * Load a language model from the given path. The options map can specify
-     * quantizationType (e.g. "none", "Q4_0") and contextSize. If options
-     * are omitted, sensible defaults are used. This method resolves with a
+     * contextSize and maxThreads. If options are omitted, sensible defaults are
+     * used. This method resolves with a
      * status object containing metadata about the loaded model.
      */
     @ReactMethod
     public void loadModel(String modelPath, ReadableMap options, Promise promise) {
         try {
-            String quantizationType = "none";
             int contextSize = 4096;
             int maxThreads = Math.max(1, Runtime.getRuntime().availableProcessors() - 1);
             if (options != null) {
-                if (options.hasKey("quantizationType") && !options.isNull("quantizationType")) {
-                    String q = options.getString("quantizationType");
-                    if (q != null && !q.isEmpty()) {
-                        quantizationType = q;
-                    }
-                }
                 if (options.hasKey("contextSize") && !options.isNull("contextSize")) {
                     double cs = options.getDouble("contextSize");
                     if (!Double.isNaN(cs) && cs > 0) {
@@ -105,11 +98,10 @@ public class LlamaTurboModule extends ReactContextBaseJavaModule {
                 mCtxPtr = 0;
             }
 
-            mCtxPtr = nativeLoadModel(modelPath, quantizationType, contextSize, maxThreads);
+            mCtxPtr = nativeLoadModel(modelPath, contextSize, maxThreads);
             WritableMap result = new WritableNativeMap();
             result.putString("status", "loaded");
             result.putString("model", modelPath);
-            result.putString("quantizationType", quantizationType);
             result.putInt("contextSize", contextSize);
             promise.resolve(result);
         } catch (Exception e) {

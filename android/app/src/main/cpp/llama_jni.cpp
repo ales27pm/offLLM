@@ -104,7 +104,7 @@ public:
                 break;
             }
             
-            generated_tokens.push(next_token);
+            generated_tokens.push_back(next_token);
             kv_cache_.push_back(next_token);
             
             trimCache();
@@ -212,175 +212,208 @@ private:
     }
 };
 
-std::unique_ptr<LlamaContext> g_ctx;
-
 extern "C" JNIEXPORT jlong JNICALL
-Java_com_myofflinellmapp_LlamaTurboModule_loadModel(JNIEnv *env, jobject thiz, jstring model_path) {
+Java_com_myofflinellmapp_LlamaTurboModule_loadModel(
+    JNIEnv *env, jobject thiz, jstring model_path, jint context_size,
+    jint n_threads) {
     const char *path = env->GetStringUTFChars(model_path, 0);
-    
+
     try {
         std::string model_path_str(path);
         bool is_quantized = false;
         std::vector<std::string> quant_patterns = {
-            "Q4_0", "Q5_0", "Q2_K", "Q3_K_S", "Q3_K_M", "Q3_K_L", 
-            "Q4_K_S", "Q4_K_M", "Q5_K_S", "Q5_K_M", "Q6_K", "MobileQuant"
-        };
-        
-        for (const auto& pattern : quant_patterns) {
+            "Q4_0", "Q5_0", "Q2_K", "Q3_K_S", "Q3_K_M", "Q3_K_L",
+            "Q4_K_S", "Q4_K_M", "Q5_K_S", "Q5_K_M", "Q6_K", "MobileQuant"};
+
+        for (const auto &pattern : quant_patterns) {
             if (model_path_str.find(pattern) != std::string::npos) {
                 is_quantized = true;
                 break;
             }
         }
-        
-        int n_ctx = is_quantized ? 8192 : 4096;
-        int n_threads = std::max(1, static_cast<int>(std::thread::hardware_concurrency() * 0.75));
-        
-        g_ctx = std::make_unique<LlamaContext>(path, n_ctx, n_threads, is_quantized);
+
+        int n_ctx = context_size > 0 ? context_size : (is_quantized ? 8192 : 4096);
+        int threads = n_threads > 0
+                          ? n_threads
+                          : std::max(1, static_cast<int>(
+                                               std::thread::hardware_concurrency() *
+                                               0.75));
+
+        auto ctx = std::make_unique<LlamaContext>(path, n_ctx, threads, is_quantized);
         env->ReleaseStringUTFChars(model_path, path);
-        return reinterpret_cast<jlong>(g_ctx.get());
-    } catch (const std::exception& e) {
+        return reinterpret_cast<jlong>(ctx.release());
+    } catch (const std::exception &e) {
         env->ReleaseStringUTFChars(model_path, path);
+        env->ThrowNew(env->FindClass("java/lang/RuntimeException"), e.what());
         return 0;
     }
 }
 
 extern "C" JNIEXPORT jstring JNICALL
-Java_com_myofflinellmapp_LlamaTurboModule_generate(JNIEnv *env, jobject thiz, jlong ctx_ptr,
-                                                  jstring prompt, jint max_tokens, jfloat temperature,
-                                                  jboolean use_sparse_attention) {
-    if (!g_ctx) {
+Java_com_myofflinellmapp_LlamaTurboModule_generate(
+    JNIEnv *env, jobject thiz, jlong ctx_ptr, jstring prompt, jint max_tokens,
+    jfloat temperature, jboolean use_sparse_attention) {
+    if (ctx_ptr == 0) {
         return env->NewStringUTF("Error: Model not loaded");
     }
-    
+
+    LlamaContext *ctx = reinterpret_cast<LlamaContext *>(ctx_ptr);
+
     const char *prompt_str = env->GetStringUTFChars(prompt, 0);
     std::string prompt_text(prompt_str);
     env->ReleaseStringUTFChars(prompt, prompt_str);
-    
+
     try {
-        g_ctx->add_message_boundary();
-        auto input_tokens = g_ctx->tokenize(prompt_text);
-        auto generated_tokens = g_ctx->generate(input_tokens, max_tokens, temperature, use_sparse_attention);
-        
-        input_tokens.insert(input_tokens.end(), generated_tokens.begin(), generated_tokens.end());
-        std::string response = g_ctx->detokenize(input_tokens);
-        
+        ctx->add_message_boundary();
+        auto input_tokens = ctx->tokenize(prompt_text);
+        auto generated_tokens =
+            ctx->generate(input_tokens, max_tokens, temperature,
+                          use_sparse_attention);
+
+        input_tokens.insert(input_tokens.end(), generated_tokens.begin(),
+                             generated_tokens.end());
+        std::string response = ctx->detokenize(input_tokens);
+
         return env->NewStringUTF(response.c_str());
-    } catch (const std::exception& e) {
-        return env->NewStringUTF("Error during generation");
+    } catch (const std::exception &e) {
+        return env->NewStringUTF(("Error: " + std::string(e.what())).c_str());
     }
 }
 
 extern "C" JNIEXPORT jfloatArray JNICALL
-Java_com_myofflinellmapp_LlamaTurboModule_embed(JNIEnv *env, jobject thiz, jlong ctx_ptr, jstring text) {
-    if (!g_ctx) {
+Java_com_myofflinellmapp_LlamaTurboModule_embed(JNIEnv *env, jobject thiz,
+                                                jlong ctx_ptr, jstring text) {
+    if (ctx_ptr == 0) {
         return env->NewFloatArray(0);
     }
-    
+
+    LlamaContext *ctx = reinterpret_cast<LlamaContext *>(ctx_ptr);
+
     const char *text_str = env->GetStringUTFChars(text, 0);
     std::string text_text(text_str);
     env->ReleaseStringUTFChars(text, text_str);
-    
+
     try {
-        auto embedding = g_ctx->embed(text_text);
-        
+        auto embedding = ctx->embed(text_text);
+
         jfloatArray result = env->NewFloatArray(embedding.size());
         env->SetFloatArrayRegion(result, 0, embedding.size(), embedding.data());
-        
+
         return result;
-    } catch (const std::exception& e) {
+    } catch (const std::exception &e) {
         return env->NewFloatArray(0);
     }
 }
 
 extern "C" JNIEXPORT void JNICALL
-Java_com_myofflinellmapp_LlamaTurboModule_clearKVCache(JNIEnv *env, jobject thiz, jlong ctx_ptr) {
-    if (g_ctx) {
-        g_ctx->clear_kv_cache();
+Java_com_myofflinellmapp_LlamaTurboModule_clearKVCache(JNIEnv *env, jobject thiz,
+                                                       jlong ctx_ptr) {
+    LlamaContext *ctx = reinterpret_cast<LlamaContext *>(ctx_ptr);
+    if (ctx) {
+        ctx->clear_kv_cache();
     }
 }
 
 extern "C" JNIEXPORT jint JNICALL
-Java_com_myofflinellmapp_LlamaTurboModule_getKVCacheSize(JNIEnv *env, jobject thiz, jlong ctx_ptr) {
-    if (g_ctx) {
-        return g_ctx->kv_cache_size();
+Java_com_myofflinellmapp_LlamaTurboModule_getKVCacheSize(JNIEnv *env, jobject thiz,
+                                                         jlong ctx_ptr) {
+    LlamaContext *ctx = reinterpret_cast<LlamaContext *>(ctx_ptr);
+    if (ctx) {
+        return ctx->kv_cache_size();
     }
     return 0;
 }
 
 extern "C" JNIEXPORT jint JNICALL
-Java_com_myofflinellmapp_LlamaTurboModule_getKVCacheMaxSize(JNIEnv *env, jobject thiz, jlong ctx_ptr) {
-    if (g_ctx) {
-        return g_ctx->kv_cache_max_size();
+Java_com_myofflinellmapp_LlamaTurboModule_getKVCacheMaxSize(JNIEnv *env,
+                                                            jobject thiz,
+                                                            jlong ctx_ptr) {
+    LlamaContext *ctx = reinterpret_cast<LlamaContext *>(ctx_ptr);
+    if (ctx) {
+        return ctx->kv_cache_max_size();
     }
     return 512;
 }
 
 extern "C" JNIEXPORT void JNICALL
-Java_com_myofflinellmapp_LlamaTurboModule_addMessageBoundary(JNIEnv *env, jobject thiz, jlong ctx_ptr) {
-    if (g_ctx) {
-        g_ctx->add_message_boundary();
+Java_com_myofflinellmapp_LlamaTurboModule_addMessageBoundary(JNIEnv *env,
+                                                             jobject thiz,
+                                                             jlong ctx_ptr) {
+    LlamaContext *ctx = reinterpret_cast<LlamaContext *>(ctx_ptr);
+    if (ctx) {
+        ctx->add_message_boundary();
     }
 }
 
 extern "C" JNIEXPORT void JNICALL
-Java_com_myofflinellmapp_LlamaTurboModule_freeModel(JNIEnv *env, jobject thiz, jlong ctx_ptr) {
-    g_ctx.reset();
+Java_com_myofflinellmapp_LlamaTurboModule_freeModel(JNIEnv *env, jobject thiz,
+                                                    jlong ctx_ptr) {
+    LlamaContext *ctx = reinterpret_cast<LlamaContext *>(ctx_ptr);
+    delete ctx;
 }
 
 extern "C" JNIEXPORT jobject JNICALL
-Java_com_myofflinellmapp_LlamaTurboModule_getPerformanceMetrics(JNIEnv *env, jobject thiz, jlong ctx_ptr) {
-    if (!g_ctx) {
+Java_com_myofflinellmapp_LlamaTurboModule_getPerformanceMetrics(
+    JNIEnv *env, jobject thiz, jlong ctx_ptr) {
+    if (ctx_ptr == 0) {
         return nullptr;
     }
-    
+
+    LlamaContext *ctx = reinterpret_cast<LlamaContext *>(ctx_ptr);
+
     try {
-        auto stats = g_ctx->get_performance_stats();
-        
+        auto stats = ctx->get_performance_stats();
+
         jclass hashMapClass = env->FindClass("java/util/HashMap");
         jmethodID hashMapInit = env->GetMethodID(hashMapClass, "<init>", "()V");
         jobject hashMap = env->NewObject(hashMapClass, hashMapInit);
-        jmethodID hashMapPut = env->GetMethodID(hashMapClass, "put", 
+        jmethodID hashMapPut = env->GetMethodID(
+            hashMapClass, "put",
             "(Ljava/lang/Object;Ljava/lang/Object;)Ljava/lang/Object;");
-        
-        env->CallObjectMethod(hashMap, hashMapPut, 
-            env->NewStringUTF("totalInferenceTime"), 
-            env->NewStringUTF(std::to_string(stats.total_inference_time).c_str()));
-        env->CallObjectMethod(hashMap, hashMapPut, 
-            env->NewStringUTF("inferenceCount"), 
-            env->NewStringUTF(std::to_string(stats.inference_count).c_str()));
-        env->CallObjectMethod(hashMap, hashMapPut, 
-            env->NewStringUTF("lastInferenceTime"), 
-            env->NewStringUTF(std::to_string(stats.last_inference_time).c_str()));
-        
+
+        env->CallObjectMethod(hashMap, hashMapPut,
+                              env->NewStringUTF("totalInferenceTime"),
+                              env->NewStringUTF(
+                                  std::to_string(stats.total_inference_time).c_str()));
+        env->CallObjectMethod(hashMap, hashMapPut,
+                              env->NewStringUTF("inferenceCount"),
+                              env->NewStringUTF(
+                                  std::to_string(stats.inference_count).c_str()));
+        env->CallObjectMethod(hashMap, hashMapPut,
+                              env->NewStringUTF("lastInferenceTime"),
+                              env->NewStringUTF(
+                                  std::to_string(stats.last_inference_time).c_str()));
+
         return hashMap;
-    } catch (const std::exception& e) {
+    } catch (const std::exception &e) {
         return nullptr;
     }
 }
 
 extern "C" JNIEXPORT void JNICALL
-Java_com_myofflinellmapp_LlamaTurboModule_adjustPerformanceMode(JNIEnv *env, jobject thiz, jlong ctx_ptr, jstring mode) {
-    if (!g_ctx) {
+Java_com_myofflinellmapp_LlamaTurboModule_adjustPerformanceMode(
+    JNIEnv *env, jobject thiz, jlong ctx_ptr, jstring mode) {
+    LlamaContext *ctx = reinterpret_cast<LlamaContext *>(ctx_ptr);
+    if (!ctx) {
         return;
     }
-    
+
     const char *mode_str = env->GetStringUTFChars(mode, 0);
     std::string mode_text(mode_str);
     env->ReleaseStringUTFChars(mode, mode_str);
-    
+
     try {
         if (mode_text == "low-memory") {
-            g_ctx->adjust_cache_size(256);
-            g_ctx->enable_sparse_attention(true);
+            ctx->adjust_cache_size(256);
+            ctx->enable_sparse_attention(true);
         } else if (mode_text == "power-saving") {
-            g_ctx->adjust_cache_size(512);
-            g_ctx->enable_sparse_attention(false);
+            ctx->adjust_cache_size(512);
+            ctx->enable_sparse_attention(false);
         } else if (mode_text == "performance") {
-            g_ctx->adjust_cache_size(1024);
-            g_ctx->enable_sparse_attention(false);
+            ctx->adjust_cache_size(1024);
+            ctx->enable_sparse_attention(false);
         }
-    } catch (const std::exception& e) {
+    } catch (const std::exception &e) {
         // Ignore errors
     }
 }

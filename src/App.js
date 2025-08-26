@@ -1,7 +1,13 @@
-import React, { useEffect, useState } from 'react';
-import { View, Text, ActivityIndicator, StyleSheet, Platform } from 'react-native';
-import LLMService from './services/llmService';
-import { ToolRegistry, builtInTools } from './architecture/toolSystem';
+import React, { useEffect, useState } from "react";
+import {
+  View,
+  Text,
+  ActivityIndicator,
+  StyleSheet,
+  Platform,
+} from "react-native";
+import LLMService from "./services/llmService";
+import { ToolRegistry, builtInTools } from "./architecture/toolSystem";
 import {
   createCalendarEventTool,
   sendMessageTool,
@@ -28,20 +34,24 @@ import {
   pickPhotoTool,
   takePhotoTool,
   pickFileTool,
-  openUrlTool
-} from './tools/iosTools';
-import { PluginManager } from './architecture/pluginManager';
-import { DependencyInjector } from './architecture/dependencyInjector';
-import ChatInterface from './components/ChatInterface';
-import { useSpeechRecognition } from './hooks/useSpeechRecognition';
-import { useChat } from './hooks/useChat';
+  openUrlTool,
+} from "./tools/iosTools";
+import { PluginManager } from "./architecture/pluginManager";
+import { DependencyInjector } from "./architecture/dependencyInjector";
+import ChatInterface from "./components/ChatInterface";
+import { useSpeechRecognition } from "./hooks/useSpeechRecognition";
+import { useChat } from "./hooks/useChat";
+import useLLMStore from "./store/llmStore";
 
 function App() {
   const [initialized, setInitialized] = useState(false);
   const [error, setError] = useState(null);
-  const [input, setInput] = useState('');
-  const { messages, send, initVectorStore } = useChat();
-  const { isRecording, start } = useSpeechRecognition(send, err => console.warn('Speech recognition error', err));
+  const [input, setInput] = useState("");
+  const { send, initVectorStore } = useChat();
+  const { messages } = useLLMStore();
+  const { isRecording, start } = useSpeechRecognition(send, (err) =>
+    console.warn("Speech recognition error", err),
+  );
 
   useEffect(() => {
     initializeApp();
@@ -54,7 +64,7 @@ function App() {
       Object.entries(builtInTools).forEach(([name, tool]) => {
         toolRegistry.registerTool(name, tool);
       });
-      if (Platform.OS === 'ios') {
+      if (Platform.OS === "ios") {
         [
           createCalendarEventTool,
           sendMessageTool,
@@ -81,28 +91,28 @@ function App() {
           pickPhotoTool,
           takePhotoTool,
           pickFileTool,
-          openUrlTool
-        ].forEach(tool => {
+          openUrlTool,
+        ].forEach((tool) => {
           toolRegistry.registerTool(tool.name, tool);
         });
       }
       const pluginManager = new PluginManager();
-      await LLMService.loadModel('path/to/default/model');
+      await LLMService.loadModel("path/to/default/model");
       await initVectorStore();
-      dependencyInjector.register('toolRegistry', toolRegistry);
-      dependencyInjector.register('pluginManager', pluginManager);
-      dependencyInjector.register('llmService', LLMService);
+      dependencyInjector.register("toolRegistry", toolRegistry);
+      dependencyInjector.register("pluginManager", pluginManager);
+      dependencyInjector.register("llmService", LLMService);
       setInitialized(true);
     } catch (err) {
-      console.error('App initialization failed:', err);
+      console.error("App initialization failed:", err);
       setError(err.message);
     }
   };
 
-  const handleSend = text => {
+  const handleSend = (text) => {
     const message = text || input;
     send(message);
-    setInput('');
+    setInput("");
   };
 
   if (error) {
@@ -137,11 +147,11 @@ function App() {
 const styles = StyleSheet.create({
   centered: {
     flex: 1,
-    justifyContent: 'center',
-    alignItems: 'center'
+    justifyContent: "center",
+    alignItems: "center",
   },
   loading: { marginTop: 20 },
-  errorText: { color: 'red' }
+  errorText: { color: "red" },
 });
 
 export default App;
