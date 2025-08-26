@@ -142,7 +142,9 @@ public class LlamaTurboModule extends ReactContextBaseJavaModule {
                     useSparseAttention = options.getBoolean("useSparseAttention");
                 }
             }
-            String result = nativeGenerate(mCtxPtr, prompt, maxTokens, temperature, useSparseAttention);
+            String resultText = nativeGenerate(mCtxPtr, prompt, maxTokens, temperature, useSparseAttention);
+            WritableMap result = new WritableNativeMap();
+            result.putString("text", resultText);
             promise.resolve(result);
         } catch (Exception e) {
             promise.reject("GENERATE_ERROR", "Generation failed: " + e.getMessage());

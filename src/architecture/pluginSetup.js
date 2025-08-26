@@ -3,13 +3,18 @@ export function registerLLMPlugins(pluginManager, context) {
     initialize: async () => console.log('Sparse attention plugin initialized'),
     replace: {
       generate: async function (prompt, maxTokens, temperature, options = {}) {
-        const useSparse = options.useSparseAttention ||
+        const useSparseAttention = options.useSparseAttention ||
           context.deviceProfile.tier === 'low' ||
           context.kvCache.size > context.kvCache.maxSize * 0.8;
         if (context.isWeb) {
           return context.generateWeb(prompt, maxTokens, temperature);
         }
-        return context.nativeModule.generate(prompt, maxTokens, temperature, useSparse);
+        const generateOptions = {
+          maxTokens,
+          temperature,
+          useSparseAttention
+        };
+        return context.nativeModule.generate(prompt, generateOptions);
       }
     }
   });

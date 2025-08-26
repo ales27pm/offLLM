@@ -69,7 +69,7 @@ export function useChat() {
         prompt = `Context:\n${context}\n\n${prompt}`;
       }
       const response = await LLMService.generate(prompt, 256, 0.7, { useSparseAttention: true });
-      const reply = response?.text || '';
+      const reply = response.text;
       setMessages(prev => [...prev, { id: generateId(), sender: 'assistant', text: reply }]);
       Tts.stop();
       const speechText = reply.replace(/([.?!])\s+/g, '$1 <break time="500ms"/> ');
