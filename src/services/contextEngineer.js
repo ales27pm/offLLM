@@ -1,8 +1,10 @@
-import { NativeModules, Platform } from 'react-native';
-import LLMService from './llmService';
-import { cosineSimilarity } from '../utils/vectorUtils';
-import { applySparseAttention } from '../utils/sparseAttention';
-import { encoding_for_model } from 'tiktoken';
+import { NativeModules, Platform } from "react-native";
+import LLMService from "./llmService";
+import { cosineSimilarity } from "../utils/vectorUtils";
+import { applySparseAttention } from "../utils/sparseAttention";
+import { encoding_for_model } from "tiktoken";
+
+/* global vectorStore */
 
 export class ContextEvaluator {
   constructor() {
@@ -10,7 +12,7 @@ export class ContextEvaluator {
     this.qualityThreshold = 0.7;
     this.useHierarchicalAttention = true;
     try {
-      this.tokenizer = encoding_for_model('gpt-3.5-turbo');
+      this.tokenizer = encoding_for_model("gpt-3.5-turbo");
     } catch (e) {
       this.tokenizer = null;
     }
@@ -18,118 +20,119 @@ export class ContextEvaluator {
 
   async evaluateContext(query, contextItems) {
     if (!contextItems || contextItems.length === 0) return [];
-    
+
     if (this.useHierarchicalAttention && contextItems.length > 10) {
       return this._evaluateWithHierarchicalAttention(query, contextItems);
     }
-    
-    const relevantContext = contextItems.filter(item => 
-      item.similarity >= this.relevanceThreshold
+
+    const relevantContext = contextItems.filter(
+      (item) => item.similarity >= this.relevanceThreshold
     );
-    
+
     const topContext = relevantContext
       .sort((a, b) => b.similarity - a.similarity)
       .slice(0, 3);
-    
+
     if (topContext.length === 0) return [];
-    
+
     const deviceMemory = await this._getDeviceMemory();
     if (deviceMemory < 3000) {
-      return topContext.map(item => ({
+      return topContext.map((item) => ({
         ...item,
         qualityScore: item.similarity,
-        isHighQuality: item.similarity >= this.qualityThreshold
+        isHighQuality: item.similarity >= this.qualityThreshold,
       }));
     }
-    
+
     return await this._assessContextQuality(query, topContext);
   }
 
   async _evaluateWithHierarchicalAttention(query, contextItems) {
     const queryEmbedding = await LLMService.embed(query);
-    
+
     const clusteredContext = this._clusterContextItems(contextItems);
     const selectedContext = await applySparseAttention(
-      queryEmbedding, 
+      queryEmbedding,
       clusteredContext,
       { numClusters: 3, topK: 2 }
     );
-    
+
     return await this._assessContextQuality(query, selectedContext);
   }
 
   _clusterContextItems(contextItems) {
     const clusters = [];
-    
+
     for (const item of contextItems) {
       let addedToCluster = false;
-      
+
       for (const cluster of clusters) {
         const clusterSimilarity = cosineSimilarity(
-          item.embedding, 
+          item.embedding,
           cluster.center
         );
-        
+
         if (clusterSimilarity > 0.7) {
           cluster.items.push(item);
-          cluster.center = cluster.items.reduce((sum, i) => {
-            return sum.map((val, idx) => val + i.embedding[idx]);
-          }, new Array(item.embedding.length).fill(0))
-          .map(val => val / cluster.items.length);
+          cluster.center = cluster.items
+            .reduce((sum, i) => {
+              return sum.map((val, idx) => val + i.embedding[idx]);
+            }, new Array(item.embedding.length).fill(0))
+            .map((val) => val / cluster.items.length);
           addedToCluster = true;
           break;
         }
       }
-      
+
       if (!addedToCluster) {
         clusters.push({
           center: [...item.embedding],
-          items: [item]
+          items: [item],
         });
       }
     }
-    
+
     return clusters;
   }
 
   async _assessContextQuality(query, contextItems) {
     const qualityResults = [];
-    
+
     for (const item of contextItems) {
       try {
         let qualityScore = item.similarity;
-        
+
         if (item.metadata.timestamp) {
           const age = Date.now() - new Date(item.metadata.timestamp).getTime();
           const ageFactor = Math.max(0.7, 1 - age / (30 * 24 * 60 * 60 * 1000));
           qualityScore *= ageFactor;
         }
-        
-        if (item.metadata.source === 'knowledge_base') {
+
+        if (item.metadata.source === "knowledge_base") {
           qualityScore *= 1.1;
         }
-        
+
         qualityResults.push({
           ...item,
           qualityScore,
-          isHighQuality: qualityScore >= this.qualityThreshold
+          isHighQuality: qualityScore >= this.qualityThreshold,
         });
       } catch (error) {
-        console.error('Context quality assessment failed:', error);
+        console.error("Context quality assessment failed:", error);
         qualityResults.push({
           ...item,
           qualityScore: item.similarity,
-          isHighQuality: item.similarity >= this.qualityThreshold
+          isHighQuality: item.similarity >= this.qualityThreshold,
         });
       }
     }
-    
+
     return qualityResults;
   }
 
   async _getDeviceMemory() {
     try {
-      if (Platform.OS === 'ios') {
+      if (Platform.OS === "ios") {
         return NativeModules.DeviceInfo?.getTotalMemory?.() || 2000;
       } else {
         return NativeModules.DeviceInfo?.totalMemory?.() || 2000;
@@ -141,21 +144,26 @@ export class ContextEvaluator {
 
   prioritizeContext(contextItems) {
     if (!contextItems || contextItems.length === 0) return [];
-    
+
     return contextItems
       .sort((a, b) => {
-        const qualityDiff = (b.qualityScore || b.similarity) - (a.qualityScore || a.similarity);
+        const qualityDiff =
+          (b.qualityScore || b.similarity) - (a.qualityScore || a.similarity);
         if (Math.abs(qualityDiff) > 0.05) return qualityDiff;
-        
+
         try {
-          const aTime = a.metadata?.timestamp ? new Date(a.metadata.timestamp).getTime() : 0;
-          const bTime = b.metadata?.timestamp ? new Date(b.metadata.timestamp).getTime() : 0;
+          const aTime = a.metadata?.timestamp
+            ? new Date(a.metadata.timestamp).getTime()
+            : 0;
+          const bTime = b.metadata?.timestamp
+            ? new Date(b.metadata.timestamp).getTime()
+            : 0;
           return bTime - aTime;
         } catch (e) {
           return 0;
         }
       })
-      .filter(item => item.isHighQuality)
+      .filter((item) => item.isHighQuality)
       .slice(0, 2);
   }
 }
@@ -169,33 +177,42 @@ export class ContextEngineer {
   }
 
   async engineerContext(query, conversationHistory) {
-    const { maxContextTokens, conversationSummaryLength } = await this._getDeviceConfig();
+    const { maxContextTokens, conversationSummaryLength } =
+      await this._getDeviceConfig();
     this.maxContextTokens = maxContextTokens;
     this.conversationSummaryLength = conversationSummaryLength;
-    
-    const tokenBudget = this.useDynamicTokenBudgeting 
+
+    const tokenBudget = this.useDynamicTokenBudgeting
       ? await this._calculateDynamicTokenBudget(query, conversationHistory)
       : { maxContextTokens: this.maxContextTokens };
-    
+
     if (this._requiresHierarchicalAttention(query, conversationHistory)) {
-      return this._hierarchicalContextProcessing(query, conversationHistory, tokenBudget);
+      return this._hierarchicalContextProcessing(
+        query,
+        conversationHistory,
+        tokenBudget
+      );
     }
-    
-    return this._standardContextProcessing(query, conversationHistory, tokenBudget);
+
+    return this._standardContextProcessing(
+      query,
+      conversationHistory,
+      tokenBudget
+    );
   }
 
   async _calculateDynamicTokenBudget(query, conversationHistory) {
     const deviceProfile = await this._getDeviceProfile();
     const queryComplexity = this._assessQueryComplexity(query);
-    
-    let baseTokens = deviceProfile.tier === 'high' ? 1024 : 512;
-    
-    if (queryComplexity === 'high') {
+
+    let baseTokens = deviceProfile.tier === "high" ? 1024 : 512;
+
+    if (queryComplexity === "high") {
       baseTokens = Math.min(baseTokens, 768);
-    } else if (queryComplexity === 'low') {
+    } else if (queryComplexity === "low") {
       baseTokens = Math.min(baseTokens, 1024);
     }
-    
+
     if (conversationHistory.length > 10) {
       baseTokens = Math.max(256, Math.floor(baseTokens * 0.7));
     }
@@ -206,91 +223,109 @@ export class ContextEngineer {
       maxContextTokens: baseTokens,
       queryTokens: Math.floor(baseTokens * 0.2),
       contextTokens: Math.floor(baseTokens * 0.5),
-      historyTokens: Math.floor(baseTokens * 0.3)
+      historyTokens: Math.floor(baseTokens * 0.3),
     };
   }
 
   _requiresHierarchicalAttention(query, conversationHistory) {
-    return query.length > 100 || 
-           conversationHistory.length > 10 ||
-           this._assessQueryComplexity(query) === 'high';
+    return (
+      query.length > 100 ||
+      conversationHistory.length > 10 ||
+      this._assessQueryComplexity(query) === "high"
+    );
   }
 
-  async _hierarchicalContextProcessing(query, conversationHistory, tokenBudget) {
+  async _hierarchicalContextProcessing(
+    query,
+    conversationHistory,
+    tokenBudget
+  ) {
     const queryEmbedding = await LLMService.embed(query);
-    
+
     const relevantChunks = await this._retrieveRelevantChunksSparse(
-      queryEmbedding, 
+      queryEmbedding,
       Math.floor(tokenBudget.contextTokens / 100)
     );
-    
+
     const conversationSummary = await this._summarizeConversationHierarchically(
-      conversationHistory, 
+      conversationHistory,
       tokenBudget.historyTokens
     );
-    
-    const availableContextTokens = tokenBudget.maxContextTokens - 
-                                  conversationSummary.tokenCount - 
-                                  tokenBudget.queryTokens;
-    
+
+    const availableContextTokens =
+      tokenBudget.maxContextTokens -
+      conversationSummary.tokenCount -
+      tokenBudget.queryTokens;
+
     const selectedContext = await this._selectContextWithinBudgetSparse(
-      relevantChunks, 
+      relevantChunks,
       availableContextTokens
     );
-    
+
     return {
       contextPrompt: this._assembleHierarchicalContext(
-        query, 
-        selectedContext, 
+        query,
+        selectedContext,
         conversationSummary
       ),
       tokenUsage: {
         total: tokenBudget.maxContextTokens,
         context: selectedContext.tokenCount,
         conversation: conversationSummary.tokenCount,
-        query: tokenBudget.queryTokens
+        query: tokenBudget.queryTokens,
       },
-      usedSparseAttention: true
+      usedSparseAttention: true,
     };
   }
 
   async _retrieveRelevantChunksSparse(queryEmbedding, limit) {
     try {
       const results = await vectorStore.searchVectorsSparse(
-        queryEmbedding, 
+        queryEmbedding,
         limit,
         { useHierarchical: true, numClusters: 3 }
       );
       return results;
     } catch (error) {
-      console.error('Sparse retrieval failed, falling back to standard:', error);
+      console.error(
+        "Sparse retrieval failed, falling back to standard:",
+        error
+      );
       return await vectorStore.searchVectors(queryEmbedding, limit);
     }
   }
 
   async _summarizeConversationHierarchically(conversationHistory, maxTokens) {
     const conversationText = conversationHistory
-      .map(m => `${m.role === 'user' ? 'User' : 'Assistant'}: ${m.content}`)
-      .join('\n');
-      
+      .map((m) => `${m.role === "user" ? "User" : "Assistant"}: ${m.content}`)
+      .join("\n");
+
     try {
       const summaryPrompt = `Summarize this conversation history concisely within ${maxTokens} tokens:\n\n${conversationText}\n\nSummary:`;
-      
+
       const summaryResult = await LLMService.generate(
-        summaryPrompt, 
-        maxTokens, 
+        summaryPrompt,
+        maxTokens,
         0.3
       );
-      
+
       return {
         text: summaryResult.text,
-        tokenCount: this._estimateTokens(summaryResult.text)
+        tokenCount: this._estimateTokens(summaryResult.text),
       };
     } catch (error) {
-      console.error('Hierarchical summarization failed:', error);
+      console.error("Hierarchical summarization failed:", error);
       return {
-        text: conversationHistory.slice(-2).map(m => m.content).join('\n'),
-        tokenCount: this._estimateTokens(conversationHistory.slice(-2).map(m => m.content).join('\n'))
+        text: conversationHistory
+          .slice(-2)
+          .map((m) => m.content)
+          .join("\n"),
+        tokenCount: this._estimateTokens(
+          conversationHistory
+            .slice(-2)
+            .map((m) => m.content)
+            .join("\n")
+        ),
       };
     }
   }
@@ -309,34 +344,34 @@ export class ContextEngineer {
   _assessQueryComplexity(query) {
     let score = query.length / 100;
     if (query.match(/\b(explain|analyze|reason|complex)\b/i)) score += 5;
-    return score > 5 ? 'high' : score > 2 ? 'medium' : 'low';
+    return score > 5 ? "high" : score > 2 ? "medium" : "low";
   }
 
   async _getDeviceConfig() {
     const deviceMemory = await this._getDeviceMemory();
     const isLowEnd = deviceMemory < 3000;
-    
+
     if (isLowEnd) {
       return {
         maxContextTokens: 512,
-        conversationSummaryLength: 96
+        conversationSummaryLength: 96,
       };
-    } else if (Platform.OS === 'ios') {
+    } else if (Platform.OS === "ios") {
       return {
         maxContextTokens: 1024,
-        conversationSummaryLength: 160
+        conversationSummaryLength: 160,
       };
     } else {
       return {
         maxContextTokens: 768,
-        conversationSummaryLength: 128
+        conversationSummaryLength: 128,
       };
     }
   }
 
   async _getDeviceMemory() {
     try {
-      if (Platform.OS === 'ios') {
+      if (Platform.OS === "ios") {
         return NativeModules.DeviceInfo?.getTotalMemory?.() || 2000;
       } else {
         return NativeModules.DeviceInfo?.totalMemory?.() || 2000;
@@ -348,25 +383,26 @@ export class ContextEngineer {
 
   async _getDeviceProfile() {
     try {
-      const totalMemory = Platform.OS === 'ios' 
-        ? NativeModules.DeviceInfo?.getTotalMemory?.() 
-        : NativeModules.DeviceInfo?.totalMemory?.() || 2000;
-      
-      let tier = 'low';
+      const totalMemory =
+        Platform.OS === "ios"
+          ? NativeModules.DeviceInfo?.getTotalMemory?.()
+          : NativeModules.DeviceInfo?.totalMemory?.() || 2000;
+
+      let tier = "low";
       if (totalMemory >= 6000) {
-        tier = 'high';
+        tier = "high";
       } else if (totalMemory >= 3000) {
-        tier = 'mid';
+        tier = "mid";
       }
-      
+
       return {
         tier,
-        totalMemory
+        totalMemory,
       };
     } catch (error) {
       return {
-        tier: 'low',
-        totalMemory: 2000
+        tier: "low",
+        totalMemory: 2000,
       };
     }
   }

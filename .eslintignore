@@ -1,8 +1,5 @@
+# Only ignore build artifacts and dependencies
 node_modules/
-android/
-ios/
-build/
 dist/
+build/
 coverage/
-src/
-__tests__/

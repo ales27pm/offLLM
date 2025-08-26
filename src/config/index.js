@@ -3,7 +3,6 @@ const isReactNative =
   typeof navigator !== "undefined" && navigator.product === "ReactNative";
 if (isReactNative) {
   try {
-    // eslint-disable-next-line @typescript-eslint/no-var-requires
     Config = require("react-native-config");
   } catch (e) {
     Config = {};

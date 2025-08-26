@@ -15,7 +15,7 @@ export class AgentOrchestrator {
     this.plugins.loadPlugins();
   }
 
-  async run(prompt, context = {}) {
+  async run(prompt) {
     const longMem = await this.memory.retrieve(prompt);
     const shortMem = this.memory.getConversationHistory();
     const fullCtx = [...longMem, ...shortMem];
