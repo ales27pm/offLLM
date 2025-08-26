@@ -68,20 +68,41 @@ public class LlamaTurboModule extends ReactContextBaseJavaModule {
     @ReactMethod
     public void loadModel(String modelPath, ReadableMap options, Promise promise) {
         try {
-            // If options is null, create an empty map to avoid NPEs
             String quantizationType = "none";
             int contextSize = 4096;
             int maxThreads = Math.max(1, Runtime.getRuntime().availableProcessors() - 1);
             if (options != null) {
-                if (options.hasKey("quantizationType")) {
-                    quantizationType = options.getString("quantizationType");
+                if (options.hasKey("quantizationType") && !options.isNull("quantizationType")) {
+                    String q = options.getString("quantizationType");
+                    if (q != null && !q.isEmpty()) {
+                        quantizationType = q;
+                    }
                 }
-                if (options.hasKey("contextSize")) {
-                    contextSize = options.getInt("contextSize");
+                if (options.hasKey("contextSize") && !options.isNull("contextSize")) {
+                    double cs = options.getDouble("contextSize");
+                    if (!Double.isNaN(cs) && cs > 0) {
+                        contextSize = Math.max(1, (int) Math.round(cs));
+                    }
                 }
-                if (options.hasKey("maxThreads")) {
-                    maxThreads = options.getInt("maxThreads");
+                if (options.hasKey("maxThreads") && !options.isNull("maxThreads")) {
+                    double mt = options.getDouble("maxThreads");
+                    if (!Double.isNaN(mt)) {
+                        maxThreads = (int) Math.round(mt);
+                    }
                 }
+            }
+            int available = Math.max(1, Runtime.getRuntime().availableProcessors());
+            maxThreads = Math.min(available, Math.max(1, maxThreads));
+
+            if (modelPath == null || modelPath.isEmpty()) {
+                promise.reject("LOAD_ERROR", "Model path must be a non-empty string");
+                return;
+            }
+
+            // Free any previously loaded model to avoid leaks when reloading
+            if (mCtxPtr != 0) {
+                nativeFreeModel(mCtxPtr);
+                mCtxPtr = 0;
             }
 
             mCtxPtr = nativeLoadModel(modelPath, quantizationType, contextSize, maxThreads);
