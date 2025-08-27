@@ -96,5 +96,8 @@ TurboModules on macOS runners. The spec lives at `ios/MyOfflineLLMApp/project.ym
 `56` so Xcode 15 can open the project, preventing "future Xcode project file format" errors. The workflow emits clear messages
 when the XcodeGen spec or Podfile are missing and builds the generated workspace explicitly.
 
+An additional script at `ios/MyOfflineLLMApp/Scripts/verify_deployment_target.sh` runs during the Xcode build to ensure the
+deployment target remains set to iOS 13.0.
+
 See `CITATIONS.md` for references and inspiration. Contributions are
 welcome!

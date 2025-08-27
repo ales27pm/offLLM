@@ -24,15 +24,15 @@ jobs:
       - name: Install XcodeGen and CocoaPods
         run: brew install xcodegen cocoapods
       - name: Cache Pods
-        if: ${{ hashFiles('ios/MyOfflineLLMApp/Podfile') != '' }}
+        if: ${{ hashFiles('ios/Podfile') != '' }}
         uses: actions/cache@v3
         with:
-          path: ios/MyOfflineLLMApp/Pods
-          key: ${{ runner.os }}-pods-${{ hashFiles('ios/MyOfflineLLMApp/Podfile.lock') }}
+          path: ios/Pods
+          key: ${{ runner.os }}-pods-${{ hashFiles('ios/Podfile.lock') }}
           restore-keys: |
             ${{ runner.os }}-pods-
       - name: Skip Pod cache
-        if: ${{ hashFiles('ios/MyOfflineLLMApp/Podfile') == '' }}
+        if: ${{ hashFiles('ios/Podfile') == '' }}
         run: echo 'No Podfile found; skipping Pod cache'
       - name: Generate Xcode project & Install Pods
         run: |
@@ -55,7 +55,12 @@ jobs:
 
               # (Optional hardening) Retry once if install fails due to network/CDN hiccups
               set -e
-              ( cd ios/MyOfflineLLMApp && pod install --repo-update --verbose ) || ( sleep 5 && cd ios/MyOfflineLLMApp && pod install --repo-update --verbose )
+              ( cd ios && pod install --repo-update --verbose ) || ( sleep 5 && cd ios && pod install --repo-update --verbose )
+
+              if [ ! -f ios/Pods/.ran_post_install ]; then
+                echo 'ERROR: Pod post_install hook did not execute'
+                exit 1
+              fi
             else
               echo "XcodeGen spec or directory missing; skipping project generation"
             fi
