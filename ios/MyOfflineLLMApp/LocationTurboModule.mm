@@ -1,5 +1,5 @@
-#import <React/RCTBridgeModule.h>
-#import <React/RCTEventEmitter.h>
+#import "React/RCTBridgeModule.h"
+#import "React/RCTEventEmitter.h"
 #import <CoreLocation/CoreLocation.h>
 
 @interface LocationTurboModule : RCTEventEmitter <RCTBridgeModule, CLLocationManagerDelegate>

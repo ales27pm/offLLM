@@ -1,5 +1,5 @@
-#import <React/RCTBridgeModule.h>
-#import <React/RCTLog.h>
+#import "React/RCTBridgeModule.h"
+#import "React/RCTLog.h"
 #import <MLX/MLX.h>
 #import <MLXLLM/MLXLLM.h>
 #import "ANEOptimizer.h"
@@ -128,8 +128,8 @@ RCT_EXTERN_METHOD(adjustPerformanceMode:(NSString *)mode
         options.useSparseAttention = YES;
       }
       
-      if ([_aneOptimizer isANEAvailable]) {
-        options = [_aneOptimizer optimizeModelOptions:options];
+      if ([self->_aneOptimizer isANEAvailable]) {
+        options = [self->_aneOptimizer optimizeModelOptions:options];
       }
       
       NSURL *modelURL = [NSURL fileURLWithPath:modelPath];
@@ -176,7 +176,7 @@ RCT_EXTERN_METHOD(adjustPerformanceMode:(NSString *)mode
 useSparseAttention:(BOOL)useSparseAttention
         resolver:(RCTPromiseResolveBlock)resolver
         rejecter:(RCTPromiseRejectBlock)rejecter {
-  if (!_model || !_tokenizer) {
+  if (!self->_model || !self->_tokenizer) {
     rejecter(@"NO_MODEL", @"Model not loaded", nil);
     return;
   }
@@ -227,24 +227,24 @@ useSparseAttention:(BOOL)useSparseAttention
 
 - (void)getPerformanceMetrics:(RCTPromiseResolveBlock)resolver
                     rejecter:(RCTPromiseRejectBlock)rejecter {
-  NSTimeInterval avgInferenceTime = _inferenceCount > 0 ? _totalInferenceTime / _inferenceCount : 0;
+  NSTimeInterval avgInferenceTime = self->_inferenceCount > 0 ? self->_totalInferenceTime / self->_inferenceCount : 0;
   
   resolver(@{
-    @"totalInferenceTime": @(_totalInferenceTime),
-    @"inferenceCount": @(_inferenceCount),
+    @"totalInferenceTime": @(self->_totalInferenceTime),
+    @"inferenceCount": @(self->_inferenceCount),
     @"averageInferenceTime": @(avgInferenceTime),
-    @"currentCacheSize": @(_kvCache.count),
-    @"maxCacheSize": @(_maxCacheSize),
-    @"thermalState": @([_thermalManager currentThermalState]),
-    @"usingSparseAttention": @(_useSparseAttention),
-    @"quantizationType": _quantizationType
+    @"currentCacheSize": @(self->_kvCache.count),
+    @"maxCacheSize": @(self->_maxCacheSize),
+    @"thermalState": @([self->_thermalManager currentThermalState]),
+    @"usingSparseAttention": @(self->_useSparseAttention),
+    @"quantizationType": self->_quantizationType
   });
 }
 
 - (void)embed:(NSString *)text
      resolver:(RCTPromiseResolveBlock)resolver
      rejecter:(RCTPromiseRejectBlock)rejecter {
-  if (!_model || !_tokenizer) {
+  if (!self->_model || !self->_tokenizer) {
     rejecter(@"NO_MODEL", @"Model not loaded", nil);
     return;
   }
@@ -343,3 +343,4 @@ useSparseAttention:(BOOL)useSparseAttention
 }
 
 @end
+

@@ -1,8 +1,5 @@
-#import <React/RCTBridgeModule.h>
+#import "SensorsTurboModule.h"
 #import <CoreMotion/CoreMotion.h>
-
-@interface SensorsTurboModule : NSObject <RCTBridgeModule>
-@end
 
 @implementation SensorsTurboModule {
   CMMotionManager *_motionManager;
