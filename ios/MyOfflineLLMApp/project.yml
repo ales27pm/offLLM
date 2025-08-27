@@ -19,9 +19,11 @@ targets:
       - path: .
         excludes:
           - project.yml
-    publicHeaders:
-      - MyOfflineLLMApp.h
+    headers:
+      public:
+        - MyOfflineLLMApp.h
     settings:
       PRODUCT_BUNDLE_IDENTIFIER: com.offllm.MyOfflineLLMApp
       HEADER_SEARCH_PATHS:
         - "$(PROJECT_DIR)/../../node_modules/react-native/React/**"
+      DEFINES_MODULE: YES
