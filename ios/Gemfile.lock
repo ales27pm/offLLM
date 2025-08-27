@@ -128,7 +128,7 @@ PLATFORMS
   x86_64-linux-musl
 
 DEPENDENCIES
-  cocoapods
+  cocoapods (~> 1.16.2)
 
 BUNDLED WITH
    2.6.7

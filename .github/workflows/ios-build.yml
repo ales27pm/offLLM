@@ -46,7 +46,7 @@ jobs:
           path: |
             ~/Library/Caches/CocoaPods
             ios/Pods
-          key: ${{ runner.os }}-pods-${{ hashFiles('ios/Podfile') }}
+          key: ${{ runner.os }}-pods-${{ hashFiles('ios/Podfile.lock') }}
           restore-keys: |
             ${{ runner.os }}-pods-
 
@@ -75,7 +75,8 @@ jobs:
         run: |
           printf "%s" "$PROFILE_BASE64" | base64 -D > /tmp/profile.mobileprovision
           mkdir -p ~/Library/MobileDevice/Provisioning\ Profiles
-          mv /tmp/profile.mobileprovision ~/Library/MobileDevice/Provisioning\ Profiles/
+          PROFILE_UUID=$(security cms -D -i /tmp/profile.mobileprovision | plutil -extract UUID raw -o - -)
+          mv /tmp/profile.mobileprovision ~/Library/MobileDevice/Provisioning\ Profiles/$PROFILE_UUID.mobileprovision
 
       - name: Create export options plist
         env:
