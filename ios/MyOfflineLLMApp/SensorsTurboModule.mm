@@ -1,4 +1,5 @@
 #import "SensorsTurboModule.h"
+#import "React/RCTUtils.h"
 #import <CoreMotion/CoreMotion.h>
 
 @implementation SensorsTurboModule {
