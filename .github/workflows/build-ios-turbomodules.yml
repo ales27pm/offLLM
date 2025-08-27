@@ -32,30 +32,26 @@ jobs:
       - name: Skip Pod cache
         if: ${{ hashFiles('ios/MyOfflineLLMApp/Podfile') == '' }}
         run: echo 'No Podfile found; skipping Pod cache'
-      - name: Install Pods
+      - name: Generate Xcode project & Install Pods
         run: |
-          if [ -f ios/MyOfflineLLMApp/Podfile ]; then
-            pod install --project-directory=ios/MyOfflineLLMApp
+          if [ -d "ios/MyOfflineLLMApp" ] && [ -f "ios/MyOfflineLLMApp/project.yml" ]; then
+            brew install xcodegen
+            (cd ios/MyOfflineLLMApp && xcodegen generate)
+            # Force project format compatible with Xcode 15
+            perl -0 -i -pe 's/objectVersion = \d+/objectVersion = 56/' ios/MyOfflineLLMApp/MyOfflineLLMApp.xcodeproj/project.pbxproj
           else
-            echo 'No Podfile found; skipping pod install'
+            echo "XcodeGen spec or directory missing; skipping project generation"
           fi
-      - name: Generate Xcode project
-        run: |
-          brew install xcodegen
-          cd ios/MyOfflineLLMApp
-          xcodegen generate
-          # Force project format compatible with Xcode 15
-          perl -0 -i -pe 's/objectVersion = \d+/objectVersion = 56/' MyOfflineLLMApp.xcodeproj/project.pbxproj
       - name: Run tests
         run: npm test
       - name: Build TurboModules
         run: |
-          if [ -f ios/MyOfflineLLMApp/MyOfflineLLMApp.xcodeproj/project.pbxproj ]; then
+          if [ -f ios/MyOfflineLLMApp/MyOfflineLLMApp.xcworkspace/contents.xcworkspacedata ]; then
             xcodebuild \
-              -project ios/MyOfflineLLMApp/MyOfflineLLMApp.xcodeproj \
+              -workspace ios/MyOfflineLLMApp/MyOfflineLLMApp.xcworkspace \
               -scheme MyOfflineLLMApp \
               -destination 'generic/platform=iOS Simulator' \
               CODE_SIGNING_ALLOWED=NO
           else
-            echo 'No Xcode project found; skipping build'
+            echo 'No Xcode workspace found; skipping build'
           fi

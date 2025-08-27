@@ -92,9 +92,9 @@ npm run test:ci
 
 The repository also includes a GitHub Actions workflow that generates the iOS Xcode project using XcodeGen and builds
 TurboModules on macOS runners. The spec lives at `ios/MyOfflineLLMApp/project.yml`, where the `xcodeVersion` is pinned to
-`15.4` to match the CI environment. After generation the workflow rewrites `objectVersion` to `56` so Xcode 15 can open the
-project, preventing "future Xcode project file format" errors. The workflow emits clear messages when Podfiles or Xcode projects
-are missing, so CI logs explicitly note skipped steps.
+`15.4` to match the CI environment. XcodeGen runs `pod install` after generation and the workflow rewrites `objectVersion` to
+`56` so Xcode 15 can open the project, preventing "future Xcode project file format" errors. The workflow emits clear messages
+when the XcodeGen spec or Podfile are missing and builds the generated workspace explicitly.
 
 See `CITATIONS.md` for references and inspiration. Contributions are
 welcome!

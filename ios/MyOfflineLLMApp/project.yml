@@ -2,11 +2,19 @@ name: MyOfflineLLMApp
 options:
   bundleIdPrefix: com.offllm
   xcodeVersion: "15.4"
+  postGenCommand: pod install
 targets:
   MyOfflineLLMApp:
     type: framework
     platform: iOS
     deploymentTarget: "13.0"
+    info:
+      path: Info.plist
+      properties:
+        CFBundleIdentifier: $(PRODUCT_BUNDLE_IDENTIFIER)
+        CFBundleName: MyOfflineLLMApp
+        CFBundleShortVersionString: 1.0.0
+        CFBundleVersion: 1
     sources:
       - path: .
         excludes:
