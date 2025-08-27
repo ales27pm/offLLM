@@ -1,13 +1,23 @@
 name: MyOfflineLLMApp
+settings:
+  base:
+    IPHONEOS_DEPLOYMENT_TARGET: "14.0"
+    SWIFT_VERSION: "5.0"
+    CLANG_WARN_QUOTED_INCLUDE_IN_FRAMEWORK_HEADER: "NO"
+    BUILD_LIBRARY_FOR_DISTRIBUTION: "YES"
+  configs:
+    Debug:
+      IPHONEOS_DEPLOYMENT_TARGET: "14.0"
+    Release:
+      IPHONEOS_DEPLOYMENT_TARGET: "14.0"
 options:
   bundleIdPrefix: com.offllm
   xcodeVersion: "15.4"
-  postGenCommand: pod install
 targets:
   MyOfflineLLMApp:
     type: framework
     platform: iOS
-    deploymentTarget: "13.0"
+    deploymentTarget: "14.0"
     info:
       path: Info.plist
       properties:
@@ -27,3 +37,8 @@ targets:
       HEADER_SEARCH_PATHS:
         - "$(PROJECT_DIR)/../../node_modules/react-native/React/**"
       DEFINES_MODULE: YES
+    scripts:
+      - name: Verify Deployment Target
+        script: ./Scripts/verify_deployment_target.sh
+        shell: /bin/sh
+        show_env_vars: false
