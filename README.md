@@ -97,7 +97,7 @@ TurboModules on macOS runners. The spec lives at `ios/MyOfflineLLMApp/project.ym
 when the XcodeGen spec or Podfile are missing and builds the generated workspace explicitly.
 
 An additional script at `ios/MyOfflineLLMApp/Scripts/verify_deployment_target.sh` runs during the Xcode build to ensure the
-deployment target remains set to iOS 13.0.
+deployment target remains set to iOS 14.0.
 
 See `CITATIONS.md` for references and inspiration. Contributions are
 welcome!

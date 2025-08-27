@@ -1,4 +1,4 @@
-platform :ios, '13.0'
+platform :ios, '14.0'
 
 install! 'cocoapods', :disable_input_output_paths => true
 
@@ -19,14 +19,14 @@ target 'MyOfflineLLMApp' do
 
   post_install do |installer|
     installer.pods_project.build_configurations.each do |config|
-      config.build_settings['IPHONEOS_DEPLOYMENT_TARGET'] = '13.0'
+      config.build_settings['IPHONEOS_DEPLOYMENT_TARGET'] = '14.0'
       config.build_settings['EXCLUDED_ARCHS[sdk=iphonesimulator*]'] = 'arm64'
     end
 
     installer.pods_project.targets.each do |target|
       target.build_configurations.each do |config|
-        if target.name == 'React-FabricImage'
-          config.build_settings['IPHONEOS_DEPLOYMENT_TARGET'] = '13.0'
+        if ['React-FabricImage', 'React-ImageManager'].include?(target.name)
+          config.build_settings['IPHONEOS_DEPLOYMENT_TARGET'] = '14.0'
         end
       end
     end
