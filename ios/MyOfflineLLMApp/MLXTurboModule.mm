@@ -1,117 +1,346 @@
-//  MLXTurboModule.mm
-//  MyOfflineLLMApp
-//
-//  Created by ChatGPT on 2025-08-26.
-//
-//  This stub implementation provides compatibility with the
-//  OffLLM iOS build without requiring the MLX/MLXLLM frameworks.
-//  The original MLXTurboModule relied on Apple Silicon-only
-//  machine learning libraries and custom optimizers that are
-//  unavailable in this open source environment.  To ensure the
-//  application compiles, this file defines a minimal TurboModule
-//  which simply rejects all calls, indicating that MLX features
-//  are not supported on iOS.
-
 #import "React/RCTBridgeModule.h"
+#import "React/RCTLog.h"
+#import <MLX/MLX.h>
+#import <MLXLLM/MLXLLM.h>
+#import "ANEOptimizer.h"
+#import "ThermalManager.h"
 
-@interface MLXTurboModule : NSObject <RCTBridgeModule>
+@interface RCT_EXTERN_MODULE(MLXTurboModule, NSObject)
+
+RCT_EXTERN_METHOD(loadModel:(NSString *)modelPath
+                 resolver:(RCTPromiseResolveBlock)resolver
+                 rejecter:(RCTPromiseRejectBlock)rejecter)
+
+RCT_EXTERN_METHOD(generate:(NSString *)prompt
+                 maxTokens:(NSNumber *)maxTokens
+                 temperature:(float)temperature
+                 useSparseAttention:(BOOL)useSparseAttention
+                 resolver:(RCTPromiseResolveBlock)resolver
+                 rejecter:(RCTPromiseRejectBlock)rejecter)
+
+RCT_EXTERN_METHOD(embed:(NSString *)text
+                 resolver:(RCTPromiseResolveBlock)resolver
+                 rejecter:(RCTPromiseRejectBlock)rejecter)
+
+RCT_EXTERN_METHOD(clearKVCache:(RCTPromiseResolveBlock)resolver
+                 rejecter:(RCTPromiseRejectBlock)rejecter)
+
+RCT_EXTERN_METHOD(addMessageBoundary:(RCTPromiseResolveBlock)resolver
+                 rejecter:(RCTPromiseRejectBlock)rejecter)
+
+RCT_EXTERN_METHOD(getPerformanceMetrics:(RCTPromiseResolveBlock)resolver
+                 rejecter:(RCTPromiseRejectBlock)rejecter)
+
+RCT_EXTERN_METHOD(adjustPerformanceMode:(NSString *)mode
+                 resolver:(RCTPromiseResolveBlock)resolver
+                 rejecter:(RCTPromiseRejectBlock)rejecter)
+
 @end
 
-@implementation MLXTurboModule
-
-// Export the module to React Native.
-RCT_EXPORT_MODULE();
-
-/**
- * Attempts to load a machine learning model.  Since MLX is not
- * available in this environment, this method will reject the promise
- * with a descriptive error.  The parameters mirror the original
- * signature for compatibility.
- *
- * @param modelPath Path to the model file on disk.
- * @param resolver Promise resolver (unused).
- * @param rejecter Promise rejecter used to send the error back to JS.
- */
-RCT_EXPORT_METHOD(loadModel:(NSString *)modelPath
-                  resolver:(RCTPromiseResolveBlock)resolver
-                  rejecter:(RCTPromiseRejectBlock)rejecter)
-{
-  rejecter(@"NOT_SUPPORTED", @"MLXTurboModule is not available on iOS", nil);
+@implementation MLXTurboModule {
+  MLXLLMModel *_model;
+  MLXLLMTokenizer *_tokenizer;
+  NSMutableArray *_kvCache;
+  NSMutableArray *_messageBoundaries;
+  NSUInteger _maxCacheSize;
+  BOOL _isQuantized;
+  BOOL _useSparseAttention;
+  ANEOptimizer *_aneOptimizer;
+  ThermalManager *_thermalManager;
+  NSDate *_lastInferenceTime;
+  NSTimeInterval _totalInferenceTime;
+  NSUInteger _inferenceCount;
+  NSString *_quantizationType;
 }
 
-/**
- * Generates text from a prompt.  This stub rejects the call as the
- * underlying MLX model is not available.
- */
-RCT_EXPORT_METHOD(generate:(NSString *)prompt
-                  maxTokens:(nonnull NSNumber *)maxTokens
-                  temperature:(double)temperature
-                  useSparseAttention:(BOOL)useSparseAttention
-                  resolver:(RCTPromiseResolveBlock)resolver
-                  rejecter:(RCTPromiseRejectBlock)rejecter)
-{
-  rejecter(@"NOT_SUPPORTED", @"MLXTurboModule is not available on iOS", nil);
+- (instancetype)init {
+  self = [super init];
+  if (self) {
+    _maxCacheSize = 512;
+    _kvCache = [NSMutableArray arrayWithCapacity:_maxCacheSize];
+    _messageBoundaries = [NSMutableArray array];
+    _aneOptimizer = [[ANEOptimizer alloc] init];
+    _thermalManager = [[ThermalManager alloc] init];
+    _totalInferenceTime = 0;
+    _inferenceCount = 0;
+    _quantizationType = @"none";
+    
+    [[NSNotificationCenter defaultCenter] addObserver:self
+                                             selector:@selector(handleThermalStateChange:)
+                                                 name:ThermalStateChangedNotification
+                                               object:nil];
+  }
+  return self;
 }
 
-/**
- * Returns embeddings for a given text.  Always rejects as embeddings
- * cannot be computed without the MLX framework.
- */
-RCT_EXPORT_METHOD(embed:(NSString *)text
-                  resolver:(RCTPromiseResolveBlock)resolver
-                  rejecter:(RCTPromiseRejectBlock)rejecter)
-{
-  rejecter(@"NOT_SUPPORTED", @"MLXTurboModule is not available on iOS", nil);
+- (void)handleThermalStateChange:(NSNotification *)notification {
+  ThermalState state = [notification.userInfo[@"state"] integerValue];
+  [self adjustPerformanceForThermalState:state];
 }
 
-/**
- * Clears any internal KV cache.  This stub simply resolves with
- * success and an empty size to avoid breaking client code that
- * expects a response.
- */
-RCT_EXPORT_METHOD(clearKVCache:(RCTPromiseResolveBlock)resolver
-                  rejecter:(RCTPromiseRejectBlock)rejecter)
-{
-  resolver(@{ @"status": @"cleared", @"size": @0 });
+- (void)adjustPerformanceForThermalState:(ThermalState)state {
+  switch (state) {
+    case ThermalStateNominal:
+      _maxCacheSize = _isQuantized ? 2048 : 1024;
+      _useSparseAttention = NO;
+      break;
+    case ThermalStateFair:
+      _maxCacheSize = _isQuantized ? 1024 : 512;
+      _useSparseAttention = NO;
+      break;
+    case ThermalStateSerious:
+      _maxCacheSize = _isQuantized ? 512 : 256;
+      _useSparseAttention = YES;
+      break;
+    case ThermalStateCritical:
+      _maxCacheSize = 256;
+      _useSparseAttention = YES;
+      break;
+  }
 }
 
-/**
- * Records a message boundary in the prompt history.  No‑ops on iOS.
- */
-RCT_EXPORT_METHOD(addMessageBoundary:(RCTPromiseResolveBlock)resolver
-                  rejecter:(RCTPromiseRejectBlock)rejecter)
-{
-  resolver(@{ @"status": @"boundary added", @"count": @0 });
-}
-
-/**
- * Returns performance metrics such as cache size or inference time.
- * Provides dummy values since no inference occurs on iOS.
- */
-RCT_EXPORT_METHOD(getPerformanceMetrics:(RCTPromiseResolveBlock)resolver
-                  rejecter:(RCTPromiseRejectBlock)rejecter)
-{
-  resolver(@{
-    @"totalInferenceTime": @0,
-    @"inferenceCount": @0,
-    @"averageInferenceTime": @0,
-    @"currentCacheSize": @0,
-    @"maxCacheSize": @0,
-    @"thermalState": @0,
-    @"usingSparseAttention": @NO,
-    @"quantizationType": @"none"
+- (void)loadModel:(NSString *)modelPath
+         resolver:(RCTPromiseResolveBlock)resolver
+         rejecter:(RCTPromiseRejectBlock)rejecter {
+  dispatch_async(dispatch_get_global_queue(QOS_CLASS_USER_INITIATED, 0), ^{
+    @try {
+      [MLX setup];
+      
+      NSArray *quantizationMarkers = @[@"Q4_0", @"Q5_0", @"Q2_K", @"Q3_K_S", @"Q3_K_M", @"Q3_K_L", 
+                                      @"Q4_K_S", @"Q4_K_M", @"Q5_K_S", @"Q5_K_M", @"Q6_K", @"MobileQuant"];
+      BOOL isQuantized = NO;
+      NSString *detectedQuantization = @"none";
+      
+      for (NSString *marker in quantizationMarkers) {
+        if ([modelPath rangeOfString:marker].location != NSNotFound) {
+          isQuantized = YES;
+          detectedQuantization = marker;
+          self->_quantizationType = marker;
+          break;
+        }
+      }
+      
+      MLXLLMModelOptions *options = [[MLXLLMModelOptions alloc] init];
+      options.quantize = isQuantized;
+      
+      if (isQuantized) {
+        options.contextLength = 8192;
+        options.useSparseAttention = YES;
+      }
+      
+      if ([self->_aneOptimizer isANEAvailable]) {
+        options = [self->_aneOptimizer optimizeModelOptions:options];
+      }
+      
+      NSURL *modelURL = [NSURL fileURLWithPath:modelPath];
+      self->_model = [MLXLLMModel modelWithContentsOfURL:modelURL options:options];
+      
+      if (!self->_model) {
+        @throw [NSException exceptionWithName:@"ModelLoadError"
+                                      reason:@"Failed to load MLX model"
+                                    userInfo:nil];
+      }
+      
+      self->_tokenizer = [MLXLLMTokenizer tokenizerWithModel:self->_model];
+      
+      if (!self->_tokenizer) {
+        @throw [NSException exceptionWithName:@"TokenizerError"
+                                      reason:@"Failed to initialize tokenizer"
+                                    userInfo:nil];
+      }
+      
+      [self configureDynamicCacheSize];
+      
+      [self->_kvCache removeAllObjects];
+      [self->_messageBoundaries removeAllObjects];
+      
+      RCTLogInfo(@"Model loaded successfully: %@ (quantized: %@)", modelPath, detectedQuantization);
+      resolver(@{
+        @"status": @"loaded", 
+        @"contextSize": @(isQuantized ? 8192 : 4096),
+        @"model": modelPath,
+        @"quantized": @(isQuantized),
+        @"quantizationType": detectedQuantization,
+        @"supportsSparseAttention": @(YES)
+      });
+    } @catch (NSException *exception) {
+      NSString *errorMsg = [NSString stringWithFormat:@"Failed to load model: %@", exception.reason];
+      rejecter(@"LOAD_ERROR", errorMsg, nil);
+    }
   });
 }
 
-/**
- * Adjusts performance mode.  This stub simply resolves to acknowledge
- * the call without making any changes.
- */
-RCT_EXPORT_METHOD(adjustPerformanceMode:(NSString *)mode
-                  resolver:(RCTPromiseResolveBlock)resolver
-                  rejecter:(RCTPromiseRejectBlock)rejecter)
-{
-  resolver(@{ @"status": @"noop" });
+- (void)generate:(NSString *)prompt
+       maxTokens:(NSNumber *)maxTokens
+     temperature:(float)temperature
+useSparseAttention:(BOOL)useSparseAttention
+        resolver:(RCTPromiseResolveBlock)resolver
+        rejecter:(RCTPromiseRejectBlock)rejecter {
+  if (!self->_model || !self->_tokenizer) {
+    rejecter(@"NO_MODEL", @"Model not loaded", nil);
+    return;
+  }
+  
+  dispatch_async(dispatch_get_global_queue(QOS_CLASS_USER_INITIATED, 0), ^{
+    @try {
+      NSDate *startTime = [NSDate date];
+      
+      NSArray<NSNumber *> *inputTokens = [self->_tokenizer encode:prompt];
+      
+      [self addMessageBoundary];
+      
+      [self->_kvCache addObjectsFromArray:inputTokens];
+      [self trimCache];
+      
+      MLXLLMGenerateOptions *options = [[MLXLLMGenerateOptions alloc] init];
+      options.maxTokens = [maxTokens intValue];
+      options.temperature = temperature;
+      options.kvCache = self->_kvCache;
+      options.useSparseAttention = useSparseAttention || self->_useSparseAttention;
+      
+      NSArray<NSNumber *> *generatedTokens = [self->_model generateWithInputTokens:inputTokens options:options];
+      
+      [self->_kvCache addObjectsFromArray:generatedTokens];
+      [self trimCache];
+      
+      NSString *response = [self->_tokenizer decode:generatedTokens];
+      
+      NSTimeInterval inferenceTime = -[startTime timeIntervalSinceNow];
+      self->_totalInferenceTime += inferenceTime;
+      self->_inferenceCount++;
+      
+      resolver(@{
+        @"text": response,
+        @"tokensGenerated": @(generatedTokens.count),
+        @"kvCacheSize": @(self->_kvCache.count),
+        @"kvCacheMax": @(self->_maxCacheSize),
+        @"inferenceTime": @(inferenceTime),
+        @"usedSparseAttention": @(options.useSparseAttention),
+        @"quantizationType": self->_quantizationType
+      });
+    } @catch (NSException *exception) {
+      NSString *errorMsg = [NSString stringWithFormat:@"Generation failed: %@", exception.reason];
+      rejecter(@"GENERATE_ERROR", errorMsg, nil);
+    }
+  });
+}
+
+- (void)getPerformanceMetrics:(RCTPromiseResolveBlock)resolver
+                    rejecter:(RCTPromiseRejectBlock)rejecter {
+  NSTimeInterval avgInferenceTime = self->_inferenceCount > 0 ? self->_totalInferenceTime / self->_inferenceCount : 0;
+  
+  resolver(@{
+    @"totalInferenceTime": @(self->_totalInferenceTime),
+    @"inferenceCount": @(self->_inferenceCount),
+    @"averageInferenceTime": @(avgInferenceTime),
+    @"currentCacheSize": @(self->_kvCache.count),
+    @"maxCacheSize": @(self->_maxCacheSize),
+    @"thermalState": @([self->_thermalManager currentThermalState]),
+    @"usingSparseAttention": @(self->_useSparseAttention),
+    @"quantizationType": self->_quantizationType
+  });
+}
+
+- (void)embed:(NSString *)text
+     resolver:(RCTPromiseResolveBlock)resolver
+     rejecter:(RCTPromiseRejectBlock)rejecter {
+  if (!self->_model || !self->_tokenizer) {
+    rejecter(@"NO_MODEL", @"Model not loaded", nil);
+    return;
+  }
+  
+  dispatch_async(dispatch_get_global_queue(QOS_CLASS_USER_INITIATED, 0), ^{
+    @try {
+      NSArray<NSNumber *> *tokens = [self->_tokenizer encode:text];
+      MLXArray *embeddings = [self->_model embedTokens:tokens];
+      
+      NSMutableArray *embeddingArray = [NSMutableArray array];
+      float *data = (float *)[embeddings data];
+      NSUInteger count = [embeddings count];
+      
+      for (NSUInteger i = 0; i < count; i++) {
+        [embeddingArray addObject:@(data[i])];
+      }
+      
+      resolver(embeddingArray);
+    } @catch (NSException *exception) {
+      NSString *errorMsg = [NSString stringWithFormat:@"Embedding failed: %@", exception.reason];
+      rejecter(@"EMBED_ERROR", errorMsg, nil);
+    }
+  });
+}
+
+- (void)clearKVCache:(RCTPromiseResolveBlock)resolver
+            rejecter:(RCTPromiseRejectBlock)rejecter {
+  dispatch_async(dispatch_get_global_queue(QOS_CLASS_USER_INITIATED, 0), ^{
+    @try {
+      [self->_kvCache removeAllObjects];
+      [self->_messageBoundaries removeAllObjects];
+      resolver(@{@"status": @"cleared", @"size": @(0)});
+    } @catch (NSException *exception) {
+      NSString *errorMsg = [NSString stringWithFormat:@"Failed to clear KV cache: %@", exception.reason];
+      rejecter(@"CACHE_ERROR", errorMsg, nil);
+    }
+  });
+}
+
+- (void)addMessageBoundary:(RCTPromiseResolveBlock)resolver
+                 rejecter:(RCTPromiseRejectBlock)rejecter {
+  dispatch_async(dispatch_get_global_queue(QOS_CLASS_USER_INITIATED, 0), ^{
+    @try {
+      [self addMessageBoundary];
+      resolver(@{@"status": @"boundary added", @"count": @(self->_messageBoundaries.count)});
+    } @catch (NSException *exception) {
+      NSString *errorMsg = [NSString stringWithFormat:@"Failed to add boundary: %@", exception.reason];
+      rejecter(@"BOUNDARY_ERROR", errorMsg, nil);
+    }
+  });
+}
+
+- (void)addMessageBoundary {
+  [self->_messageBoundaries addObject:@(self->_kvCache.count)];
+}
+
+- (void)trimCache {
+  if (self->_kvCache.count <= self->_maxCacheSize) return;
+  
+  if (self->_messageBoundaries.count > 1) {
+    NSUInteger trimIndex = 0;
+    for (NSUInteger i = 0; i < self->_messageBoundaries.count - 1; i++) {
+      NSNumber *boundary = self->_messageBoundaries[i];
+      if (self->_kvCache.count - boundary.intValue <= self->_maxCacheSize) {
+        trimIndex = boundary.intValue;
+        break;
+      }
+    }
+    
+    if (trimIndex > 0) {
+      [self->_kvCache removeObjectsInRange:NSMakeRange(0, trimIndex)];
+      NSMutableArray *newBoundaries = [NSMutableArray array];
+      for (NSNumber *boundary in self->_messageBoundaries) {
+        if (boundary.intValue > trimIndex) {
+          [newBoundaries addObject:@(boundary.intValue - trimIndex)];
+        }
+      }
+      self->_messageBoundaries = newBoundaries;
+      return;
+    }
+  }
+  
+  NSUInteger excess = self->_kvCache.count - self->_maxCacheSize;
+  [self->_kvCache removeObjectsInRange:NSMakeRange(0, excess)];
+}
+
+- (void)configureDynamicCacheSize {
+  NSUInteger totalMemory = [[NSProcessInfo processInfo] physicalMemory] / (1024 * 1024);
+  if (totalMemory > 8000) {
+    _maxCacheSize = _isQuantized ? 4096 : 2048;
+  } else if (totalMemory > 4000) {
+    _maxCacheSize = _isQuantized ? 2048 : 1024;
+  } else {
+    _maxCacheSize = 512;
+  }
 }
 
 @end
+
