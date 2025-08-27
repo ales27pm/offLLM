@@ -1,3 +1,9 @@
 node_modules/
 *.log
 vector_memory.dat
+ios/Pods/
+ios/Podfile.lock
+ios/vendor/
+ios/MyOfflineLLMApp.xcodeproj/
+ios/MyOfflineLLMApp.xcworkspace/
+ios/.bundle/
