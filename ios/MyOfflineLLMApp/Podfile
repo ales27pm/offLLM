@@ -7,8 +7,7 @@ project 'MyOfflineLLMApp.xcodeproj'
 
 target 'MyOfflineLLMApp' do
   use_frameworks!
-  # Force using the same boost source consistently
-  pod 'boost', :git => 'https://github.com/react-native-community/boost-for-react-native.git', :tag => '1.76.0'
+  # Use React Native's vendored Boost podspec to avoid source conflicts
 
   use_react_native!(
     :path => '../../node_modules/react-native'
