@@ -21,6 +21,8 @@ jobs:
           cache: "npm"
       - name: Install dependencies
         run: npm ci
+      - name: Install XcodeGen and CocoaPods
+        run: brew install xcodegen cocoapods
       - name: Cache Pods
         if: ${{ hashFiles('ios/MyOfflineLLMApp/Podfile') != '' }}
         uses: actions/cache@v3
@@ -35,22 +37,23 @@ jobs:
       - name: Generate Xcode project & Install Pods
         run: |
           if [ -d "ios/MyOfflineLLMApp" ] && [ -f "ios/MyOfflineLLMApp/project.yml" ]; then
-              brew install xcodegen
               (cd ios/MyOfflineLLMApp && xcodegen generate)
               # Force project format compatible with Xcode 15
               perl -0 -i -pe 's/objectVersion = \d+/objectVersion = 56/' ios/MyOfflineLLMApp/MyOfflineLLMApp.xcodeproj/project.pbxproj
-
-              # Clean CocoaPods caches to avoid stale CDN blobs (fixes checksum mismatch like for boost)
-              pod cache clean --all || true
-              rm -rf "$HOME/Library/Caches/CocoaPods" "$HOME/Library/Developer/Xcode/DerivedData" "$HOME/.cocoapods/repos" || true
 
               # Ensure trunk CDN is ready and specs are fresh
               pod repo add trunk https://cdn.cocoapods.org/ || true
               pod repo update
 
-              # (Optional hardening) Retry once if install fails due to network/CDN hiccups
+              # Try pod install; clean caches and retry on failure
               set -e
-              ( cd ios/MyOfflineLLMApp && pod install --repo-update --verbose ) || ( sleep 5 && cd ios/MyOfflineLLMApp && pod install --repo-update --verbose )
+              if ! ( cd ios/MyOfflineLLMApp && pod install --repo-update --verbose ); then
+                pod cache clean --all || true
+                rm -rf "$HOME/Library/Caches/CocoaPods" "$HOME/Library/Developer/Xcode/DerivedData" "$HOME/.cocoapods/repos" || true
+                pod repo add trunk https://cdn.cocoapods.org/ || true
+                pod repo update
+                ( cd ios/MyOfflineLLMApp && pod install --repo-update --verbose )
+              fi
             else
               echo "XcodeGen spec or directory missing; skipping project generation"
             fi
