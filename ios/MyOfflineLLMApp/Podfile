@@ -1,4 +1,6 @@
-platform :ios, '12.0'
+platform :ios, '13.0'
+
+install! 'cocoapods', :disable_input_output_paths => true
 
 require_relative '../../node_modules/react-native/scripts/react_native_pods'
 require_relative '../../node_modules/@react-native-community/cli-platform-ios/native_modules'
@@ -6,29 +8,34 @@ require_relative '../../node_modules/@react-native-community/cli-platform-ios/na
 project 'MyOfflineLLMApp.xcodeproj'
 
 target 'MyOfflineLLMApp' do
-  use_frameworks!
-  # Use React Native's vendored Boost podspec to avoid source conflicts
+  use_frameworks! :linkage => :static
+
+  # React Native pods
+  config = use_native_modules!
 
   use_react_native!(
-    :path => '../../node_modules/react-native'
+    :path => config[:reactNativePath]
   )
 end
 
 post_install do |installer|
-  # Set deployment target for all pods
+  # Set deployment target and excluded simulator architectures
   installer.pods_project.build_configurations.each do |config|
-    config.build_settings['IPHONEOS_DEPLOYMENT_TARGET'] = '12.0'
+    config.build_settings['IPHONEOS_DEPLOYMENT_TARGET'] = '13.0'
+    config.build_settings['EXCLUDED_ARCHS[sdk=iphonesimulator*]'] = 'arm64'
   end
 
   installer.pods_project.targets.each do |target|
     target.build_configurations.each do |config|
-      config.build_settings['IPHONEOS_DEPLOYMENT_TARGET'] = '12.0'
+      config.build_settings['IPHONEOS_DEPLOYMENT_TARGET'] = '13.0'
       if target.name == 'hermes-engine'
         config.build_settings['GCC_PREPROCESSOR_DEFINITIONS'] ||= ['$(inherited)']
         config.build_settings['GCC_PREPROCESSOR_DEFINITIONS'] << 'HERMES_ENABLE_DEBUGGER=1'
       end
     end
   end
+
+  react_native_post_install(installer)
 
   # Ensure Hermes binary is executable
   system('chmod', '+x', 'Pods/hermes-engine/destroot/bin/hermes')
