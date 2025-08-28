@@ -18,13 +18,18 @@ runs:
       shell: bash
       run: npm ci
 
-    - name: Install XcodeGen (pkg)
+    - name: Install XcodeGen (prebuilt)
       shell: bash
       run: |
         set -eux
         VER="2.39.1"
-        curl -L "https://github.com/yonaskolb/XcodeGen/releases/download/${VER}/XcodeGen.pkg" -o /tmp/xcodegen.pkg
-        sudo installer -pkg /tmp/xcodegen.pkg -target /
+        curl -L "https://github.com/yonaskolb/XcodeGen/releases/download/${VER}/xcodegen.zip" -o /tmp/xg.zip
+        unzip -q /tmp/xg.zip -d /tmp/xg
+        chmod +x /tmp/xg/xcodegen
+        INSTALL_DIR="/opt/homebrew/bin"
+        sudo mkdir -p "$INSTALL_DIR"
+        sudo mv /tmp/xg/xcodegen "$INSTALL_DIR/xcodegen"
+        echo "$INSTALL_DIR" >> "$GITHUB_PATH"
         xcodegen --version
 
     - name: Install CocoaPods
