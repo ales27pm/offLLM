@@ -1,0 +1,31 @@
+name: Build unsigned iOS IPA
+
+on:
+  workflow_dispatch:
+
+jobs:
+  build-unsigned:
+    runs-on: macos-15
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-node@v4
+        with:
+          node-version: 20
+          cache: npm
+      - run: npm ci
+      - name: Install build tools
+        run: brew install xcodegen cocoapods
+      - name: Generate Xcode project
+        working-directory: ios/MyOfflineLLMApp
+        run: xcodegen generate
+      - name: Install CocoaPods dependencies
+        working-directory: ios
+        run: pod install
+      - name: Make build script executable
+        run: chmod +x scripts/build_unsigned_ios.sh
+      - name: Build unsigned IPA
+        run: ./scripts/build_unsigned_ios.sh
+      - uses: actions/upload-artifact@v4
+        with:
+          name: unsigned-ipa
+          path: MyOfflineLLMApp-unsigned.ipa

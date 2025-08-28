@@ -10,8 +10,8 @@ chat interface allows you to talk to the assistant via text or voice.
 ## Features
 
 - **On‑device inference** using a quantized Llama model via llama.cpp on
-  Android and MLX on iOS. Models can be swapped by placing the file on
-  your device and updating the path in `App.js`.
+  Android and MLX on iOS. Models can be swapped by updating the model URL in
+  `App.js`, which downloads the file to your device on first run.
 - **Chat interface** with support for multi‑turn conversations. Messages are
   displayed in a scrollable list and you can speak queries using the built-in
   microphone button. Responses are read aloud using `react‑native‑tts`.
@@ -43,10 +43,10 @@ The assistant can optionally store vector embeddings of conversation snippets in
 
    > A stub `android/gradlew` script is included so CI environments can invoke `npm run build:android` without the Android SDK. Replace this stub with a full Gradle wrapper for real builds.
 
-2. Place a compatible Llama model file on your device (e.g. in the app's
-   documents directory) and update the path in `App.js` where
-   `LLMService.loadModel` is called. Quantized models (Q4 or Q5) are
-   recommended for mobile. The app will automatically configure context
+2. Provide a URL to a compatible Llama model file in `App.js`. The helper
+   will download the model to the app's documents directory on first launch and
+   pass the local path to `LLMService.loadModel`. Quantized models (Q4 or Q5)
+   are recommended for mobile. The app will automatically configure context
    lengths and enable sparse attention for quantized models.
 
 3. On the first launch the assistant will load the model, initialize the
@@ -97,6 +97,10 @@ TurboModules on macOS runners. The spec lives at `ios/MyOfflineLLMApp/project.ym
 when the XcodeGen spec or Podfile are missing and builds the generated workspace explicitly.
 
 Another workflow, `ios-build.yml`, compiles and signs the app on macOS runners and uploads a signed `.ipa` artifact. Provide your distribution certificate, provisioning profile, and export options plist as base64‑encoded secrets (`IOS_CERTIFICATE_BASE64`, `IOS_CERT_PASSWORD`, `IOS_PROVISION_PROFILE_BASE64`, `IOS_EXPORT_OPTIONS_PLIST`) and supply a random keychain password via `IOS_KEYCHAIN_PASSWORD`.
+
+Use the script at `scripts/build_unsigned_ios.sh` to create an unsigned `.ipa`
+for testing. The `ios-build-unsigned.yml` workflow runs this script on
+`macos-15` and uploads the resulting artifact.
 
 An additional script at `ios/MyOfflineLLMApp/Scripts/verify_deployment_target.sh` runs during the Xcode build to ensure the
 deployment target remains set to iOS 14.0.
