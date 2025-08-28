@@ -30,7 +30,9 @@ jobs:
           # download the right ZIP — asset is named xcodegen.zip
           curl -L "https://github.com/yonaskolb/XcodeGen/releases/download/${VER}/xcodegen.zip" -o /tmp/xg.zip
           unzip -q /tmp/xg.zip -d /tmp/xg
-          sudo mv /tmp/xg/xcodegen /usr/local/bin/xcodegen
+          XCODEGEN_BIN=$(find /tmp/xg -type f -name xcodegen -perm +111 | head -n 1)
+          sudo mv "$XCODEGEN_BIN" /usr/local/bin/xcodegen
+          chmod +x /usr/local/bin/xcodegen
           xcodegen --version
 
       - name: Install CocoaPods
