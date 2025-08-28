@@ -30,7 +30,7 @@ runs:
         sudo mkdir -p "$INSTALL_DIR"
         sudo mv /tmp/xg/xcodegen "$INSTALL_DIR/xcodegen"
         echo "$INSTALL_DIR" >> "$GITHUB_PATH"
-        xcodegen --version
+        "$INSTALL_DIR/xcodegen" --version
 
     - name: Install CocoaPods
       shell: bash
