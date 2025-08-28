@@ -11,7 +11,7 @@ jobs:
       - uses: ./.github/actions/ios-setup
         with:
           node-version: 18
-          xcode-version: "15.4"
+          xcode-version: "16.4"
           xcodegen-version: "2.39.1"
 
       - name: Build unsigned IPA

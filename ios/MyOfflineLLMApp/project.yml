@@ -12,7 +12,7 @@ settings:
       IPHONEOS_DEPLOYMENT_TARGET: "14.0"
 options:
   bundleIdPrefix: com.offllm
-  xcodeVersion: "15.4"
+  xcodeVersion: "16.4"
 targets:
   MyOfflineLLMApp:
     type: framework
