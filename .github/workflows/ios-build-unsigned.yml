@@ -4,11 +4,13 @@ on:
   workflow_dispatch:
 
 jobs:
-  build-unsigned:
+  build:
     runs-on: macos-15
+
     steps:
       - uses: actions/checkout@v4
 
+      # Pin a compatible Xcode
       - name: Select Xcode 15.4
         uses: maxim-lobanov/setup-xcode@v1
         with:
@@ -23,35 +25,41 @@ jobs:
       - name: Install dependencies
         run: npm ci
 
+      # ✅ Install XcodeGen from prebuilt release (avoid Homebrew)
       - name: Install XcodeGen (prebuilt)
         run: |
           set -euxo pipefail
-          VER="2.39.1"
+          VER="2.39.1"  # pick a stable version; update as needed
           curl -L "https://github.com/yonaskolb/XcodeGen/releases/download/${VER}/xcodegen-${VER}.zip" -o /tmp/xg.zip
           unzip -q /tmp/xg.zip -d /tmp/xg
           sudo mv /tmp/xg/xcodegen /usr/local/bin/xcodegen
           xcodegen --version
 
+      # CocoaPods via RubyGems (don’t brew)
       - name: Install CocoaPods
         run: |
           gem install cocoapods --no-document
           pod --version
 
-      - name: Generate Xcode project
-        working-directory: ios/MyOfflineLLMApp
-        run: xcodegen generate
+      # (Your existing XcodeGen + pods + build steps here)
+      - name: Generate Xcode project & Install Pods
+        run: |
+          (cd ios/MyOfflineLLMApp && xcodegen generate)
+          perl -0 -i -pe 's/objectVersion = \d+/objectVersion = 56/' ios/MyOfflineLLMApp/MyOfflineLLMApp.xcodeproj/project.pbxproj
+          pod repo update
+          (cd ios && pod install --repo-update)
 
-      - name: Install CocoaPods dependencies
-        working-directory: ios
-        run: pod install
-
-      - name: Make build script executable
-        run: chmod +x scripts/build_unsigned_ios.sh
-
+      # Example: unsigned build
       - name: Build unsigned IPA
-        run: ./scripts/build_unsigned_ios.sh
+        run: |
+          chmod +x scripts/build_unsigned_ios.sh
+          SCHEME=MyOfflineLLMApp \
+          WORKSPACE=ios/MyOfflineLLMApp/MyOfflineLLMApp.xcworkspace \
+          IPA_OUTPUT=$RUNNER_TEMP/MyOfflineLLMApp-unsigned.ipa \
+          ./scripts/build_unsigned_ios.sh
 
-      - uses: actions/upload-artifact@v4
+      - name: Upload unsigned IPA
+        uses: actions/upload-artifact@v4
         with:
-          name: unsigned-ipa
-          path: MyOfflineLLMApp-unsigned.ipa
+          name: MyOfflineLLMApp-unsigned
+          path: ${{ runner.temp }}/MyOfflineLLMApp-unsigned.ipa

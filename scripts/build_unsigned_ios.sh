@@ -2,12 +2,12 @@
 # Build an unsigned iOS IPA.
 # Environment variables:
 #   SCHEME    - Xcode scheme (default: MyOfflineLLMApp)
-#   WORKSPACE - Xcode workspace path (default: ios/MyOfflineLLMApp.xcworkspace)
+#   WORKSPACE - Xcode workspace path (default: ios/MyOfflineLLMApp/MyOfflineLLMApp.xcworkspace)
 #   IPA_OUTPUT- Output path for the unsigned IPA (default: ${PWD}/${SCHEME}-unsigned.ipa)
 set -euo pipefail
 
 SCHEME=${SCHEME:-MyOfflineLLMApp}
-WORKSPACE=${WORKSPACE:-ios/MyOfflineLLMApp.xcworkspace}
+WORKSPACE=${WORKSPACE:-ios/MyOfflineLLMApp/MyOfflineLLMApp.xcworkspace}
 IPA_OUTPUT=${IPA_OUTPUT:-${PWD}/${SCHEME}-unsigned.ipa}
 ARCHIVE_PATH="build/${SCHEME}.xcarchive"
 
