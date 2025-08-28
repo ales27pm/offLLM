@@ -1,55 +1,35 @@
-name: iOS setup
-description: Shared steps for iOS builds
-inputs:
-  node-version:
-    description: Node version
-    required: false
-    default: "18"
-  xcode-version:
-    description: Xcode version
-    required: false
-    default: "16.4"
-  xcodegen-version:
-    description: XcodeGen version
-    required: false
-    default: "2.39.1"
+name: iOS Setup
+description: Select Xcode, install Node deps, XcodeGen and CocoaPods
 runs:
-  using: composite
+  using: "composite"
   steps:
-    - uses: actions/checkout@v4
-    - name: Select Xcode ${{ inputs.xcode-version }}
+    - name: Select Xcode
       uses: maxim-lobanov/setup-xcode@v1
       with:
-        xcode-version: ${{ inputs.xcode-version }}
+        xcode-version: "16.4"
+
     - name: Setup Node
       uses: actions/setup-node@v4
       with:
-        node-version: ${{ inputs.node-version }}
-        cache: npm
-    - name: Install dependencies
-      run: npm ci
+        node-version: 18
+        cache: "npm"
+
+    - name: Install JS deps
       shell: bash
+      run: npm ci
+
     - name: Install XcodeGen (prebuilt)
       shell: bash
       run: |
-        set -euxo pipefail
-        VER="${{ inputs.xcodegen-version }}"
-        # download the right ZIP — asset is named xcodegen.zip
+        set -eux
+        VER="2.39.1"
         curl -L "https://github.com/yonaskolb/XcodeGen/releases/download/${VER}/xcodegen.zip" -o /tmp/xg.zip
         unzip -q /tmp/xg.zip -d /tmp/xg
-        XCODEGEN_BIN=$(find /tmp/xg -type f -name xcodegen -perm +111 | head -n 1)
-        sudo mv "$XCODEGEN_BIN" /usr/local/bin/xcodegen
-        chmod +x /usr/local/bin/xcodegen
+        sudo mv /tmp/xg/xcodegen /usr/local/bin/xcodegen
         xcodegen --version
+
     - name: Install CocoaPods
       shell: bash
       run: |
         gem install cocoapods --no-document
         pod --version
-    - name: Generate Xcode project & Install Pods
-      shell: bash
-      run: |
-        (cd ios/MyOfflineLLMApp && xcodegen generate)
-        perl -0 -i -pe 's/objectVersion = \d+/objectVersion = 56/' ios/MyOfflineLLMApp/MyOfflineLLMApp.xcodeproj/project.pbxproj
-        pod repo update
-        (cd ios && pod install --repo-update)

@@ -9,36 +9,7 @@ jobs:
     steps:
       - uses: actions/checkout@v4
 
-      - name: Select Xcode 16.4
-        uses: maxim-lobanov/setup-xcode@v1
-        with:
-          xcode-version: "16.4"
-
-      - name: Setup Node
-        uses: actions/setup-node@v4
-        with:
-          node-version: 18
-          cache: npm
-
-      - name: Install JS deps
-        run: npm ci
-
-      - name: Install XcodeGen (prebuilt)
-        run: |
-          set -euxo pipefail
-          VER="2.39.1"
-          # download the right ZIP — asset is named xcodegen.zip
-          curl -L "https://github.com/yonaskolb/XcodeGen/releases/download/${VER}/xcodegen.zip" -o /tmp/xg.zip
-          unzip -q /tmp/xg.zip -d /tmp/xg
-          XCODEGEN_BIN=$(find /tmp/xg -type f -name xcodegen -perm +111 | head -n 1)
-          sudo mv "$XCODEGEN_BIN" /usr/local/bin/xcodegen
-          chmod +x /usr/local/bin/xcodegen
-          xcodegen --version
-
-      - name: Install CocoaPods
-        run: |
-          gem install cocoapods --no-document
-          pod --version
+      - uses: ./.github/actions/ios-setup
 
       - name: Generate Xcode project
         working-directory: ios/MyOfflineLLMApp
