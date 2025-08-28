@@ -1,0 +1,29 @@
+name: Build unsigned iOS IPA
+
+on:
+  workflow_dispatch:
+
+jobs:
+  build:
+    runs-on: macos-15
+
+    steps:
+      - uses: ./.github/actions/ios-setup
+        with:
+          node-version: 18
+          xcode-version: "15.4"
+          xcodegen-version: "2.39.1"
+
+      - name: Build unsigned IPA
+        run: |
+          chmod +x scripts/build_unsigned_ios.sh
+          SCHEME=MyOfflineLLMApp \
+          WORKSPACE=ios/MyOfflineLLMApp/MyOfflineLLMApp.xcworkspace \
+          IPA_OUTPUT=$RUNNER_TEMP/MyOfflineLLMApp-unsigned.ipa \
+          ./scripts/build_unsigned_ios.sh
+
+      - name: Upload unsigned IPA
+        uses: actions/upload-artifact@v4
+        with:
+          name: MyOfflineLLMApp-unsigned
+          path: ${{ runner.temp }}/MyOfflineLLMApp-unsigned.ipa
