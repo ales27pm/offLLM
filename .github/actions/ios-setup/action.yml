@@ -1,52 +1,40 @@
-name: iOS setup
-description: Shared steps for iOS builds
-inputs:
-  node-version:
-    description: Node version
-    required: false
-    default: "18"
-  xcode-version:
-    description: Xcode version
-    required: false
-    default: "15.4"
-  xcodegen-version:
-    description: XcodeGen version
-    required: false
-    default: "2.39.1"
+name: iOS Setup
+description: Select Xcode, install Node deps, XcodeGen and CocoaPods
 runs:
-  using: composite
+  using: "composite"
   steps:
-    - uses: actions/checkout@v4
-    - name: Select Xcode ${{ inputs.xcode-version }}
+    - name: Select Xcode
       uses: maxim-lobanov/setup-xcode@v1
       with:
-        xcode-version: ${{ inputs.xcode-version }}
-    - name: Setup Node
+        xcode-version: "16.4"
+
+    - name: Setup Node 20
       uses: actions/setup-node@v4
       with:
-        node-version: ${{ inputs.node-version }}
-        cache: npm
-    - name: Install dependencies
-      run: npm ci
+        node-version: 20
+        cache: "npm"
+
+    - name: Install JS deps
       shell: bash
+      run: npm ci
+
     - name: Install XcodeGen (prebuilt)
       shell: bash
       run: |
-        set -euxo pipefail
-        VER="${{ inputs.xcodegen-version }}"
-        curl -L "https://github.com/yonaskolb/XcodeGen/releases/download/${VER}/xcodegen-${VER}.zip" -o /tmp/xg.zip
+        set -eux
+        VER="2.39.1"
+        curl -L "https://github.com/yonaskolb/XcodeGen/releases/download/${VER}/xcodegen.zip" -o /tmp/xg.zip
         unzip -q /tmp/xg.zip -d /tmp/xg
-        sudo mv /tmp/xg/xcodegen /usr/local/bin/xcodegen
-        xcodegen --version
+        XCODEGEN_BIN=$(find /tmp/xg -type f -name xcodegen -perm -111 | head -n 1)
+        INSTALL_DIR="/opt/homebrew/bin"
+        sudo mkdir -p "$INSTALL_DIR"
+        sudo mv "$XCODEGEN_BIN" "$INSTALL_DIR/xcodegen"
+        chmod +x "$INSTALL_DIR/xcodegen"
+        echo "$INSTALL_DIR" >> "$GITHUB_PATH"
+        "$INSTALL_DIR/xcodegen" --version
+
     - name: Install CocoaPods
       shell: bash
       run: |
         gem install cocoapods --no-document
         pod --version
-    - name: Generate Xcode project & Install Pods
-      shell: bash
-      run: |
-        (cd ios/MyOfflineLLMApp && xcodegen generate)
-        perl -0 -i -pe 's/objectVersion = \d+/objectVersion = 56/' ios/MyOfflineLLMApp/MyOfflineLLMApp.xcodeproj/project.pbxproj
-        pod repo update
-        (cd ios && pod install --repo-update)

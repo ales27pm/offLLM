@@ -8,11 +8,8 @@ jobs:
     runs-on: macos-15
 
     steps:
+      - uses: actions/checkout@v4
       - uses: ./.github/actions/ios-setup
-        with:
-          node-version: 18
-          xcode-version: "15.4"
-          xcodegen-version: "2.39.1"
 
       - name: Build unsigned IPA
         run: |
