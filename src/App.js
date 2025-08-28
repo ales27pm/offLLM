@@ -8,6 +8,7 @@ import {
 } from "react-native";
 import LLMService from "./services/llmService";
 import { ensureModelDownloaded } from "./utils/modelDownloader";
+import { getEnv } from "./config";
 import { ToolRegistry, builtInTools } from "./architecture/toolSystem";
 import {
   createCalendarEventTool,
@@ -98,7 +99,8 @@ function App() {
         });
       }
       const pluginManager = new PluginManager();
-      const MODEL_URL = "https://example.com/model.bin"; // TODO: set actual model URL
+      // Set MODEL_URL in your environment or config to point to the model file
+      const MODEL_URL = getEnv("MODEL_URL");
       const modelPath = await ensureModelDownloaded(MODEL_URL);
       await LLMService.loadModel(modelPath);
       dependencyInjector.register("toolRegistry", toolRegistry);

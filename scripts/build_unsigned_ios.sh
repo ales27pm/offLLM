@@ -15,6 +15,17 @@ xcodebuild -workspace "$WORKSPACE" -scheme "$SCHEME" -configuration Release -arc
 
 APP_PATH="$ARCHIVE_PATH/Products/Applications/${SCHEME}.app"
 PAYLOAD_DIR="Payload"
+
+# Validate paths before removal to avoid accidental data loss
+if [[ -z "$PAYLOAD_DIR" || "$PAYLOAD_DIR" == "/" ]]; then
+  echo "Error: PAYLOAD_DIR is not set correctly. Aborting to prevent data loss."
+  exit 1
+fi
+if [[ -z "$IPA_OUTPUT" || "$IPA_OUTPUT" == "/" ]]; then
+  echo "Error: IPA_OUTPUT is not set correctly. Aborting to prevent data loss."
+  exit 1
+fi
+
 rm -rf "$PAYLOAD_DIR" "$IPA_OUTPUT"
 mkdir -p "$PAYLOAD_DIR"
 cp -R "$APP_PATH" "$PAYLOAD_DIR"
