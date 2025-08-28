@@ -27,7 +27,8 @@ jobs:
         run: |
           set -euxo pipefail
           VER="2.39.1"
-          curl -L "https://github.com/yonaskolb/XcodeGen/releases/download/${VER}/xcodegen-${VER}.zip" -o /tmp/xg.zip
+          # download the right ZIP — asset is named xcodegen.zip
+          curl -L "https://github.com/yonaskolb/XcodeGen/releases/download/${VER}/xcodegen.zip" -o /tmp/xg.zip
           unzip -q /tmp/xg.zip -d /tmp/xg
           sudo mv /tmp/xg/xcodegen /usr/local/bin/xcodegen
           xcodegen --version
