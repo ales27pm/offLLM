@@ -115,8 +115,10 @@ jobs:
         run: |
           set -euo pipefail
           cd "${{ steps.ios_paths.outputs.PODDIR }}"
-          pod repo update
-          pod install --verbose
+          pod install --repo-update --verbose
+
+      - name: React Native config
+        run: npx react-native config
 
       - name: Detect build target (scheme & container)
         id: detect
@@ -185,7 +187,7 @@ jobs:
               -configuration $CONFIGURATION \
               -derivedDataPath "$DERIVED" \
               CODE_SIGNING_ALLOWED=NO CODE_SIGNING_REQUIRED=NO CODE_SIGNING_IDENTITY="" \
-              clean build | xcpretty
+              clean build
           else
             xcodebuild \
               -project "${{ steps.ios_paths.outputs.XCPROJ }}" \
@@ -194,7 +196,7 @@ jobs:
               -configuration $CONFIGURATION \
               -derivedDataPath "$DERIVED" \
               CODE_SIGNING_ALLOWED=NO CODE_SIGNING_REQUIRED=NO CODE_SIGNING_IDENTITY="" \
-              clean build | xcpretty
+              clean build
           fi
 
       - name: Package unsigned .ipa
