@@ -12,11 +12,12 @@ jobs:
       - uses: ./.github/actions/ios-setup
 
       - name: Build unsigned IPA
+        env:
+          SCHEME: MyOfflineLLMApp
+          WORKSPACE: ios/MyOfflineLLMApp.xcworkspace
+          IPA_OUTPUT: ${{ runner.temp }}/MyOfflineLLMApp-unsigned.ipa
         run: |
           chmod +x scripts/build_unsigned_ios.sh
-          SCHEME=MyOfflineLLMApp \
-          WORKSPACE=ios/MyOfflineLLMApp/MyOfflineLLMApp.xcworkspace \
-          IPA_OUTPUT=$RUNNER_TEMP/MyOfflineLLMApp-unsigned.ipa \
           ./scripts/build_unsigned_ios.sh
 
       - name: Upload unsigned IPA

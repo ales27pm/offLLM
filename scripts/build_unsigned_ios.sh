@@ -2,18 +2,25 @@
 # Build an unsigned iOS IPA.
 # Environment variables:
 #   SCHEME    - Xcode scheme (default: MyOfflineLLMApp)
-#   WORKSPACE - Xcode workspace path (default: ios/MyOfflineLLMApp/MyOfflineLLMApp.xcworkspace)
+#   WORKSPACE - Xcode workspace path (default: ios/MyOfflineLLMApp.xcworkspace)
 #   IPA_OUTPUT- Output path for the unsigned IPA (default: ${PWD}/${SCHEME}-unsigned.ipa)
 set -euo pipefail
 
 SCHEME=${SCHEME:-MyOfflineLLMApp}
-WORKSPACE=${WORKSPACE:-ios/MyOfflineLLMApp/MyOfflineLLMApp.xcworkspace}
+WORKSPACE=${WORKSPACE:-ios/MyOfflineLLMApp.xcworkspace}
 IPA_OUTPUT=${IPA_OUTPUT:-${PWD}/${SCHEME}-unsigned.ipa}
 ARCHIVE_PATH="build/${SCHEME}.xcarchive"
+
+echo "Generating Xcode project with XcodeGen..."
+xcodegen generate --spec ios/MyOfflineLLMApp/project.yml --project ios/MyOfflineLLMApp/MyOfflineLLMApp.xcodeproj
+
+echo "Installing CocoaPods dependencies..."
+pod install --project-directory=ios
 
 echo "Checking iOS directory structure..."
 ls -la ios/
 ls -la ios/MyOfflineLLMApp/
+ls -la ios/*.xcworkspace 2>/dev/null || true
 if [[ ! -f "$WORKSPACE" ]]; then
   echo "Workspace not found at $WORKSPACE" >&2
   exit 1
