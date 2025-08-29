@@ -11,9 +11,13 @@ WORKSPACE=${WORKSPACE:-ios/MyOfflineLLMApp.xcworkspace}
 IPA_OUTPUT=${IPA_OUTPUT:-${PWD}/${SCHEME}-unsigned.ipa}
 ARCHIVE_PATH="build/${SCHEME}.xcarchive"
 
-if ! command -v xcodegen >/dev/null 2>&1; then
-  echo "xcodegen is required but not installed" >&2
-  exit 1
+echo "Checking iOS directory structure..."
+if [ -n "${WORKSPACE:-}" ]; then
+  ls -la "$(dirname "$WORKSPACE")" || true
+  ls -la "$WORKSPACE" || true
+else
+  ls -la "ios" || true
+fi
 fi
 
 echo "Generating Xcode project with XcodeGen..."
