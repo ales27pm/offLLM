@@ -34,6 +34,8 @@ The assistant can optionally store vector embeddings of conversation snippets in
 
 ## Getting started
 
+Ensure Node.js \u226520.19.4 is installed.
+
 1. Install dependencies and build the app:
 
    ```bash

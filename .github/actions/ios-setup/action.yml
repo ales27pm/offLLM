@@ -8,10 +8,10 @@ runs:
       with:
         xcode-version: "16.4"
 
-    - name: Setup Node 20
+    - name: Setup Node 20.19.4
       uses: actions/setup-node@v4
       with:
-        node-version: 20
+        node-version: 20.19.4
         cache: "npm"
 
     - name: Install JS deps
