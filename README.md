@@ -93,17 +93,7 @@ npm run test:ci
 ```
 
 The repository includes a unified GitHub Actions workflow, `ios.yml`, that covers
-all iOS builds. Additionally, `ios-ci.yml` runs on pushes and pull requests to build and upload an unsigned IPA. By default its `turbomodules` job generates the Xcode project
-using XcodeGen, installs pods, runs tests, and builds TurboModules on macOS
-runners. XcodeGen is installed via Homebrew during the setup step so the
-generator is available before project creation. The spec lives at
-`ios/MyOfflineLLMApp/project.yml`, where the `xcodeVersion` is `16.4` to match
-the CI environment. XcodeGen runs `pod install` after generation and the
-workflow rewrites `objectVersion` to `56` so Xcode 15 can open the project,
-preventing "future Xcode project file format" errors. The workflow emits clear
-messages when the XcodeGen spec or Podfile are missing and builds the generated
-workspace explicitly.
-
+all iOS builds. Additionally, `ios-ci.yml` runs on pushes and pull requests to build and upload an unsigned IPA. It generates an Xcode project from the XcodeGen spec at `ios/project.yml`, installs pods, and packages the app.
 Dispatch the workflow manually to build the app. Choosing the `signed` target
 compiles and signs the app, uploading a signed `.ipa` artifact. Provide your
 distribution certificate, provisioning profile, and export options plist as

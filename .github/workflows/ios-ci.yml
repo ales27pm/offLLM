@@ -51,6 +51,12 @@ jobs:
       - name: Install CocoaPods
         run: sudo gem install cocoapods -N
 
+      - name: Generate Xcode project (XcodeGen)
+        run: |
+          brew update
+          brew install xcodegen || true
+          cd ios && xcodegen generate
+
       - name: Locate iOS app (+ Podfile / project / workspace)
         id: ios_paths
         shell: bash
