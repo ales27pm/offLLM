@@ -81,6 +81,12 @@ release include:
   Podfile's `:new_arch_enabled` option, with codegen output directed to
   `build/generated/ios`.
 
+Run the native module code generator with:
+
+```bash
+npm run codegen
+```
+
 ## Testing
 
 Run the Jest suite with:
