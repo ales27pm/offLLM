@@ -11,25 +11,12 @@ WORKSPACE=${WORKSPACE:-ios/MyOfflineLLMApp.xcworkspace}
 IPA_OUTPUT=${IPA_OUTPUT:-${PWD}/${SCHEME}-unsigned.ipa}
 ARCHIVE_PATH="build/${SCHEME}.xcarchive"
 
-echo "Checking iOS directory structure..."
-if [ -n "${WORKSPACE:-}" ]; then
-  ls -la "$(dirname "$WORKSPACE")" || true
-  ls -la "$WORKSPACE" || true
-else
-  ls -la "ios" || true
-fi
-fi
-
 echo "Generating Xcode project with XcodeGen..."
 xcodegen generate --spec ios/MyOfflineLLMApp/project.yml --project ios/MyOfflineLLMApp/MyOfflineLLMApp.xcodeproj
 
 echo "Installing CocoaPods dependencies..."
 pod install --project-directory=ios
 
-echo "Checking iOS directory structure..."
-ls -la ios/
-ls -la ios/MyOfflineLLMApp/
-ls -la ios/*.xcworkspace 2>/dev/null || true
 if [[ ! -f "$WORKSPACE" ]]; then
   echo "Workspace not found at $WORKSPACE" >&2
   exit 1
@@ -56,4 +43,3 @@ cp -R "$APP_PATH" "$PAYLOAD_DIR"
 zip -r "$IPA_OUTPUT" "$PAYLOAD_DIR"
 rm -rf "$PAYLOAD_DIR" "$ARCHIVE_PATH"
 echo "Created unsigned IPA at $IPA_OUTPUT"
-
