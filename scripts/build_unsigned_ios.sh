@@ -18,7 +18,6 @@ if [ -n "${WORKSPACE:-}" ]; then
 else
   ls -la "ios" || true
 fi
-fi
 
 echo "Generating Xcode project with XcodeGen..."
 xcodegen generate --spec ios/MyOfflineLLMApp/project.yml --project ios/MyOfflineLLMApp/MyOfflineLLMApp.xcodeproj
