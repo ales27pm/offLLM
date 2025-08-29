@@ -11,6 +11,11 @@ WORKSPACE=${WORKSPACE:-ios/MyOfflineLLMApp.xcworkspace}
 IPA_OUTPUT=${IPA_OUTPUT:-${PWD}/${SCHEME}-unsigned.ipa}
 ARCHIVE_PATH="build/${SCHEME}.xcarchive"
 
+if ! command -v xcodegen >/dev/null 2>&1; then
+  echo "xcodegen is required but not installed" >&2
+  exit 1
+fi
+
 echo "Generating Xcode project with XcodeGen..."
 xcodegen generate --spec ios/MyOfflineLLMApp/project.yml --project ios/MyOfflineLLMApp/MyOfflineLLMApp.xcodeproj
 
