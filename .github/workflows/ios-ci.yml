@@ -8,7 +8,7 @@ on:
   workflow_dispatch:
 
 env:
-  NODE_VERSION: "18"
+  NODE_VERSION: "20.19.4"
   CONFIGURATION: Release
   IOS_SDK: iphoneos
   # Artifact name for the unsigned build
@@ -109,6 +109,9 @@ jobs:
 
           echo "----- Podfile (after patch) -----"
           nl -ba "$PODFILE"
+
+      - name: Generate codegen artifacts
+        run: npm run codegen
 
       - name: pod install
         shell: bash

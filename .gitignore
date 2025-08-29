@@ -6,3 +6,5 @@ ios/vendor/
 ios/MyOfflineLLMApp.xcodeproj/
 ios/MyOfflineLLMApp.xcworkspace/
 ios/.bundle/
+build/
+android/app/build/

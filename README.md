@@ -34,6 +34,8 @@ The assistant can optionally store vector embeddings of conversation snippets in
 
 ## Getting started
 
+Ensure Node.js \u226520.19.4 is installed.
+
 1. Install dependencies and build the app:
 
    ```bash
@@ -78,9 +80,10 @@ release include:
   `extractFromUrl()` instead of the non‑existent `extract()` method.
 - **Adaptive quantization** implemented directly on `LLMService`.
   - **React Native new architecture** enabled via `reactNativeArchFlags` and
-    Podfile's `:new_arch_enabled` option. The Podfile invokes
-    `scripts/generate-codegen-artifacts.js` so codegen output lands in
-    `build/generated/ios`.
+    Podfile's `:new_arch_enabled` option. Codegen outputs are configured via
+    `codegenConfig` to land in `build/generated/ios`, and CI workflows run the
+    code generator before installing CocoaPods.
+  - **Babel preset** now uses `@react-native/babel-preset`.
 
 Run the native module code generator with:
 
@@ -115,7 +118,7 @@ script at `scripts/build_unsigned_ios.sh` and uploads the resulting unsigned
 `.github/actions/ios-setup`.
 
 An additional script at `ios/MyOfflineLLMApp/Scripts/verify_deployment_target.sh` runs during the Xcode build to ensure the
-deployment target remains set to iOS 18.0.
+deployment target remains set to iOS 17.0.
 
 See `CITATIONS.md` for references and inspiration. Contributions are
 welcome!
