@@ -1,15 +1,15 @@
 name: MyOfflineLLMApp
 settings:
   base:
-    IPHONEOS_DEPLOYMENT_TARGET: "17.0"
+    IPHONEOS_DEPLOYMENT_TARGET: "18.0"
     SWIFT_VERSION: "5.0"
     CLANG_WARN_QUOTED_INCLUDE_IN_FRAMEWORK_HEADER: "NO"
     BUILD_LIBRARY_FOR_DISTRIBUTION: "YES"
   configs:
     Debug:
-      IPHONEOS_DEPLOYMENT_TARGET: "17.0"
+      IPHONEOS_DEPLOYMENT_TARGET: "18.0"
     Release:
-      IPHONEOS_DEPLOYMENT_TARGET: "17.0"
+      IPHONEOS_DEPLOYMENT_TARGET: "18.0"
 options:
   bundleIdPrefix: com.offllm
   xcodeVersion: "16.4"
@@ -17,7 +17,7 @@ targets:
   MyOfflineLLMApp:
     type: framework
     platform: iOS
-    deploymentTarget: "17.0"
+    deploymentTarget: "18.0"
     info:
       path: Info.plist
       properties:

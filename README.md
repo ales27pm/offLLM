@@ -107,7 +107,7 @@ for testing. The `ios-build-unsigned.yml` workflow runs this script on
 reusable action at `.github/actions/ios-setup`.
 
 An additional script at `ios/MyOfflineLLMApp/Scripts/verify_deployment_target.sh` runs during the Xcode build to ensure the
-deployment target remains set to iOS 17.0.
+deployment target remains set to iOS 18.0.
 
 See `CITATIONS.md` for references and inspiration. Contributions are
 welcome!
