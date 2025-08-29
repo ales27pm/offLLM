@@ -57,12 +57,14 @@ if [[ -z "${PODFILE}" ]]; then
   exit 1
 fi
 PODDIR="$(dirname "${PODFILE}")"
+export PODDIR
 echo "  Podfile: ${PODFILE}"
 
 if [[ -z "${WORKSPACE}" ]]; then
   WORKSPACE="$(find "${PODDIR}" -maxdepth 4 -name '*.xcworkspace' | head -n1 || true)"
 fi
 XCPROJ="$(find "${PODDIR}" -maxdepth 4 -name '*.xcodeproj' | head -n1 || true)"
+export XCPROJ
 
 echo "Detected:"
 echo "  Workspace: ${WORKSPACE:-<none>}"
@@ -76,13 +78,7 @@ fi
 # --- 3) Patch Podfile 'project' line if it points to a wrong path ---
 if [[ -n "${XCPROJ}" ]]; then
   echo "Normalising Podfile project path…"
-  RELPROJ="$(python3 - <<'PY'
-import os
-poddir = os.environ["PODDIR"]
-xcproj = os.environ["XCPROJ"]
-print(os.path.relpath(xcproj, poddir))
-PY
-)"
+  RELPROJ="$(python3 -c \"import os,sys;print(os.path.relpath('${XCPROJ}','${PODDIR}'))\")"
   # macOS sed needs the empty '' argument after -i
   if grep -E "^\s*project\s+['\"][^'\"]+['\"]" "${PODFILE}" >/dev/null 2>&1; then
     sed -i '' -E "s|^\s*project\s+['\"][^'\"]+['\"]|project '${RELPROJ}'|g" "${PODFILE}"
@@ -107,7 +103,7 @@ if [[ -z "${SCHEME}" ]]; then
   else
     LIST_JSON="$(xcodebuild -list -json -project "${XCPROJ}" 2>/dev/null || true)"
   fi
-
+  export LIST_JSON
   SCHEME="$(python3 - <<'PY'
 import json, os
 data = os.environ.get("LIST_JSON","")

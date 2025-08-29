@@ -3,13 +3,13 @@ name: iOS CI
 
 on:
   push:
-    branches: [ main ]
+    branches: [main]
   pull_request:
-    branches: [ main ]
+    branches: [main]
   workflow_dispatch:
 
 env:
-  NODE_VERSION: '18'
+  NODE_VERSION: "18"
   CONFIGURATION: Release
   IOS_SDK: iphoneos
   # Artifact name for the unsigned build
@@ -37,13 +37,13 @@ jobs:
       - name: Set up Xcode 15
         uses: maxim-lobanov/setup-xcode@v1
         with:
-          xcode-version: '15.x'
+          xcode-version: "15.x"
 
       - name: Set up Node
         uses: actions/setup-node@v4
         with:
           node-version: ${{ env.NODE_VERSION }}
-          cache: 'yarn'
+          cache: "yarn"
 
       - name: Install JS deps
         run: yarn install --frozen-lockfile
@@ -97,13 +97,7 @@ jobs:
           PODDIR="${{ steps.ios_paths.outputs.PODDIR }}"
           XCPROJ="${{ steps.ios_paths.outputs.XCPROJ }}"
 
-          RELPROJ=$(python3 - <<'PY'
-import os
-poddir = os.environ["PODDIR"]
-xcproj = os.environ["XCPROJ"]
-print(os.path.relpath(xcproj, poddir))
-PY
-)
+          RELPROJ=$(python3 -c "import os,sys;print(os.path.relpath('${XCPROJ}','${PODDIR}'))")
           echo "Relative project path for Podfile: $RELPROJ"
 
           if grep -E "^\s*project\s+['\"][^'\"]+['\"]" "$PODFILE" >/dev/null 2>&1; then
@@ -142,25 +136,8 @@ PY
             LIST_JSON=$(xcodebuild -list -json -project "$XCPROJ" 2>/dev/null || true)
           fi
 
-          SCHEME=$(python3 - <<'PY'
-import json, os, sys
-data = os.environ["LIST_JSON"]
-try:
-    j = json.loads(data)
-    # Newer Xcode prints {"workspace": {"schemes": [...]}} OR {"project": {"schemes": [...]}}
-    for k in ("workspace","project"):
-        if k in j and "schemes" in j[k] and j[k]["schemes"]:
-            # pick the first non-Pods scheme if possible
-            schemes = [s for s in j[k]["schemes"] if not s.startswith("Pods-")]
-            print((schemes or j[k]["schemes"])[0])
-            sys.exit(0)
-except Exception:
-    pass
-print("")  # fallback
-PY
-)
+          SCHEME=$(echo "$LIST_JSON" | jq -r '.workspace.schemes? // .project.schemes? | map(select(startswith("Pods-")|not)) | .[0] // empty')
           if [[ -z "$SCHEME" ]]; then
-            # Heuristic: scheme = basename(project)
             SCHEME=$(basename "${XCPROJ%.xcodeproj}")
             echo "Falling back to scheme=$SCHEME"
           fi
