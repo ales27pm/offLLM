@@ -14,6 +14,11 @@ ARCHIVE_PATH="build/${SCHEME}.xcarchive"
 echo "Checking iOS directory structure..."
 ls -la ios/
 ls -la ios/MyOfflineLLMApp/
+if [[ ! -f "$WORKSPACE" ]]; then
+  echo "Workspace not found at $WORKSPACE" >&2
+  exit 1
+fi
+
 xcodebuild -workspace "$WORKSPACE" -scheme "$SCHEME" -configuration Release -archivePath "$ARCHIVE_PATH" CODE_SIGN_IDENTITY="" CODE_SIGNING_REQUIRED=NO CODE_SIGNING_ALLOWED=NO archive
 
 APP_PATH="$ARCHIVE_PATH/Products/Applications/${SCHEME}.app"
