@@ -30,7 +30,11 @@ jobs:
         run: pod install --repo-update
 
       - name: Import signing certificate
-        if: ${{ secrets.CERT_BASE64 != '' && secrets.CERT_PASSWORD != '' && secrets.KEYCHAIN_PASSWORD != '' }}
+        if: ${{ secrets.CERT_BASE64 && secrets.CERT_PASSWORD && secrets.KEYCHAIN_PASSWORD }}
+        env:
+          CERT_BASE64: ${{ secrets.CERT_BASE64 }}
+          CERT_PASSWORD: ${{ secrets.CERT_PASSWORD }}
+          KEYCHAIN_PASSWORD: ${{ secrets.KEYCHAIN_PASSWORD }}
         run: |
           printf "%s" "$CERT_BASE64" | base64 -D > /tmp/cert.p12
           security create-keychain -p "$KEYCHAIN_PASSWORD" build.keychain

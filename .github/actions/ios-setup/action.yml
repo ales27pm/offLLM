@@ -26,12 +26,15 @@ runs:
         curl -L "https://github.com/yonaskolb/XcodeGen/releases/download/${VER}/xcodegen.zip" -o /tmp/xg.zip
         unzip -q /tmp/xg.zip -d /tmp/xg
         XCODEGEN_BIN=$(find /tmp/xg -type f -name xcodegen -perm -111 | head -n 1)
-        INSTALL_DIR="/opt/homebrew/bin"
-        sudo mkdir -p "$INSTALL_DIR"
-        sudo mv "$XCODEGEN_BIN" "$INSTALL_DIR/xcodegen"
-        chmod +x "$INSTALL_DIR/xcodegen"
-        echo "$INSTALL_DIR" >> "$GITHUB_PATH"
-        "$INSTALL_DIR/xcodegen" --version
+        XCODEGEN_DIR=$(dirname "$(dirname "$XCODEGEN_BIN")")
+        INSTALL_BIN_DIR="/opt/homebrew/bin"
+        INSTALL_SHARE_DIR="/opt/homebrew/share"
+        sudo mkdir -p "$INSTALL_BIN_DIR" "$INSTALL_SHARE_DIR"
+        sudo mv "$XCODEGEN_BIN" "$INSTALL_BIN_DIR/xcodegen"
+        sudo mv "$XCODEGEN_DIR/share/XcodeGen" "$INSTALL_SHARE_DIR"
+        chmod +x "$INSTALL_BIN_DIR/xcodegen"
+        echo "$INSTALL_BIN_DIR" >> "$GITHUB_PATH"
+        "$INSTALL_BIN_DIR/xcodegen" --version
 
     - name: Install CocoaPods
       shell: bash
