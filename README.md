@@ -81,7 +81,9 @@ release include:
 - **Adaptive quantization** implemented directly on `LLMService`.
   - **React Native new architecture** enabled via `reactNativeArchFlags` and
     Podfile's `:new_arch_enabled` option. Codegen outputs are configured via
-    `codegenConfig` to land in `build/generated/ios`.
+    `codegenConfig` to land in `build/generated/ios`, and CI workflows run the
+    code generator before installing CocoaPods.
+  - **Babel preset** now uses `@react-native/babel-preset`.
 
 Run the native module code generator with:
 

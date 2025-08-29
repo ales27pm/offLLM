@@ -24,6 +24,8 @@ jobs:
     steps:
       - uses: actions/checkout@v4
       - uses: ./.github/actions/ios-setup
+      - name: Generate codegen artifacts
+        run: npm run codegen
       - name: Cache Pods
         if: ${{ hashFiles('ios/Podfile') != '' }}
         uses: actions/cache@v3
@@ -85,6 +87,8 @@ jobs:
     steps:
       - uses: actions/checkout@v4
       - uses: ./.github/actions/ios-setup
+      - name: Generate codegen artifacts
+        run: npm run codegen
       - name: Build unsigned IPA
         env:
           SCHEME: MyOfflineLLMApp
@@ -105,6 +109,8 @@ jobs:
     steps:
       - uses: actions/checkout@v4
       - uses: ./.github/actions/ios-setup
+      - name: Generate codegen artifacts
+        run: npm run codegen
       - name: Generate Xcode project
         working-directory: ios/MyOfflineLLMApp
         run: xcodegen generate

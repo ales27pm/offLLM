@@ -110,6 +110,9 @@ jobs:
           echo "----- Podfile (after patch) -----"
           nl -ba "$PODFILE"
 
+      - name: Generate codegen artifacts
+        run: npm run codegen
+
       - name: pod install
         shell: bash
         run: |
