@@ -93,7 +93,8 @@ npm run test:ci
 ```
 
 The repository also includes a GitHub Actions workflow that generates the iOS Xcode project using XcodeGen and builds
-TurboModules on macOS runners. The spec lives at `ios/MyOfflineLLMApp/project.yml`, where the `xcodeVersion` is pinned to
+TurboModules on macOS runners. XcodeGen is installed via Homebrew during the setup step to ensure the generator is
+available. The spec lives at `ios/MyOfflineLLMApp/project.yml`, where the `xcodeVersion` is pinned to
 `16.4` to match the CI environment. XcodeGen runs `pod install` after generation and the workflow rewrites `objectVersion` to
 `56` so Xcode 15 can open the project, preventing "future Xcode project file format" errors. The workflow emits clear messages
 when the XcodeGen spec or Podfile are missing and builds the generated workspace explicitly.
@@ -106,7 +107,7 @@ for testing. The `ios-build-unsigned.yml` workflow runs this script on
 reusable action at `.github/actions/ios-setup`.
 
 An additional script at `ios/MyOfflineLLMApp/Scripts/verify_deployment_target.sh` runs during the Xcode build to ensure the
-deployment target remains set to iOS 14.0.
+deployment target remains set to iOS 18.0.
 
 See `CITATIONS.md` for references and inspiration. Contributions are
 welcome!
