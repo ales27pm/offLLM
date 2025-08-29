@@ -93,7 +93,7 @@ npm run test:ci
 ```
 
 The repository includes a unified GitHub Actions workflow, `ios.yml`, that covers
-all iOS builds. By default its `turbomodules` job generates the Xcode project
+all iOS builds. Additionally, `ios-ci.yml` runs on pushes and pull requests to build and upload an unsigned IPA. By default its `turbomodules` job generates the Xcode project
 using XcodeGen, installs pods, runs tests, and builds TurboModules on macOS
 runners. XcodeGen is installed via Homebrew during the setup step so the
 generator is available before project creation. The spec lives at
