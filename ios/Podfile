@@ -22,8 +22,7 @@ target app_target do
   use_react_native!(
     :path => config[:reactNativePath],
     :hermes_enabled => true,
-    :new_arch_enabled => true,
-    :codegen_script => "../scripts/generate-codegen-artifacts.js"
+    :new_arch_enabled => true
   )
 
   post_install do |installer|
