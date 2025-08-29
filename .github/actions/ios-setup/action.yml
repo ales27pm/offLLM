@@ -29,10 +29,12 @@ runs:
         ls -la /tmp/xg
         echo "Contents of /tmp/xg/xcodegen:"
         ls -la /tmp/xg/xcodegen
-        chmod +x /tmp/xg/xcodegen/xcodegen
+        echo "Contents of /tmp/xg/xcodegen/bin:"
+        ls -la /tmp/xg/xcodegen/bin
+        chmod +x /tmp/xg/xcodegen/bin/xcodegen
         INSTALL_DIR="/opt/homebrew/bin"
         sudo mkdir -p "$INSTALL_DIR"
-        sudo mv /tmp/xg/xcodegen/xcodegen "$INSTALL_DIR/xcodegen"
+        sudo mv /tmp/xg/xcodegen/bin/xcodegen "$INSTALL_DIR/xcodegen"
         echo "$INSTALL_DIR" >> "$GITHUB_PATH"
         /opt/homebrew/bin/xcodegen --version
 
