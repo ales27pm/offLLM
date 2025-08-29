@@ -21,7 +21,12 @@ runs:
     - name: Install XcodeGen
       shell: bash
       run: |
-        brew install xcodegen
+        set -euo pipefail
+        VER="2.39.1"
+        curl -L "https://github.com/yonaskolb/XcodeGen/releases/download/${VER}/xcodegen.zip" -o /tmp/xcodegen.zip
+        unzip -q /tmp/xcodegen.zip -d /tmp/xcodegen
+        sudo mv /tmp/xcodegen/xcodegen /usr/local/bin/xcodegen
+        sudo chmod +x /usr/local/bin/xcodegen
         xcodegen --version
 
     - name: Install CocoaPods
