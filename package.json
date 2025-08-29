@@ -75,14 +75,14 @@
   },
   "codegenConfig": {
     "name": "AppSpec",
-    "outputDir": "build/generated/ios",
-    "ios": {
-      "fileInput": "AppSpec.js",
-      "codegenOutputDir": "build/generated/ios",
-      "libraryName": "AppSpec"
-    },
+    "type": "modules",
+    "jsSrcsDir": ".",
     "android": {
       "javaPackageName": "com.myofflinellmapp.generated"
+    },
+    "ios": {
+      "libraryName": "AppSpec",
+      "outputDir": "build/generated/ios"
     }
   }
 }

@@ -77,9 +77,10 @@ release include:
 - **Search service bug** fixed – ReadabilityService now uses
   `extractFromUrl()` instead of the non‑existent `extract()` method.
 - **Adaptive quantization** implemented directly on `LLMService`.
-- **React Native new architecture** enabled via `reactNativeArchFlags` and
-  Podfile's `:new_arch_enabled` option, with codegen output directed to
-  `build/generated/ios`.
+  - **React Native new architecture** enabled via `reactNativeArchFlags` and
+    Podfile's `:new_arch_enabled` option. The Podfile invokes
+    `scripts/generate-codegen-artifacts.js` so codegen output lands in
+    `build/generated/ios`.
 
 Run the native module code generator with:
 
