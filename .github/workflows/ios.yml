@@ -19,7 +19,7 @@ on:
 
 jobs:
   turbomodules:
-    if: github.event_name != 'workflow_dispatch' || github.event.inputs.target == 'turbomodules'
+    if: github.event_name != 'workflow_dispatch' || inputs.target == 'turbomodules'
     runs-on: macos-15
     steps:
       - uses: actions/checkout@v4
@@ -80,7 +80,7 @@ jobs:
           fi
 
   unsigned:
-    if: github.event_name == 'workflow_dispatch' && github.event.inputs.target == 'unsigned'
+    if: github.event_name == 'workflow_dispatch' && inputs.target == 'unsigned'
     runs-on: macos-15
     steps:
       - uses: actions/checkout@v4
@@ -100,7 +100,7 @@ jobs:
           path: ${{ runner.temp }}/MyOfflineLLMApp-unsigned.ipa
 
   signed:
-    if: github.event_name == 'workflow_dispatch' && github.event.inputs.target == 'signed'
+    if: github.event_name == 'workflow_dispatch' && inputs.target == 'signed'
     runs-on: macos-15
     steps:
       - uses: actions/checkout@v4
