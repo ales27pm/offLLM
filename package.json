@@ -68,5 +68,20 @@
   },
   "react-native": {
     "hermes": true
+  },
+  "reactNativeArchFlags": {
+    "newArchEnabled": true
+  },
+  "codegenConfig": {
+    "name": "AppSpec",
+    "outputDir": "build/generated/ios",
+    "ios": {
+      "fileInput": "AppSpec.js",
+      "codegenOutputDir": "build/generated/ios",
+      "libraryName": "AppSpec"
+    },
+    "android": {
+      "javaPackageName": "com.myofflinellmapp.generated"
+    }
   }
 }
