@@ -131,27 +131,28 @@ jobs:
             LIST_JSON=$(xcodebuild -list -json -project "$XCPROJ" 2>/dev/null || true)
           fi
 
-          SCHEME=$(LIST_JSON="$LIST_JSON" PROJ_NAME="$PROJ_NAME" python3 - <<'PY'
-            import json, os, sys
-            data = os.environ.get("LIST_JSON", "")
-            proj = os.environ.get("PROJ_NAME", "")
-            try:
-                j = json.loads(data)
-                for key in ("workspace", "project"):
-                    if key in j and "schemes" in j[key] and j[key]["schemes"]:
-                        schemes = j[key]["schemes"]
-                        if proj and proj in schemes:
-                            print(proj)
-                            raise SystemExit
-                        for s in schemes:
-                            if not s.startswith("Pods-"):
-                                print(s)
-                                raise SystemExit
-                        print(schemes[0])
-                        raise SystemExit
-            except Exception:
-                pass
-            print("")
+          SCHEME=$(
+            LIST_JSON="$LIST_JSON" PROJ_NAME="$PROJ_NAME" python3 - <<'PY'
+          import json, os, sys
+          data = os.environ.get("LIST_JSON", "")
+          proj = os.environ.get("PROJ_NAME", "")
+          try:
+            j = json.loads(data)
+            for key in ("workspace", "project"):
+              if key in j and "schemes" in j[key] and j[key]["schemes"]:
+                schemes = j[key]["schemes"]
+                if proj and proj in schemes:
+                  print(proj)
+                  raise SystemExit
+                for s in schemes:
+                  if not s.startswith("Pods-"):
+                    print(s)
+                    raise SystemExit
+                print(schemes[0])
+                raise SystemExit
+          except Exception:
+            pass
+          print("")
           PY
           )
           if [[ -z "$SCHEME" ]]; then
