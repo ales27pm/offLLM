@@ -1,0 +1,69 @@
+name: iOS CI
+
+on:
+  push:
+    branches: [ main ]
+  pull_request:
+    branches: [ main ]
+  workflow_dispatch:
+
+env:
+  NODE_VERSION: '18'
+
+jobs:
+  turbomodules:
+    name: turbomodules
+    runs-on: macos-14
+    steps:
+      - uses: actions/checkout@v4
+      - name: Quick sanity
+        run: echo "TurboModules sanity OK"
+
+  unsigned:
+    name: unsigned
+    runs-on: macos-14
+    needs: turbomodules
+    if: ${{ always() }}   # <-- ensure it runs even if turbomodules fails
+    steps:
+      - uses: actions/checkout@v4
+
+      - name: Set up Xcode 16 (iOS 18 SDK)
+        uses: maxim-lobanov/setup-xcode@v1
+        with:
+          xcode-version: '16.4'   # matches your runner env MD_APPLE_SDK_ROOT log
+
+      - name: Set up Node
+        uses: actions/setup-node@v4
+        with:
+          node-version: ${{ env.NODE_VERSION }}
+          cache: 'yarn'
+
+      - name: Install JS deps
+        run: yarn install --frozen-lockfile
+
+      - name: Ensure script is executable
+        run: chmod +x scripts/build_unsigned_ios.sh
+
+      # Optional: pass known workspace/scheme; script will auto-detect if omitted
+      - name: Build unsigned IPA
+        env:
+          # Provide only if you want to force; otherwise let the script auto-detect
+          # SCHEME: MyOfflineLLMApp
+          # WORKSPACE: ios/MyOfflineLLMApp.xcworkspace
+          IPA_OUTPUT: ${{ runner.temp }}/offLLM-unsigned.ipa
+        run: ./scripts/build_unsigned_ios.sh
+
+      - name: Upload artifact (unsigned IPA)
+        uses: actions/upload-artifact@v4
+        with:
+          name: offLLM-unsigned.ipa
+          path: ${{ runner.temp }}/offLLM-unsigned.ipa
+          if-no-files-found: error
+          retention-days: 7
+
+  signed:
+    name: signed
+    runs-on: macos-14
+    if: ${{ false }}    # ⏸️ paused for now
+    steps:
+      - run: echo "Signed build paused"
