@@ -57,7 +57,7 @@ jobs:
           brew install xcodegen || true
           cd ios && xcodegen generate
 
-      - name: Locate iOS app (+ Podfile / project / workspace)
+      - name: Locate iOS app (+ Podfile / project)
         id: ios_paths
         shell: bash
         run: |
@@ -80,14 +80,9 @@ jobs:
           fi
           echo "XCPROJ=$XCPROJ" >> "$GITHUB_OUTPUT"
 
-          echo "Searching for .xcworkspace (optional) …"
-          XCWORK=$(find "$PODDIR" -maxdepth 4 -name "*.xcworkspace" | head -n1 || true)
-          echo "XCWORK=$XCWORK" >> "$GITHUB_OUTPUT"
-
           echo "Found:"
           echo " • Podfile:    $PODFILE"
           echo " • Xcodeproj:  $XCPROJ"
-          echo " • Workspace:  ${XCWORK:-<none>}"
 
       - name: Patch Podfile project path if needed
         shell: bash
@@ -126,7 +121,7 @@ jobs:
           set -euo pipefail
           PODDIR="${{ steps.ios_paths.outputs.PODDIR }}"
           XCPROJ="${{ steps.ios_paths.outputs.XCPROJ }}"
-          XCWORK="${{ steps.ios_paths.outputs.XCWORK }}"
+          XCWORK=$(find "$PODDIR" -maxdepth 1 -name "*.xcworkspace" | head -n1 || true)
 
           if [[ -n "$XCWORK" ]]; then
             echo "Using workspace: $XCWORK"
@@ -143,6 +138,7 @@ jobs:
           fi
 
           echo "SCHEME=$SCHEME" >> "$GITHUB_OUTPUT"
+          echo "XCWORK=$XCWORK" >> "$GITHUB_OUTPUT"
           echo "SCHEME: $SCHEME"
 
       - name: Build (UNSIGNED)
@@ -150,9 +146,9 @@ jobs:
         run: |
           set -euo pipefail
           DERIVED="build"
-          if [[ -n "${{ steps.ios_paths.outputs.XCWORK }}" ]]; then
+          if [[ -n "${{ steps.detect.outputs.XCWORK }}" ]]; then
             xcodebuild \
-              -workspace "${{ steps.ios_paths.outputs.XCWORK }}" \
+              -workspace "${{ steps.detect.outputs.XCWORK }}" \
               -scheme "${{ steps.detect.outputs.SCHEME }}" \
               -sdk $IOS_SDK \
               -configuration $CONFIGURATION \
