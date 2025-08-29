@@ -1,4 +1,4 @@
-#import "React/RCTBridgeModule.h"
+#import <React/RCTBridgeModule.h>
 #import "React/RCTLog.h"
 #import <MLX/MLX.h>
 #import <MLXLLM/MLXLLM.h>

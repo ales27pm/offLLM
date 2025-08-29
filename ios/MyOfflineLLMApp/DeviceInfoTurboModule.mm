@@ -1,4 +1,4 @@
-#import "React/RCTBridgeModule.h"
+#import <React/RCTBridgeModule.h>
 #import <UIKit/UIKit.h>
 #import <sys/utsname.h>
 
