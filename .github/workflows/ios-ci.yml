@@ -202,9 +202,19 @@ jobs:
         run: |
           set -euo pipefail
           if [[ -n "${{ steps.detect.outputs.XCWORK }}" ]]; then
-            BUILD_SETTINGS=$(xcodebuild -workspace "${{ steps.detect.outputs.XCWORK }}" -scheme "${{ steps.detect.outputs.SCHEME }}" -sdk $IOS_SDK -configuration $CONFIGURATION -showBuildSettings 2>/dev/null)
+            BUILD_SETTINGS=$(xcodebuild \
+              -workspace "${{ steps.detect.outputs.XCWORK }}" \
+              -scheme "${{ steps.detect.outputs.SCHEME }}" \
+              -sdk $IOS_SDK \
+              -configuration $CONFIGURATION \
+              -showBuildSettings 2>/dev/null)
           else
-            BUILD_SETTINGS=$(xcodebuild -project "${{ steps.ios_paths.outputs.XCPROJ }}" -scheme "${{ steps.detect.outputs.SCHEME }}" -sdk $IOS_SDK -configuration $CONFIGURATION -showBuildSettings 2>/dev/null)
+            BUILD_SETTINGS=$(xcodebuild \
+              -project "${{ steps.ios_paths.outputs.XCPROJ }}" \
+              -scheme "${{ steps.detect.outputs.SCHEME }}" \
+              -sdk $IOS_SDK \
+              -configuration $CONFIGURATION \
+              -showBuildSettings 2>/dev/null)
           fi
           TARGET_BUILD_DIR=$(echo "$BUILD_SETTINGS" | awk -F' = ' '/TARGET_BUILD_DIR/ {print $2}' | tail -n1)
           FULL_PRODUCT_NAME=$(echo "$BUILD_SETTINGS" | awk -F' = ' '/FULL_PRODUCT_NAME/ {print $2}' | tail -n1)
