@@ -92,27 +92,14 @@ For coverage in CI environments, use:
 npm run test:ci
 ```
 
-The repository includes a unified GitHub Actions workflow, `ios.yml`, that covers
-all iOS builds. By default its `turbomodules` job generates the Xcode project
-using XcodeGen, installs pods, runs tests, and builds TurboModules on macOS
-runners. XcodeGen is installed via Homebrew during the setup step so the
-generator is available before project creation. The spec lives at
-`ios/MyOfflineLLMApp/project.yml`, where the `xcodeVersion` is `16.4` to match
-the CI environment. XcodeGen runs `pod install` after generation and the
-workflow rewrites `objectVersion` to `56` so Xcode 15 can open the project,
-preventing "future Xcode project file format" errors. The workflow emits clear
-messages when the XcodeGen spec or Podfile are missing and builds the generated
-workspace explicitly.
-
-Dispatch the workflow manually to build the app. Choosing the `signed` target
-compiles and signs the app, uploading a signed `.ipa` artifact. Provide your
-distribution certificate, provisioning profile, and export options plist as
-base64-encoded secrets (`IOS_CERTIFICATE_BASE64`, `IOS_CERT_PASSWORD`,
-`IOS_PROVISION_PROFILE_BASE64`, `IOS_EXPORT_OPTIONS_PLIST`) and supply a random
-keychain password via `IOS_KEYCHAIN_PASSWORD`. Selecting `unsigned` runs the
-script at `scripts/build_unsigned_ios.sh` and uploads the resulting unsigned
-`.ipa`. Shared setup steps live in the reusable action at
-`.github/actions/ios-setup`.
+The repository includes a GitHub Actions workflow, `ios-ci.yml`, that handles
+all iOS builds. It runs a `turbomodules` job to generate the Xcode project and
+install CocoaPods, then builds an unsigned `.ipa` in the `unsigned` job using
+Xcode 15 with code signing disabled. The workflow also contains a `signed` job
+that is paused by default (`if: ${{ false }}`); flip the condition to `true` or
+remove it to re-enable signing when credentials are available. Adjust the
+`IOS_WORKSPACE` and `IOS_SCHEME` environment variables in the workflow if your
+project uses different names.
 
 An additional script at `ios/MyOfflineLLMApp/Scripts/verify_deployment_target.sh` runs during the Xcode build to ensure the
 deployment target remains set to iOS 18.0.

@@ -1,0 +1,131 @@
+name: iOS CI
+
+on:
+  push:
+    branches: [main]
+  pull_request:
+    branches: [main]
+  workflow_dispatch:
+
+env:
+  # 👉 Adjust these if your names differ
+  IOS_WORKSPACE: ios/offLLM.xcworkspace
+  IOS_SCHEME: offLLM
+  IOS_SDK: iphoneos
+  CONFIGURATION: Release
+  DERIVED_DATA: build
+  ARCHIVE_PATH: build/offLLM.xcarchive
+  IPA_NAME: offLLM-unsigned.ipa
+  NODE_VERSION: "18"
+
+jobs:
+  turbomodules:
+    name: turbomodules
+    runs-on: macos-14
+    steps:
+      - uses: actions/checkout@v4
+
+      - name: Set up Node
+        uses: actions/setup-node@v4
+        with:
+          node-version: ${{ env.NODE_VERSION }}
+          cache: "yarn"
+
+      - name: Install JS deps
+        run: yarn install --frozen-lockfile
+
+      - name: Install Homebrew dependencies
+        run: |
+          brew update
+          brew install xcodegen || true
+
+      - name: Generate Xcode project with XcodeGen (if applicable)
+        run: |
+          if [ -f project.yml ] || [ -f ios/project.yml ]; then
+            (test -f project.yml && xcodegen) || (cd ios && xcodegen)
+          else
+            echo "No XcodeGen spec found, skipping."
+          fi
+
+      - name: CocoaPods install
+        run: |
+          sudo gem install cocoapods -N
+          cd ios && pod install --repo-update
+
+  unsigned:
+    name: unsigned
+    runs-on: macos-14
+    needs: turbomodules
+    # ✅ Always run on push/PR/dispatch. No skip conditions.
+    steps:
+      - uses: actions/checkout@v4
+
+      - name: Set up Xcode 15 (iOS 18 SDK compatible)
+        uses: maxim-lobanov/setup-xcode@v1
+        with:
+          xcode-version: "15.x"
+
+      - name: Set up Node
+        uses: actions/setup-node@v4
+        with:
+          node-version: ${{ env.NODE_VERSION }}
+          cache: "yarn"
+
+      - name: Install JS deps
+        run: yarn install --frozen-lockfile
+
+      - name: Install Homebrew + XcodeGen
+        run: |
+          brew update
+          brew install xcodegen || true
+          if [ -f project.yml ] || [ -f ios/project.yml ]; then
+            (test -f project.yml && xcodegen) || (cd ios && xcodegen)
+          fi
+
+      - name: CocoaPods install
+        run: |
+          sudo gem install cocoapods -N
+          cd ios && pod install --repo-update
+
+      - name: Clean & build (NO code signing)
+        run: |
+          xcodebuild \
+            -workspace "$IOS_WORKSPACE" \
+            -scheme "$IOS_SCHEME" \
+            -configuration "$CONFIGURATION" \
+            -sdk "$IOS_SDK" \
+            -derivedDataPath "$DERIVED_DATA" \
+            CODE_SIGNING_ALLOWED=NO \
+            CODE_SIGNING_REQUIRED=NO \
+            CODE_SIGNING_IDENTITY="" \
+            clean build | xcpretty
+
+      - name: Create unsigned .ipa
+        run: |
+          APP_PATH=$(find "$DERIVED_DATA/Build/Products/$CONFIGURATION-iphoneos" -maxdepth 1 -name "*.app" | head -n 1)
+          if [ -z "$APP_PATH" ]; then
+            echo "No .app produced. Failing."
+            exit 1
+          fi
+          mkdir -p Payload
+          cp -R "$APP_PATH" Payload/
+          zip -r "$IPA_NAME" Payload
+          rm -rf Payload
+          echo "IPA_PATH=$IPA_NAME" >> $GITHUB_ENV
+
+      - name: Upload unsigned artifact
+        uses: actions/upload-artifact@v4
+        with:
+          name: ${{ env.IPA_NAME }}
+          path: ${{ env.IPA_NAME }}
+          if-no-files-found: error
+          retention-days: 7
+
+  signed:
+    name: signed
+    runs-on: macos-14
+    needs: turbomodules
+    # ⏸️ Paused on purpose. Flip to `true` or remove this line to re-enable.
+    if: ${{ false }}
+    steps:
+      - run: echo "Signed job intentionally paused."
