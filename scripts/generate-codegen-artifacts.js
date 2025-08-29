@@ -1,14 +1,3 @@
-const path = require("path");
-const generate = require("react-native/scripts/generate-codegen-artifacts");
+const { spawnSync } = require("node:child_process");
 
-generate({
-  config: {
-    libraries: [
-      {
-        type: "modules",
-        jsSrcsDir: path.join(__dirname, ".."),
-        outputDir: path.join(__dirname, "../build/generated/ios"),
-      },
-    ],
-  },
-});
+spawnSync("npx", ["react-native", "codegen"], { stdio: "inherit" });
