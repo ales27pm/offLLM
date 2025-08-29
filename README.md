@@ -92,17 +92,15 @@ For coverage in CI environments, use:
 npm run test:ci
 ```
 
-The repository includes a GitHub Actions workflow, `ios-ci.yml`, that handles
-all iOS builds. It runs a `turbomodules` job to generate the Xcode project and
-install CocoaPods, then builds an unsigned `.ipa` in the `unsigned` job using
-`npm ci` and Xcode 15 with code signing disabled. The `unsigned` job is configured
-with `if: always()` so it runs even if `turbomodules` fails. The workflow also
-contains a `signed` job that is paused by default (`if: ${{ false }}`); flip the
-condition to `true` or remove it to re-enable signing when credentials are
-available. The default workspace and scheme are
-`ios/MyOfflineLLMApp.xcworkspace` and `MyOfflineLLMApp`; adjust the
-`IOS_WORKSPACE` and `IOS_SCHEME` environment variables if your project uses
-different names.
+The repository includes a GitHub Actions workflow, `ios-ci.yml`, that builds the
+iOS app. It runs a `turbomodules` job as a precheck and an `unsigned` job that
+always runs (`if: always()`). The unsigned job installs JavaScript dependencies
+with `yarn install --frozen-lockfile`, installs CocoaPods, auto-detects the
+Podfile's project or workspace, patches the project path if needed, then detects
+the first non-Pods scheme and builds an unsigned `.ipa` with code signing
+disabled. The artifact is uploaded as `offLLM-unsigned.ipa`. A `signed` job is
+included but paused by default (`if: ${{ false }}`); remove the condition to
+enable signing when credentials are available.
 
 An additional script at `ios/MyOfflineLLMApp/Scripts/verify_deployment_target.sh` runs during the Xcode build to ensure the
 deployment target remains set to iOS 18.0.
