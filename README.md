@@ -93,7 +93,7 @@ npm run test:ci
 ```
 
 The repository includes a unified GitHub Actions workflow, `ios.yml`, that covers
-all iOS builds. Additionally, `ios-ci.yml` runs on pushes and pull requests to build and upload an unsigned IPA. It generates an Xcode project from the XcodeGen spec at `ios/project.yml`, installs pods, and packages the app.
+all iOS builds. Additionally, `ios-ci.yml` runs on pushes and pull requests to build and upload an unsigned IPA. It generates an Xcode project from the XcodeGen spec at `ios/project.yml` before running `pod install`, then packages the app.
 Dispatch the workflow manually to build the app. Choosing the `signed` target
 compiles and signs the app, uploading a signed `.ipa` artifact. Provide your
 distribution certificate, provisioning profile, and export options plist as
