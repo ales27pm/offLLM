@@ -5,9 +5,14 @@ install! 'cocoapods', :disable_input_output_paths => true
 require_relative '../node_modules/react-native/scripts/react_native_pods'
 require_relative '../node_modules/@react-native-community/cli-platform-ios/native_modules'
 
-project 'MyOfflineLLMApp/MyOfflineLLMApp.xcodeproj'
+# --- Auto-detect the nearest Xcode project relative to this Podfile ---
+project_path = Dir['*.xcodeproj', '**/*.xcodeproj'].first
+raise "No .xcodeproj found near Podfile (#{__dir__})" unless project_path
+project project_path
 
-target 'MyOfflineLLMApp' do
+app_target = File.basename(project_path, '.xcodeproj')
+
+target app_target do
   use_frameworks! :linkage => :static
 
   config = use_native_modules!
