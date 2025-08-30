@@ -26,9 +26,9 @@ jobs:
       - name: Run tests
         run: npm test
 
-      - name: Select Xcode 15.4
+      - name: Select Xcode 16.1
         uses: maxim-lobanov/setup-xcode@v1
-        with: { xcode-version: '15.4' }
+        with: { xcode-version: '16.1' }
 
       - name: Setup Ruby
         uses: ruby/setup-ruby@v1
