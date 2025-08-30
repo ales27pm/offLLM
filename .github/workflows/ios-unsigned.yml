@@ -1,0 +1,89 @@
+name: iOS CI (Unsigned IPA)
+
+on:
+  push:
+    branches: [main]
+  pull_request:
+    branches: [main]
+
+jobs:
+  unsigned:
+    runs-on: macos-14 # arm64 runner
+    env:
+      CONFIGURATION: Release
+      IPA_NAME: offLLM-unsigned.ipa
+
+    steps:
+      - uses: actions/checkout@v4
+
+      - name: Set up Xcode 16.2
+        uses: maxim-lobanov/setup-xcode@v1
+        with:
+          xcode-version: "16.2"
+
+      - name: Set up Node (cache)
+        uses: actions/setup-node@v4
+        with:
+          node-version: 20.19.4
+          cache: npm
+
+      - name: Install JS deps (tolerate peer types)
+        run: |
+          npm ci --legacy-peer-deps
+
+      - name: Install Bundler & CocoaPods (via Gemfile)
+        run: |
+          gem install bundler -N
+          cd ios && bundle install && bundle exec pod --version
+
+      - name: Generate Xcode project (XcodeGen)
+        env:
+          HOMEBREW_NO_AUTO_UPDATE: 1
+        run: |
+          brew install xcodegen || true
+          cd ios
+          xcodegen generate
+          # optional: keep project file format modern to silence warnings
+          perl -0 -i -pe 's/objectVersion = \d+/objectVersion = 56/' MyOfflineLLMApp.xcodeproj/project.pbxproj
+
+      - name: Install iOS Pods
+        env:
+          RCT_NO_LAUNCH_PACKAGER: true
+        run: |
+          cd ios
+          pod cache clean --all || true
+          rm -rf "$HOME/Library/Caches/CocoaPods" || true
+          bundle exec pod install --verbose --repo-update
+
+      - name: Build Pods then Archive app (NO codesign)
+        env:
+          CODE_SIGNING_ALLOWED: "NO"
+          CODE_SIGNING_REQUIRED: "NO"
+        run: |
+          set -euo pipefail
+          cd ios
+          workspace=$(find . -maxdepth 1 -name "*.xcworkspace" | head -n1)
+          echo "Workspace: $workspace"
+          # Build Pods first to avoid RCTBridgeModule.h missing
+          xcodebuild -workspace "$workspace" -scheme "Pods-MyOfflineLLMApp" -configuration Release -sdk iphoneos build
+          # Archive app unsigned
+          xcodebuild clean archive \
+            -workspace "$workspace" \
+            -scheme "MyOfflineLLMApp" \
+            -configuration Release -sdk iphoneos \
+            -archivePath "../offLLM.xcarchive" \
+            CODE_SIGNING_ALLOWED=NO CODE_SIGNING_REQUIRED=NO CODE_SIGN_IDENTITY=""
+
+      - name: Create unsigned IPA
+        run: |
+          cd offLLM.xcarchive/Products/Applications
+          mkdir -p Payload
+          cp -R MyOfflineLLMApp.app Payload/
+          zip -qr "offLLM-unsigned.ipa" Payload
+          mv "offLLM-unsigned.ipa" ../../../../offLLM-unsigned.ipa
+
+      - name: Upload artifact
+        uses: actions/upload-artifact@v4
+        with:
+          name: offLLM-unsigned-ipa
+          path: offLLM-unsigned.ipa
