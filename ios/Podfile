@@ -1,26 +1,38 @@
-require_relative '../node_modules/react-native/scripts/react_native_pods'
-begin
-  require_relative '../node_modules/@react-native-community/cli-platform-ios/native_modules'
-rescue LoadError
-  # CLI native modules helper may be absent in some environments
+platform :ios, '18.0'
+install! 'cocoapods', :disable_input_output_paths => true
+
+# Resolve RN scripts via Node to support workspaces and custom layouts
+require 'open3'
+
+def node_require(script)
+  cmd = ['node', '-p', "require.resolve('#{script}', {paths: [process.argv[1]]})", __dir__]
+  resolved, status = Open3.capture2(*cmd)
+  raise "Unable to resolve #{script}" unless status.success?
+  require resolved.strip
 end
 
-# React Native 0.81.x requires iOS 18.0
-platform :ios, '18.0'
-use_frameworks! :linkage => :static
+node_require('react-native/scripts/react_native_pods.rb')
 
-# Toggle Flipper in CI via env (defaults OFF)
+project_candidates = Dir['*.xcodeproj'] + Dir['**/*.xcodeproj']
+project_path = project_candidates.first
+raise "No .xcodeproj found near Podfile (#{__dir__})" unless project_path
+
+project project_path
+app_target = File.basename(project_path, '.xcodeproj')
+
 USE_FLIPPER = ENV['USE_FLIPPER'] == '1'
-
-# Respect RN New Architecture from CI (RCT_NEW_ARCH_ENABLED=1)
 NEW_ARCH_ENABLED = ENV['RCT_NEW_ARCH_ENABLED'] == '1'
 
-target 'MyOfflineLLMApp' do
-  config = use_native_modules!
+target app_target do
+  use_frameworks! :linkage => :static
+
+  config = (use_native_modules! rescue nil) || {}
+  react_native_path = config[:reactNativePath] || File.expand_path('../node_modules/react-native', __dir__)
 
   use_react_native!(
-    :path => config['reactNativePath'],
+    :path => react_native_path,
     :hermes_enabled => true,
+    :new_arch_enabled => true,
     :fabric_enabled => NEW_ARCH_ENABLED,
     :app_path => "#{Pod::Config.instance.installation_root}/.."
   )
@@ -30,20 +42,17 @@ target 'MyOfflineLLMApp' do
   end
 
   post_install do |installer|
-    react_native_post_install(
-      installer,
-      :mac_catalyst_enabled => false,
-      :production => ENV['CI'] == 'true'
-    )
-
-    installer.pods_project.build_configurations.each do |config|
-      config.build_settings['IPHONEOS_DEPLOYMENT_TARGET'] = '18.0'
+    installer.pods_project.build_configurations.each do |c|
+      c.build_settings['IPHONEOS_DEPLOYMENT_TARGET'] = '18.0'
+      c.build_settings['EXCLUDED_ARCHS[sdk=iphonesimulator*]'] = 'arm64'
     end
     installer.pods_project.targets.each do |t|
-      t.build_configurations.each do |config|
-        config.build_settings['IPHONEOS_DEPLOYMENT_TARGET'] = '18.0'
-        config.build_settings['ALWAYS_EMBED_SWIFT_STANDARD_LIBRARIES'] = 'NO'
+      t.build_configurations.each do |c|
+        c.build_settings['IPHONEOS_DEPLOYMENT_TARGET'] = '18.0'
+        c.build_settings['ALWAYS_EMBED_SWIFT_STANDARD_LIBRARIES'] = 'NO'
       end
     end
+    react_native_post_install(installer)
+    File.write('Pods/.ran_post_install', 'Post install executed successfully')
   end
 end
