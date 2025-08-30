@@ -36,6 +36,8 @@ The assistant can optionally store vector embeddings of conversation snippets in
 
 Ensure Node.js \u226520.19.4 is installed.
 
+The repository includes an `.npmrc` that enables `legacy-peer-deps`, so `npm ci` continues to work even when peer type definitions lag behind React Native.
+
 1. Install dependencies and build the app:
 
    ```bash
