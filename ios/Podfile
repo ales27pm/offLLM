@@ -1,40 +1,27 @@
-# React Native 0.81.x targets iOS 18+. Keep the platform and all pods aligned
-# with this minimum to prevent deployment target mismatches during install.
+# React Native 0.81.x requires iOS 18.0
 platform :ios, '18.0'
-
 install! 'cocoapods', :disable_input_output_paths => true
 
-# Resolve scripts with Node to allow for hoisting
 def node_require(script)
-  begin
-    resolved = Pod::Executable.execute_command('node', ['-p',
-      "require.resolve(
-        '#{script}',
-        {paths: [process.argv[1]]},
-      )", __dir__,]).strip
-    require resolved
-  rescue => e
-    Pod::UI.warn("Failed to resolve '#{script}' via Node (#{e.class}: #{e.message}). " \
-                 "Ensure Node >= 20.19.4 is installed and on PATH.")
-    raise
-  end
+  resolved = Pod::Executable.execute_command('node', ['-p',
+    "require.resolve('#{script}', {paths: [process.argv[1]]})", __dir__
+  ]).strip
+  require resolved
 end
-
 node_require('react-native/scripts/react_native_pods.rb')
 
-# Prefer a root-level .xcodeproj but fall back to any nested one that
-# xcodegen may have produced. This avoids picking an unintended project when
-# layouts change.
-project_path = Dir.glob('*.xcodeproj').first || Dir.glob('**/*.xcodeproj').first
+project_candidates = Dir['*.xcodeproj'] + Dir['**/*.xcodeproj']
+project_path = project_candidates.first
 raise "No .xcodeproj found near Podfile (#{__dir__})" unless project_path
+
 project project_path
 app_target = File.basename(project_path, '.xcodeproj')
 
 target app_target do
   use_frameworks! :linkage => :static
 
-  config = use_native_modules!
-  react_native_path = config[:reactNativePath] || File.join(__dir__, '..', 'node_modules', 'react-native')
+  config = (use_native_modules! rescue nil) || {}
+  react_native_path = config[:reactNativePath] || File.expand_path('../node_modules/react-native', __dir__)
 
   use_react_native!(
     :path => react_native_path,
@@ -43,22 +30,16 @@ target app_target do
   )
 
   post_install do |installer|
-    installer.pods_project.build_configurations.each do |config|
-      # Propagate our deployment target to the Pods project (18.0)
-      config.build_settings['IPHONEOS_DEPLOYMENT_TARGET'] = '18.0'
-      config.build_settings['EXCLUDED_ARCHS[sdk=iphonesimulator*]'] = 'arm64'
+    installer.pods_project.build_configurations.each do |c|
+      c.build_settings['IPHONEOS_DEPLOYMENT_TARGET'] = '18.0'
+      c.build_settings['EXCLUDED_ARCHS[sdk=iphonesimulator*]'] = 'arm64'
     end
-
-    installer.pods_project.targets.each do |target|
-      target.build_configurations.each do |config|
-        config.build_settings['IPHONEOS_DEPLOYMENT_TARGET'] = '18.0'
+    installer.pods_project.targets.each do |t|
+      t.build_configurations.each do |c|
+        c.build_settings['IPHONEOS_DEPLOYMENT_TARGET'] = '18.0'
       end
     end
-
     react_native_post_install(installer)
-
-    File.open('Pods/.ran_post_install', 'w') do |file|
-      file.write('Post install executed successfully')
-    end
+    File.write('Pods/.ran_post_install', 'Post install executed successfully')
   end
 end

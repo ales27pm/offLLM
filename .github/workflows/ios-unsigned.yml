@@ -40,9 +40,11 @@ jobs:
       - name: Install iOS deps
         working-directory: ios
         run: |
+          set -euo pipefail
           brew install xcodegen || true
           xcodegen generate
-          bundle exec pod install --repo-update
+          bundle install
+          bundle exec pod install --repo-update --verbose
 
       - name: Build (unsigned, Simulator)
         working-directory: ios

@@ -18,5 +18,10 @@ export interface Spec extends TurboModule {
   adjustPerformanceMode(mode: string): Promise<boolean>;
 }
 
+try {
+  TurboModuleRegistry.get<Spec>('LLM');
+} catch {
+  // Swallow if TurboModule not yet registered
+}
 export default TurboModuleRegistry.getOptional<Spec>('LLM');
 
