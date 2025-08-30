@@ -9,7 +9,7 @@
 ### Prereqs
 
 - Node >= 20.19.4
-- Xcode 15.x with command line tools
+- Xcode 16.x with command line tools
 - Ruby & Bundler
 - CocoaPods
 - xcodegen
@@ -27,7 +27,7 @@ cd ios && xcodegen generate && bundle install && bundle exec pod install --repo-
 ```bash
 npx react-native run-ios
 # unsigned
-xcodebuild -workspace MyOfflineLLMApp.xcworkspace -scheme MyOfflineLLMApp -configuration Release -sdk iphonesimulator CODE_SIGNING_ALLOWED=NO CODE_SIGN_IDENTITY='' CODE_SIGNING_REQUIRED=NO
+cd ios && xcodebuild -workspace MyOfflineLLMApp.xcworkspace -scheme MyOfflineLLMApp -configuration Release -sdk iphonesimulator CODE_SIGNING_ALLOWED=NO CODE_SIGN_IDENTITY='' CODE_SIGNING_REQUIRED=NO
 ```
 
 ### Run tests
@@ -77,7 +77,7 @@ npm test
 ## iOS Unsigned Build (Simulator)
 
 ```bash
-xcodebuild -workspace MyOfflineLLMApp.xcworkspace -scheme MyOfflineLLMApp -configuration Release -sdk iphonesimulator CODE_SIGNING_ALLOWED=NO CODE_SIGN_IDENTITY='' CODE_SIGNING_REQUIRED=NO
+cd ios && xcodebuild -workspace MyOfflineLLMApp.xcworkspace -scheme MyOfflineLLMApp -configuration Release -sdk iphonesimulator CODE_SIGNING_ALLOWED=NO CODE_SIGN_IDENTITY='' CODE_SIGNING_REQUIRED=NO
 ```
 
 The GitHub Actions workflow [`ios-unsigned.yml`](.github/workflows/ios-unsigned.yml) uploads the unsigned `.ipa` as the `offLLM-unsigned-ipa` artifact.
@@ -100,8 +100,8 @@ npx prettier . --check
 
 - **npm ERESOLVE**: installs ignore peers via `.npmrc` or `npm run ci:install`.
 - **Pod install failures**: run `bundle exec pod install --repo-update`.
-- **Xcode version mismatch**: ensure Xcode 15.x via `xcode-select -switch`.
-- **Simulator arch errors**: clean pods and ensure `EXCLUDED_ARCHS=arm64`.
+- **Xcode version mismatch**: ensure Xcode 16.x via `xcode-select -switch`.
+- **Simulator arch errors**: on Apple Silicon, do not exclude `arm64`; on Intel Macs, set `EXCLUDED_ARCHS=arm64`. Clean Pods and retry: `rm -rf ios/Pods ios/Podfile.lock && cd ios && pod repo update && pod install`.
 
 ## Contributing / License
 
