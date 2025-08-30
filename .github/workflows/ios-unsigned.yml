@@ -92,18 +92,14 @@ jobs:
             exit 1
           fi
 
-      - name: Build (Simulator, unsigned) — arm64 only
+      - name: Build (Simulator, unsigned)
         run: |
           set -euo pipefail
-          # Clean + build for arm64 simulator to avoid any stray x86_64 slices
           xcodebuild \
             -workspace "$WORKSPACE" \
             -scheme MyOfflineLLMApp \
             -configuration Debug \
             -destination 'generic/platform=iOS Simulator' \
-            -arch arm64 \
-            ONLY_ACTIVE_ARCH=YES \
-            EXCLUDED_ARCHS="x86_64" \
             CODE_SIGNING_ALLOWED=NO \
             clean build
 
