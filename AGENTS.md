@@ -1,7 +1,64 @@
 # AGENTS Instructions
 
-- Run `npm test` before committing changes.
-- Follow the existing code style and use Prettier for formatting.
-- Ensure any new workflows or scripts are documented.
-- For native modules, keep iOS and Android parity when possible.
-- Tests use Jest via `npm test`.
+## Mission & Boundaries
+
+- Always run `npm test` before committing changes.
+- Prefer minimal, well-commented patches.
+
+## Branch & Commit Policy
+
+- Create feature branches and keep commits atomic.
+- Use Conventional Commit style (e.g., `feat(turbo): ...`, `fix(ios): ...`).
+
+## Install & Build Playbook
+
+- **Local dev**
+  ```bash
+  npm install
+  npm run codegen
+  cd ios && xcodegen generate && bundle install && bundle exec pod install --repo-update
+  ```
+- **Deterministic CI**
+  ```bash
+  npm run ci:install
+  ```
+
+## Codegen Rules
+
+- Specs live in [src/specs/](src/specs/).
+- After changing specs:
+  - Run `npm run codegen`.
+  - Re-run `bundle exec pod install` for iOS.
+
+## TurboModules Rules
+
+- Implement modules Swift-first: TS spec → Swift class → tiny `.mm` glue.
+- JS must use `TurboModuleRegistry.getOptional('Name')` with fallback to legacy modules (`MLXModule` iOS / `LlamaTurboModule` Android).
+- Keep method names and types aligned with the spec.
+
+## iOS Rules
+
+- Deployment target stays **18.0** in [`ios/project.yml`](ios/project.yml), [`ios/MyOfflineLLMApp/project.yml`](ios/MyOfflineLLMApp/project.yml), and `Podfile` post_install.
+- When editing these files, update comments and re-run `bundle exec pod install --repo-update`.
+
+## Testing & Quality Gates
+
+- Run `npm test` before committing.
+- Update or create Jest tests for new code.
+- Run `npm run lint` and `npx prettier . --check`.
+
+## CI Playbook
+
+- `ios-unsigned.yml` workflow: xcodegen → pod install → unsigned simulator build → uploads `offLLM-unsigned-ipa` artifact.
+- If CI fails on pods or project generation, try `pod repo update`, `rm -rf ios/Pods`, and rerun xcodegen.
+
+## PR Checklist
+
+- Local simulator build succeeds.
+- `npm test` passes.
+- Docs updated for workflow or script changes.
+- No secrets committed.
+
+## Rollback Guidance
+
+- Revert doc-only changes with `git revert <commit>`.
