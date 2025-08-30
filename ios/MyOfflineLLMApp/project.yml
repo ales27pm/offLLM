@@ -19,8 +19,10 @@ targets:
     # requires iOS 18.0+, so keep this target in sync to avoid pod mismatches.
     deploymentTarget: "18.0"
     settings:
-      SWIFT_VERSION: 5.10
-      SWIFT_OBJC_BRIDGING_HEADER: MyOfflineLLMApp/MyOfflineLLMApp-Bridging-Header.h
+      base:
+        SWIFT_VERSION: 5.10
+        SWIFT_OBJC_BRIDGING_HEADER: MyOfflineLLMApp/MyOfflineLLMApp-Bridging-Header.h
+        "EXCLUDED_ARCHS[sdk=iphonesimulator*]": "x86_64" # force arm64-only simulator builds
     sources:
       - path: .
     dependencies:
