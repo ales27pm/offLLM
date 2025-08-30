@@ -95,21 +95,25 @@ if ! grep -q 'product: MLX$' "$YML"; then
   echo "✅ Added MLX + MLXLLM to target dependencies"
 fi
 
-# 5) Podfile: set platform 15.0 and normalize all pod targets to 15.0
+# 5) Podfile: set platform 18.0 and normalize all pod targets to 18.0
 if [ -f "$PODFILE" ]; then
+# Update the platform version at the top of the Podfile.  If the directive
+# already exists, replace its version; otherwise insert a new directive.
   if grep -q "^platform :ios" "$PODFILE"; then
-    sed -i.bak "s/^platform :ios.*/platform :ios, '15.0'/" "$PODFILE"
+    sed -i.bak "s/^platform :ios.*/platform :ios, '18.0'/" "$PODFILE"
   else
-    sed -i.bak "1s;^;platform :ios, '15.0'\n\n;" "$PODFILE"
+    sed -i.bak "1s;^;platform :ios, '18.0'\n\n;" "$PODFILE"
   fi
 
+  # Ensure a post_install hook exists and normalizes deployment targets across
+  # all pods.  When adding the hook, set the deployment target to 18.0.
   if ! grep -q "post_install do |installer|" "$PODFILE"; then
     cat >> "$PODFILE" <<'RUBY'
 
 post_install do |installer|
   installer.pods_project.targets.each do |t|
     t.build_configurations.each do |config|
-      config.build_settings['IPHONEOS_DEPLOYMENT_TARGET'] = '15.0'
+      config.build_settings['IPHONEOS_DEPLOYMENT_TARGET'] = '18.0'
     end
   end
 end
@@ -122,4 +126,4 @@ fi
 
 echo "Done. Next steps:"
 echo "  1) cd ios && bundle exec pod install --repo-update"
-echo "  2) git add -A && git commit -m 'iOS: MLX Swift bridge + SPM, bridging header, RN types bump, Pod targets 15.0'"
+echo "  2) git add -A && git commit -m 'iOS: MLX Swift bridge + SPM, bridging header, RN types bump, Pod targets 18.0'"
