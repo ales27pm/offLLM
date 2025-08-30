@@ -18,5 +18,5 @@ export interface Spec extends TurboModule {
   adjustPerformanceMode(mode: string): Promise<boolean>;
 }
 // Runtime TurboModule lookup; falls back to legacy module if unavailable.
-export default TurboModuleRegistry.getOptional<Spec>('NativeLLM');
+export default TurboModuleRegistry.getOptional<Spec>('LLM');
 

@@ -5,7 +5,7 @@ import type { Spec } from './specs/NativeLLM';
 
 try {
   // IMPORTANT: codegen looks specifically for `get<Spec>('Name')` calls.
-  TurboModuleRegistry.get<Spec>('NativeLLM');
+  TurboModuleRegistry.get<Spec>('LLM');
 } catch {
   // No-op at runtime if Turbo module isn't registered yet.
 }
