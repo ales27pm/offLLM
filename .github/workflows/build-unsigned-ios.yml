@@ -7,17 +7,20 @@ jobs:
   build-unsigned-ipa:
     runs-on: macos-latest
     steps:
-      - uses: actions/checkout@v3
+      - uses: actions/checkout@v4
 
-      # Generate project and install pods
-      - name: Generate Xcode project
+      - name: Install XcodeGen
+        run: brew install xcodegen
+
+      # Generate the project and install pods
+      - name: Generate project and install pods
         run: cd ios && xcodegen generate && pod install
 
       # Build an unsigned archive
       - name: Build unsigned archive
         run: |
           xcodebuild archive \
-            -project ios/MyOfflineLLMApp.xcodeproj \
+            -workspace ios/MyOfflineLLMApp.xcworkspace \
             -scheme MyOfflineLLMApp \
             -archivePath unsigned.xcarchive \
             -configuration Release \
@@ -34,7 +37,7 @@ jobs:
           mv unsigned.ipa "$GITHUB_WORKSPACE"
 
       # Upload the IPA
-      - uses: actions/upload-artifact@v3
+      - uses: actions/upload-artifact@v4
         with:
           name: unsigned-ipa
           path: unsigned.ipa

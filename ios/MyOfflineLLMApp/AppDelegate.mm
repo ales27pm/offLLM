@@ -6,9 +6,9 @@
 - (BOOL)application:(UIApplication *)application
     didFinishLaunchingWithOptions:(NSDictionary *)launchOptions
 {
-  // Prepare the React Native environment (new architecture).
+  // Prepare the React Native environment.
   RCTAppSetupPrepareApp(application);
-  // This must match the "name" in app.json ("MyOfflineLLMApp").
+  // Name must match the "name" field in app.json.
   self.moduleName = @"MyOfflineLLMApp";
   return [super application:application didFinishLaunchingWithOptions:launchOptions];
 }
