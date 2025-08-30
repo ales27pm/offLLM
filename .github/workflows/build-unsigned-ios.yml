@@ -1,0 +1,43 @@
+name: Build unsigned iOS IPA
+
+on:
+  workflow_dispatch: {}
+
+jobs:
+  build-unsigned-ipa:
+    runs-on: macos-latest
+    steps:
+      - uses: actions/checkout@v4
+
+      - name: Install XcodeGen
+        run: brew install xcodegen
+
+      # Generate the project and install pods
+      - name: Generate project and install pods
+        run: cd ios && xcodegen generate && pod install
+
+      # Build an unsigned archive
+      - name: Build unsigned archive
+        run: |
+          xcodebuild archive \
+            -workspace ios/MyOfflineLLMApp.xcworkspace \
+            -scheme MyOfflineLLMApp \
+            -archivePath unsigned.xcarchive \
+            -configuration Release \
+            CODE_SIGN_IDENTITY="" \
+            CODE_SIGNING_REQUIRED=NO \
+            CODE_SIGNING_ALLOWED=NO
+
+      # Package the archive into an IPA
+      - name: Create unsigned IPA
+        run: |
+          cd unsigned.xcarchive/Products
+          mv Applications Payload
+          zip -r unsigned.ipa Payload
+          mv unsigned.ipa "$GITHUB_WORKSPACE"
+
+      # Upload the IPA
+      - uses: actions/upload-artifact@v4
+        with:
+          name: unsigned-ipa
+          path: unsigned.ipa
