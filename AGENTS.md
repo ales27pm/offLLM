@@ -14,9 +14,9 @@
 
 - **Local dev**
   ```bash
-  npm install
+  npm ci
   npm run codegen
-  cd ios && xcodegen generate && bundle install && bundle exec pod install --repo-update
+  (cd ios && xcodegen generate && bundle install && bundle exec pod install --repo-update)
   ```
 - **Deterministic CI**
   ```bash
@@ -46,7 +46,8 @@
 
 - Run `npm test` before committing.
 - Update or create Jest tests for new code.
-- Run `npm run lint` and `npx prettier . --check`.
+- `test -f eslint.config.js && npm run lint || echo "lint skipped: no eslint.config.js"`
+- Run `npm run format:check`.
 
 ## CI Playbook
 

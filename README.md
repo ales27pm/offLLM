@@ -17,9 +17,9 @@
 ### Install (local)
 
 ```bash
-npm install
+npm ci
 npm run codegen
-cd ios && xcodegen generate && bundle install && bundle exec pod install --repo-update
+(cd ios && xcodegen generate && bundle install && bundle exec pod install --repo-update)
 ```
 
 ### Run iOS simulator
@@ -27,7 +27,7 @@ cd ios && xcodegen generate && bundle install && bundle exec pod install --repo-
 ```bash
 npx react-native run-ios
 # unsigned
-cd ios && xcodebuild -workspace MyOfflineLLMApp.xcworkspace -scheme MyOfflineLLMApp -configuration Release -sdk iphonesimulator CODE_SIGNING_ALLOWED=NO CODE_SIGN_IDENTITY='' CODE_SIGNING_REQUIRED=NO
+(cd ios && xcodebuild -workspace MyOfflineLLMApp.xcworkspace -scheme MyOfflineLLMApp -configuration Release -sdk iphonesimulator CODE_SIGNING_ALLOWED=NO CODE_SIGN_IDENTITY='' CODE_SIGNING_REQUIRED=NO)
 ```
 
 ### Run tests
@@ -40,9 +40,9 @@ npm test
 
 ### Node & npm determinism
 
-- `.npmrc` sets `legacy-peer-deps=true` for consistent installs.
-- `package.json` overrides pin `@types/react@^19.1.0`.
-- Use `npm run ci:install` in CI; `npm install` locally.
+- `.npmrc` sets `legacy-peer-deps=true` only to align React Native's peer deps and avoid `ERESOLVE`.
+- `package.json` overrides pin `@types/react: 19.1.0` exactly.
+- Use `npm run ci:install` (wraps `npm ci`) in CI and `npm ci` locally for a clean install.
 
 ### Codegen
 
@@ -65,14 +65,14 @@ npm test
 
 ## Scripts Reference
 
-| Command              | Description                            |
-| -------------------- | -------------------------------------- |
-| `npm install`        | Local install with peer deps tolerance |
-| `npm run ci:install` | Deterministic CI install               |
-| `npm run codegen`    | Generate NativeModule headers          |
-| `npm test`           | Run Jest suite                         |
-| `npm run ios`        | Run iOS simulator                      |
-| `npm run build:ios`  | Unsigned Release build for simulator   |
+| Command              | Description                     |
+| -------------------- | ------------------------------- |
+| `npm ci`             | Install deps from lockfile      |
+| `npm run ci:install` | CI install wrapper for `npm ci` |
+| `npm run codegen`    | Generate Turbo headers          |
+| `npm test`           | Run Jest suite                  |
+| `npm run lint`       | ESLint                          |
+| `npm run ios`        | Run iOS simulator               |
 
 ## iOS Unsigned Build (Simulator)
 
@@ -86,13 +86,13 @@ The GitHub Actions workflow [`ios-unsigned.yml`](.github/workflows/ios-unsigned.
 
 ```bash
 npm test
-npm run lint
-npx prettier . --check
+npm run lint    # if eslint.config.js is present
+npm run format:check
 ```
 
 ## Configuration & Env
 
-- `MEMORY_ENCRYPTION_KEY` – 32‑byte key for local memory encryption. A default key is used in dev; set a real key in production. See [`src/memory/VectorMemory.ts`](src/memory/VectorMemory.ts).
+- `MEMORY_ENCRYPTION_KEY` – 32‑byte key for local memory encryption. Copy [.env.example](.env.example) to `.env` and set a real key. The app throws on production builds if this variable is missing. See [`src/memory/VectorMemory.ts`](src/memory/VectorMemory.ts).
 - `MODEL_URL` – remote model to download on first run.
 - `MEMORY_ENABLED` / `MEMORY_MAX_MB` – toggle and size for on-device memory.
 
@@ -101,7 +101,7 @@ npx prettier . --check
 - **npm ERESOLVE**: installs ignore peers via `.npmrc` or `npm run ci:install`.
 - **Pod install failures**: run `bundle exec pod install --repo-update`.
 - **Xcode version mismatch**: ensure Xcode 16.x via `xcode-select -switch`.
-- **Simulator arch errors**: on Apple Silicon, do not exclude `arm64`; on Intel Macs, set `EXCLUDED_ARCHS=arm64`. Clean Pods and retry: `rm -rf ios/Pods ios/Podfile.lock && cd ios && pod repo update && pod install`.
+- **Simulator arch errors**: Apple Silicon users should not exclude `arm64`. Intel hosts can set `EXCLUDED_ARCHS=arm64`. To detect CPU: `uname -m | grep -q x86_64 && export EXCLUDED_ARCHS=arm64`. Clean Pods and retry: `rm -rf ios/Pods ios/Podfile.lock && (cd ios && pod repo update && pod install)`.
 
 ## Contributing / License
 
