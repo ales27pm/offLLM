@@ -21,22 +21,20 @@ interface StoredData {
 }
 
 function getKey() {
-  const source = getEnv("MEMORY_ENCRYPTION_KEY_SOURCE") || "env";
-  if (source === "env") {
-    const envKey = getEnv("MEMORY_ENCRYPTION_KEY");
-    if (!envKey) {
-      // eslint-disable-next-line no-console
-      console.warn(
-        "[VectorMemory] Using default encryption key; set MEMORY_ENCRYPTION_KEY for production security."
+  const envKey = getEnv("MEMORY_ENCRYPTION_KEY");
+  if (!envKey) {
+    if (process.env.NODE_ENV === "production") {
+      throw new Error(
+        "[VectorMemory] MEMORY_ENCRYPTION_KEY is required in production.",
       );
     }
-    return (envKey || "").padEnd(32, "0").slice(0, 32);
+    // eslint-disable-next-line no-console
+    console.warn(
+      "[VectorMemory] MEMORY_ENCRYPTION_KEY missing; using ephemeral key for development.",
+    );
+    return randomBytes(16).toString("hex");
   }
-  // eslint-disable-next-line no-console
-  console.warn(
-    "[VectorMemory] Falling back to built-in encryption key; do not use this configuration in production."
-  );
-  return "default_memory_encryption_key_32";
+  return envKey.padEnd(32, "0").slice(0, 32);
 }
 
 export default class VectorMemory {
@@ -81,7 +79,7 @@ export default class VectorMemory {
   async recall(
     queryVector: number[],
     k = 5,
-    filters?: { conversationId?: string }
+    filters?: { conversationId?: string },
   ) {
     const items = this.data.items.filter((i) => {
       if (
@@ -104,7 +102,7 @@ export default class VectorMemory {
       this.data.items = [];
     } else if (scope.conversationId) {
       this.data.items = this.data.items.filter(
-        (i) => i.conversationId !== scope.conversationId
+        (i) => i.conversationId !== scope.conversationId,
       );
     }
     await this._save();

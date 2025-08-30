@@ -8,3 +8,4 @@ ios/MyOfflineLLMApp.xcworkspace/
 ios/.bundle/
 build/
 android/app/build/
+.env
