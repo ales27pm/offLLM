@@ -36,7 +36,7 @@ The assistant can optionally store vector embeddings of conversation snippets in
 
 Ensure Node.js \u226520.19.4 is installed.
 
-The repository includes an `.npmrc` that enables `legacy-peer-deps`, so `npm ci` continues to work even when peer type definitions lag behind React Native.
+The repository includes an `.npmrc` that enables `legacy-peer-deps`, so `npm ci` continues to work even when peer type definitions lag behind React Native. CI jobs can run `npm run ci:install` to use the same installation settings.
 
 1. Install dependencies and build the app:
 

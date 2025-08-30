@@ -1,4 +1,7 @@
-platform :ios, '15.0'
+# React Native 0.81.x requires iOS 18.0 or newer.  Update the minimum
+# supported platform accordingly to avoid CocoaPods conflicts with codegen
+# pods that declare higher deployment targets.
+platform :ios, '18.0'
 
 install! 'cocoapods', :disable_input_output_paths => true
 
@@ -38,13 +41,14 @@ target app_target do
 
   post_install do |installer|
     installer.pods_project.build_configurations.each do |config|
-      config.build_settings['IPHONEOS_DEPLOYMENT_TARGET'] = '15.0'
+      # Propagate our deployment target to the Pods project
+      config.build_settings['IPHONEOS_DEPLOYMENT_TARGET'] = '18.0'
       config.build_settings['EXCLUDED_ARCHS[sdk=iphonesimulator*]'] = 'arm64'
     end
 
     installer.pods_project.targets.each do |target|
       target.build_configurations.each do |config|
-        config.build_settings['IPHONEOS_DEPLOYMENT_TARGET'] = '15.0'
+        config.build_settings['IPHONEOS_DEPLOYMENT_TARGET'] = '18.0'
       end
     end
 

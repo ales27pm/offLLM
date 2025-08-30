@@ -15,7 +15,10 @@ targets:
   MyOfflineLLMApp:
     type: application
     platform: iOS
-    deploymentTarget: "15.0"
+    # Align the deployment target with the main project. React Native
+    # currently requires iOS 18.0 or higher, so bump this target to prevent
+    # generated pods from requiring a higher version than the project.
+    deploymentTarget: "18.0"
     settings:
       SWIFT_VERSION: 5.10
       SWIFT_OBJC_BRIDGING_HEADER: MyOfflineLLMApp/MyOfflineLLMApp-Bridging-Header.h
