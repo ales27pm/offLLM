@@ -8,7 +8,7 @@ on:
 
 jobs:
   unsigned:
-    runs-on: macos-14 # arm64 runner
+    runs-on: macos-14
     env:
       CONFIGURATION: Release
       IPA_NAME: offLLM-unsigned.ipa
@@ -21,17 +21,16 @@ jobs:
         with:
           xcode-version: "16.2"
 
-      - name: Set up Node (cache)
+      - name: Node (cache)
         uses: actions/setup-node@v4
         with:
           node-version: 20.19.4
-          cache: npm
+          cache: "npm"
 
-      - name: Install JS deps (tolerate peer types)
-        run: |
-          npm ci --legacy-peer-deps
+      - name: Install JS deps (tolerate peers)
+        run: npm ci --legacy-peer-deps
 
-      - name: Install Bundler & CocoaPods (via Gemfile)
+      - name: Install Bundler & CocoaPods
         run: |
           gem install bundler -N
           cd ios && bundle install && bundle exec pod --version
@@ -41,21 +40,16 @@ jobs:
           HOMEBREW_NO_AUTO_UPDATE: 1
         run: |
           brew install xcodegen || true
-          cd ios
-          xcodegen generate
-          # optional: keep project file format modern to silence warnings
-          perl -0 -i -pe 's/objectVersion = \d+/objectVersion = 56/' MyOfflineLLMApp.xcodeproj/project.pbxproj
+          cd ios && xcodegen generate
 
-      - name: Install iOS Pods
+      - name: Install Pods
         env:
           RCT_NO_LAUNCH_PACKAGER: true
         run: |
           cd ios
-          pod cache clean --all || true
-          rm -rf "$HOME/Library/Caches/CocoaPods" || true
-          bundle exec pod install --verbose --repo-update
+          bundle exec pod install --repo-update
 
-      - name: Build Pods then Archive app (NO codesign)
+      - name: Build Pods then Archive (NO codesign)
         env:
           CODE_SIGNING_ALLOWED: "NO"
           CODE_SIGNING_REQUIRED: "NO"
@@ -64,9 +58,7 @@ jobs:
           cd ios
           workspace=$(find . -maxdepth 1 -name "*.xcworkspace" | head -n1)
           echo "Workspace: $workspace"
-          # Build Pods first to avoid RCTBridgeModule.h missing
           xcodebuild -workspace "$workspace" -scheme "Pods-MyOfflineLLMApp" -configuration Release -sdk iphoneos build
-          # Archive app unsigned
           xcodebuild clean archive \
             -workspace "$workspace" \
             -scheme "MyOfflineLLMApp" \
@@ -87,3 +79,74 @@ jobs:
         with:
           name: offLLM-unsigned-ipa
           path: offLLM-unsigned.ipa
+
+  signed:
+    if: ${{ false }} # flip to true when ready
+    needs: unsigned
+    runs-on: macos-14
+    env:
+      CONFIGURATION: Release
+      IPA_NAME: offLLM-signed.ipa
+    steps:
+      - uses: actions/checkout@v4
+
+      - name: Set up Xcode
+        uses: maxim-lobanov/setup-xcode@v1
+        with:
+          xcode-version: "16.2"
+
+      - name: Node
+        uses: actions/setup-node@v4
+        with:
+          node-version: 20.19.4
+          cache: npm
+
+      - run: npm ci --legacy-peer-deps
+
+      - name: Ruby/Bundler & Pods
+        run: |
+          gem install bundler -N
+          cd ios && bundle install && bundle exec pod repo update && bundle exec pod install
+
+      - name: XcodeGen
+        run: |
+          brew install xcodegen || true
+          cd ios && xcodegen generate
+
+      - name: Install fastlane
+        run: gem install fastlane -N
+
+      - name: Adhoc sign & build
+        env:
+          APP_STORE_CONNECT_API_KEY_ID: ${{ secrets.APP_STORE_CONNECT_API_KEY_ID }}
+          APP_STORE_CONNECT_API_ISSUER_ID: ${{ secrets.APP_STORE_CONNECT_API_ISSUER_ID }}
+          APP_STORE_CONNECT_API_KEY: ${{ secrets.APP_STORE_CONNECT_API_KEY }}
+        run: |
+          cd ios
+          BUNDLE_ID=$(xcodebuild -showBuildSettings -workspace MyOfflineLLMApp.xcworkspace -scheme MyOfflineLLMApp -configuration Release 2>/dev/null | awk -F' = ' '/PRODUCT_BUNDLE_IDENTIFIER/ {print $2; exit}')
+          echo "Detected bundle id: $BUNDLE_ID"
+          cat <<'RUBY' > Fastfile
+          default_platform(:ios)
+          platform :ios do
+            lane :adhoc do
+              api_key = app_store_connect_api_key(
+                key_id: ENV['APP_STORE_CONNECT_API_KEY_ID'],
+                issuer_id: ENV['APP_STORE_CONNECT_API_ISSUER_ID'],
+                key_content: Base64.decode64(ENV['APP_STORE_CONNECT_API_KEY']),
+                duration: 1200,
+                in_house: false
+              )
+              create_keychain(name: "ci.keychain", default_keychain: true, timeout: 3600, lock_when_sleeps: false)
+              sigh(api_key: api_key, adhoc: true, app_identifier: ENV['BUNDLE_ID'], force: true)
+              gym(scheme: "MyOfflineLLMApp", configuration: "Release", export_method: "ad-hoc", output_name: ENV['IPA_NAME'])
+            end
+          end
+          RUBY
+          export BUNDLE_ID="$BUNDLE_ID"
+          bundle exec fastlane adhoc
+
+      - name: Upload signed IPA
+        uses: actions/upload-artifact@v4
+        with:
+          name: offLLM-signed-ipa
+          path: ios/${{ env.IPA_NAME }}
