@@ -41,10 +41,14 @@ jobs:
         run: |
           set -euo pipefail
           pushd ios
-          brew install xcodegen || true
-          xcodegen generate
-          bundle install
-          bundle exec pod install --repo-update --verbose
+            brew install xcodegen || true
+            xcodegen generate
+            rm -rf Pods Podfile.lock MyOfflineLLMApp.xcworkspace
+            bundle install
+            bundle exec pod install --repo-update --verbose
+            echo "Listing ios/ after pod install:"
+            ls -la .
+            find . -maxdepth 2 -name '*.xcworkspace'
           popd
           test -f ios/MyOfflineLLMApp.xcworkspace/contents.xcworkspacedata || {
             echo "CocoaPods did not create the workspace. Check Podfile and podspecs."
