@@ -18,10 +18,9 @@ targets:
     deploymentTarget: "15.0"
     settings:
       SWIFT_VERSION: 5.10
+      SWIFT_OBJC_BRIDGING_HEADER: MyOfflineLLMApp/MyOfflineLLMApp-Bridging-Header.h
     sources:
       - path: .
-        excludes:
-          - MLXTurboModule.mm # remove brittle ObjC++ bridge
     dependencies:
       - package: MLX
         product: MLX

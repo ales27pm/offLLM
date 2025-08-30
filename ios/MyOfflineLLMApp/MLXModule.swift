@@ -1,7 +1,7 @@
 import Foundation
 import MLX
 import MLXLLM
-import React
+// No `import React` here; we use the bridging header instead.
 
 @objc(MLXModule)
 final class MLXModule: NSObject {

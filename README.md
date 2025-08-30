@@ -85,6 +85,9 @@ release include:
     `codegenConfig` to land in `build/generated/ios`, and CI workflows run the
     code generator before installing CocoaPods.
   - **Babel preset** now uses `@react-native/babel-preset`.
+  - **MLX Swift bridge** managed via Swift Package Manager. Run
+    `scripts/apply_ios_mlx_fixes.sh` to keep the XcodeGen `project.yml` and
+    `Podfile` aligned with the MLX packages and bridging header.
 
 Run the native module code generator with:
 
