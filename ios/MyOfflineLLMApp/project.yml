@@ -15,13 +15,14 @@ targets:
   MyOfflineLLMApp:
     type: application
     platform: iOS
-    # Align the deployment target with the main project. React Native
-    # currently requires iOS 18.0 or higher, so bump this target to prevent
-    # generated pods from requiring a higher version than the project.
+    # Align with the parent project's deployment target. React Native 0.81.x
+    # requires iOS 18.0+, so keep this target in sync to avoid pod mismatches.
     deploymentTarget: "18.0"
     settings:
-      SWIFT_VERSION: 5.10
-      SWIFT_OBJC_BRIDGING_HEADER: MyOfflineLLMApp/MyOfflineLLMApp-Bridging-Header.h
+      base:
+        SWIFT_VERSION: 5.10
+        SWIFT_OBJC_BRIDGING_HEADER: MyOfflineLLMApp/MyOfflineLLMApp-Bridging-Header.h
+        "EXCLUDED_ARCHS[sdk=iphonesimulator*]": "x86_64" # force arm64-only simulator builds
     sources:
       - path: .
     dependencies:

@@ -1,5 +1,5 @@
 import { NativeModules, Platform } from "react-native";
-import LLM from "../specs/NativeLLM"; // Turbo (optional). Falls back below.
+import LLM from "../specs/NativeLLM"; // Turbo (preferred) with legacy fallback
 import { getDeviceProfile } from "../utils/deviceUtils";
 import { PluginManager } from "../architecture/pluginManager";
 import { DependencyInjector } from "../architecture/dependencyInjector";

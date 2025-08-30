@@ -1,152 +1,69 @@
-name: iOS CI (Unsigned IPA)
+name: iOS (unsigned) — Simulator .app
 
 on:
-  push:
-    branches: [main]
+  push: { branches: [main] }
   pull_request:
-    branches: [main]
+
+concurrency:
+  group: ios-unsigned-${{ github.ref }}
+  cancel-in-progress: true
 
 jobs:
-  unsigned:
+  build-ios:
     runs-on: macos-14
     env:
-      CONFIGURATION: Release
-      IPA_NAME: offLLM-unsigned.ipa
+      NODE_OPTIONS: --max_old_space_size=4096
+      RCT_NEW_ARCH_ENABLED: 1
 
     steps:
       - uses: actions/checkout@v4
-
-      - name: Set up Xcode 16.2
-        uses: maxim-lobanov/setup-xcode@v1
+      - uses: actions/setup-node@v4
         with:
-          xcode-version: "16.2"
-
-      - name: Node (cache)
-        uses: actions/setup-node@v4
-        with:
-          node-version: 20.19.4
-          cache: "npm"
-
-      - name: Install JS deps (tolerate peers)
-        run: npm ci --legacy-peer-deps
-
-      - name: Install Bundler & CocoaPods
-        run: |
-          gem install bundler -N
-          cd ios && bundle install && bundle exec pod --version
-
-      - name: Generate Xcode project (XcodeGen)
-        env:
-          HOMEBREW_NO_AUTO_UPDATE: 1
-        run: |
-          brew install xcodegen || true
-          cd ios && xcodegen generate
-
-      - name: Install Pods
-        env:
-          RCT_NO_LAUNCH_PACKAGER: true
-        run: |
-          cd ios
-          bundle exec pod install --repo-update
-
-      - name: Build Pods then Archive (NO codesign)
-        env:
-          CODE_SIGNING_ALLOWED: "NO"
-          CODE_SIGNING_REQUIRED: "NO"
-        run: |
-          set -euo pipefail
-          cd ios
-          workspace=$(find . -maxdepth 1 -name "*.xcworkspace" | head -n1)
-          echo "Workspace: $workspace"
-          xcodebuild -workspace "$workspace" -scheme "Pods-MyOfflineLLMApp" -configuration Release -sdk iphoneos build
-          xcodebuild clean archive \
-            -workspace "$workspace" \
-            -scheme "MyOfflineLLMApp" \
-            -configuration Release -sdk iphoneos \
-            -archivePath "../offLLM.xcarchive" \
-            CODE_SIGNING_ALLOWED=NO CODE_SIGNING_REQUIRED=NO CODE_SIGN_IDENTITY=""
-
-      - name: Create unsigned IPA
-        run: |
-          cd offLLM.xcarchive/Products/Applications
-          mkdir -p Payload
-          cp -R MyOfflineLLMApp.app Payload/
-          zip -qr "offLLM-unsigned.ipa" Payload
-          mv "offLLM-unsigned.ipa" ../../../../offLLM-unsigned.ipa
-
-      - name: Upload artifact
-        uses: actions/upload-artifact@v4
-        with:
-          name: offLLM-unsigned-ipa
-          path: offLLM-unsigned.ipa
-
-  signed:
-    if: ${{ false }} # flip to true when ready
-    needs: unsigned
-    runs-on: macos-14
-    env:
-      CONFIGURATION: Release
-      IPA_NAME: offLLM-signed.ipa
-    steps:
-      - uses: actions/checkout@v4
-
-      - name: Set up Xcode
-        uses: maxim-lobanov/setup-xcode@v1
-        with:
-          xcode-version: "16.2"
-
-      - name: Node
-        uses: actions/setup-node@v4
-        with:
-          node-version: 20.19.4
+          node-version: 20
           cache: npm
 
-      - run: npm ci --legacy-peer-deps
+      - name: Install JS deps
+        run: npm run ci:install
 
-      - name: Ruby/Bundler & Pods
-        run: |
-          gem install bundler -N
-          cd ios && bundle install && bundle exec pod repo update && bundle exec pod install
+      - name: Run tests
+        run: npm test
 
-      - name: XcodeGen
+      - name: Run codegen
+        run: npm run codegen
+
+      - name: Select Xcode 16.1
+        uses: maxim-lobanov/setup-xcode@v1
+        with:
+          xcode-version: '16.1'
+
+      - name: Setup Ruby
+        uses: ruby/setup-ruby@v1
+        with:
+          ruby-version: '3.2'
+          bundler-cache: true
+          working-directory: ios
+
+      - name: Install iOS deps
+        working-directory: ios
         run: |
           brew install xcodegen || true
-          cd ios && xcodegen generate
+          xcodegen generate
+          bundle exec pod install --repo-update
 
-      - name: Install fastlane
-        run: gem install fastlane -N
-
-      - name: Adhoc sign & build
-        env:
-          APP_STORE_CONNECT_API_KEY_ID: ${{ secrets.APP_STORE_CONNECT_API_KEY_ID }}
-          APP_STORE_CONNECT_API_ISSUER_ID: ${{ secrets.APP_STORE_CONNECT_API_ISSUER_ID }}
-          APP_STORE_CONNECT_API_KEY: ${{ secrets.APP_STORE_CONNECT_API_KEY }}
+      - name: Build (unsigned, Simulator)
+        working-directory: ios
         run: |
-          cd ios
-          BUNDLE_ID=$(xcodebuild -showBuildSettings -workspace MyOfflineLLMApp.xcworkspace -scheme MyOfflineLLMApp -configuration Release 2>/dev/null | awk -F' = ' '/PRODUCT_BUNDLE_IDENTIFIER/ {print $2; exit}')
-          echo "Detected bundle id: $BUNDLE_ID"
-          cat <<'RUBY' > Fastfile
-          default_platform(:ios)
-          platform :ios do
-            lane :adhoc do
-              api_key = app_store_connect_api_key(
-                key_id: ENV['APP_STORE_CONNECT_API_KEY_ID'],
-                issuer_id: ENV['APP_STORE_CONNECT_API_ISSUER_ID'],
-                key_content: Base64.decode64(ENV['APP_STORE_CONNECT_API_KEY']),
-                duration: 1200,
-                in_house: false
-              )
-              create_keychain(name: "ci.keychain", default_keychain: true, timeout: 3600, lock_when_sleeps: false)
-              sigh(api_key: api_key, adhoc: true, app_identifier: ENV['BUNDLE_ID'], force: true)
-              gym(scheme: "MyOfflineLLMApp", configuration: "Release", export_method: "ad-hoc", output_name: ENV['IPA_NAME'])
-            end
-          end
-          RUBY
-          export BUNDLE_ID="$BUNDLE_ID"
-          bundle exec fastlane adhoc
+          set -e
+          xcodebuild -workspace MyOfflineLLMApp.xcworkspace \
+            -scheme MyOfflineLLMApp -configuration Release \
+            -sdk iphonesimulator -arch arm64 \
+            CODE_SIGNING_ALLOWED=NO CODE_SIGNING_REQUIRED=NO CODE_SIGN_IDENTITY="" \
+            -derivedDataPath build
 
-      - name: Upload signed IPA
-        uses: actions/upload-artifact@v4
+          APP_PATH="build/Build/Products/Release-iphonesimulator/MyOfflineLLMApp.app"
+          ditto -ck --sequesterRsrc --keepParent "$APP_PATH" MyOfflineLLMApp-Simulator.zip
+
+      - uses: actions/upload-artifact@v4
         with:
-          name: offLLM-signed-ipa
-          path: ios/${{ env.IPA_NAME }}
+          name: MyOfflineLLMApp-Simulator
+          path: ios/MyOfflineLLMApp-Simulator.zip

@@ -16,7 +16,7 @@
     "bundle:android": "react-native bundle --platform android --dev false --entry-file index.js --bundle-output android/app/src/main/assets/index.android.bundle --assets-dest android/app/src/main/res",
     "bundle:ios": "react-native bundle --platform ios --dev false --entry-file index.js --bundle-output ios/main.jsbundle --assets-dest ios",
     "codegen": "node scripts/generate-codegen-artifacts.js",
-    "ci:install": "npm ci"
+    "ci:install": "npm ci --legacy-peer-deps"
   },
   "dependencies": {
     "@noble/post-quantum": "^0.5.1",
@@ -54,7 +54,7 @@
     "@react-native/babel-preset": "^0.81.1",
     "@tsconfig/react-native": "^3.0.6",
     "@types/jest": "^30.0.0",
-    "@types/react": "19.1.0",
+    "@types/react": "^19.1.12",
     "@types/react-test-renderer": "^18.0.0",
     "babel-jest": "^30.1.1",
     "eslint": "^9.34.0",
@@ -66,7 +66,7 @@
     "@react-native-community/cli": "^20.0.1"
   },
   "overrides": {
-    "@types/react": "19.1.0"
+    "@types/react": "^19.1.12"
   },
   "engines": {
     "node": ">=20.19.4"
