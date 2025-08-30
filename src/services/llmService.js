@@ -1,4 +1,5 @@
 import { NativeModules, Platform } from "react-native";
+import LLM from "../specs/NativeLLM"; // Turbo (optional). Falls back below.
 import { getDeviceProfile } from "../utils/deviceUtils";
 import { PluginManager } from "../architecture/pluginManager";
 import { DependencyInjector } from "../architecture/dependencyInjector";
@@ -21,11 +22,10 @@ class LLMService {
     this.dependencyInjector = new DependencyInjector();
 
     if (!this.isWeb) {
-      // Android exports the module under LlamaTurboModule and iOS under MLXTurboModule.
-      this.nativeModule =
-        NativeModules[
-          Platform.OS === "ios" ? "MLXTurboModule" : "LlamaTurboModule"
-        ];
+      // Prefer Turbo (if codegen is active), otherwise use legacy bridge modules.
+      const legacy =
+        NativeModules[Platform.OS === "ios" ? "MLXModule" : "LlamaTurboModule"];
+      this.nativeModule = LLM ?? legacy;
     }
 
     this.deviceProfile = getDeviceProfile();
@@ -106,7 +106,7 @@ class LLMService {
         response = await this.pluginManager.execute(
           "generate",
           [prompt, maxTokens, temperature, options],
-          this
+          this,
         );
       } else {
         if (this.isWeb) {
@@ -160,7 +160,9 @@ class LLMService {
   async getPerformanceMetrics() {
     try {
       if (!this.isWeb) {
-        const metrics = await this.nativeModule.getPerformanceMetrics();
+        const metrics = this.nativeModule?.getPerformanceMetrics
+          ? await this.nativeModule.getPerformanceMetrics()
+          : { memoryUsage: undefined, cpuUsage: undefined };
 
         return {
           ...this.performanceMetrics,
@@ -178,7 +180,9 @@ class LLMService {
   async adjustPerformanceMode(mode) {
     try {
       if (!this.isWeb) {
-        await this.nativeModule.adjustPerformanceMode(mode);
+        if (this.nativeModule?.adjustPerformanceMode) {
+          await this.nativeModule.adjustPerformanceMode(mode);
+        }
 
         switch (mode) {
           case "low-memory":
@@ -208,7 +212,9 @@ class LLMService {
     try {
       return this.isWeb
         ? await this._embedWeb(text)
-        : await this.nativeModule.embed(text);
+        : this.nativeModule?.embed
+          ? await this.nativeModule.embed(text)
+          : null;
     } catch (error) {
       console.error("Embedding failed:", error);
       throw error;
@@ -218,8 +224,11 @@ class LLMService {
   async clearKVCache() {
     try {
       if (!this.isWeb) {
-        await this.nativeModule.clearKVCache();
-        await this.nativeModule.addMessageBoundary();
+        if (this.nativeModule?.clearKVCache)
+          await this.nativeModule.clearKVCache();
+        if (this.nativeModule?.addMessageBoundary) {
+          await this.nativeModule.addMessageBoundary();
+        }
       }
 
       this.kvCache = {
@@ -238,8 +247,12 @@ class LLMService {
   async getKVCacheSize() {
     try {
       if (!this.isWeb) {
-        const size = await this.nativeModule.getKVCacheSize();
-        const maxSize = await this.nativeModule.getKVCacheMaxSize();
+        const size = this.nativeModule?.getKVCacheSize
+          ? await this.nativeModule.getKVCacheSize()
+          : 0;
+        const maxSize = this.nativeModule?.getKVCacheMaxSize
+          ? await this.nativeModule.getKVCacheMaxSize()
+          : 0;
         return { size, maxSize };
       }
       return { size: this.kvCache.size, maxSize: this.kvCache.maxSize };
@@ -252,7 +265,9 @@ class LLMService {
   async addMessageBoundary() {
     try {
       if (!this.isWeb) {
-        await this.nativeModule.addMessageBoundary();
+        if (this.nativeModule?.addMessageBoundary) {
+          await this.nativeModule.addMessageBoundary();
+        }
       }
       return true;
     } catch (error) {

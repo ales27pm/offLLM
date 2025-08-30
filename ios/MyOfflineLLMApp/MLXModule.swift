@@ -49,3 +49,65 @@ extension MLXModule: RCTBridgeModule {
     }
   }
 }
+
+// --- Parity helpers to match Android API surface (safe placeholders) ---
+extension MLXModule {
+
+  @objc(unloadModel:rejecter:)
+  func unloadModel(_ resolve: @escaping RCTPromiseResolveBlock,
+                   rejecter reject: @escaping RCTPromiseRejectBlock) {
+    self.chat = nil
+    resolve(true)
+  }
+
+  @objc(getPerformanceMetrics:rejecter:)
+  func getPerformanceMetrics(_ resolve: @escaping RCTPromiseResolveBlock,
+                             rejecter reject: @escaping RCTPromiseRejectBlock) {
+    resolve([
+      "memoryUsage": 0.5, // placeholder 0..1
+      "cpuUsage": 0.5     // placeholder 0..1
+    ])
+  }
+
+  @objc(adjustPerformanceMode:resolver:rejecter:)
+  func adjustPerformanceMode(_ mode: NSString,
+                             resolver resolve: @escaping RCTPromiseResolveBlock,
+                             rejecter reject: @escaping RCTPromiseRejectBlock) {
+    // TODO: wire into MLX tuning
+    resolve(true)
+  }
+
+  @objc(embed:resolver:rejecter:)
+  func embed(_ text: NSString,
+             resolver resolve: @escaping RCTPromiseResolveBlock,
+             rejecter reject: @escaping RCTPromiseRejectBlock) {
+    // TODO: use an MLX embedding model
+    resolve([Double]())
+  }
+
+  @objc(clearKVCache:rejecter:)
+  func clearKVCache(_ resolve: @escaping RCTPromiseResolveBlock,
+                    rejecter reject: @escaping RCTPromiseRejectBlock) {
+    // TODO: clear decoder KV cache if available
+    resolve(true)
+  }
+
+  @objc(addMessageBoundary:rejecter:)
+  func addMessageBoundary(_ resolve: @escaping RCTPromiseResolveBlock,
+                          rejecter reject: @escaping RCTPromiseRejectBlock) {
+    // TODO: mark boundary if the model/runtime supports it
+    resolve(true)
+  }
+
+  @objc(getKVCacheSize:rejecter:)
+  func getKVCacheSize(_ resolve: @escaping RCTPromiseResolveBlock,
+                      rejecter reject: @escaping RCTPromiseRejectBlock) {
+    resolve(0)
+  }
+
+  @objc(getKVCacheMaxSize:rejecter:)
+  func getKVCacheMaxSize(_ resolve: @escaping RCTPromiseResolveBlock,
+                         rejecter reject: @escaping RCTPromiseRejectBlock) {
+    resolve(0)
+  }
+}
