@@ -41,6 +41,7 @@ Ensure Node.js \u226520.19.4 is installed.
    ```bash
    npm install
    npx react-native run-ios   # or run-android
+   npm run build:ios          # unsigned Release build for iOS simulator
    ```
 
    > A stub `android/gradlew` script is included so CI environments can invoke `npm run build:android` without the Android SDK. Replace this stub with a full Gradle wrapper for real builds.
@@ -106,16 +107,9 @@ npm run test:ci
 ```
 
 The repository includes a unified GitHub Actions workflow, `ios.yml`, that covers
-all iOS builds. Additionally, `ios-ci.yml` runs on pushes and pull requests to build and upload an unsigned IPA. It generates an Xcode project from the XcodeGen spec at `ios/project.yml` before running `pod install`, then packages the app.
-Dispatch the workflow manually to build the app. Choosing the `signed` target
-compiles and signs the app, uploading a signed `.ipa` artifact. Provide your
-distribution certificate, provisioning profile, and export options plist as
-base64-encoded secrets (`IOS_CERTIFICATE_BASE64`, `IOS_CERT_PASSWORD`,
-`IOS_PROVISION_PROFILE_BASE64`, `IOS_EXPORT_OPTIONS_PLIST`) and supply a random
-keychain password via `IOS_KEYCHAIN_PASSWORD`. Selecting `unsigned` runs the
-script at `scripts/build_unsigned_ios.sh` and uploads the resulting unsigned
-`.ipa`. Shared setup steps live in the reusable action at
-`.github/actions/ios-setup`.
+all iOS builds. Additionally, `ios-ci.yml` runs on pushes and pull requests to build and upload an unsigned IPA, and `build-unsigned-ios.yml` provides a minimal workflow to archive and export an unsigned `.ipa` on demand.
+
+Each workflow generates an Xcode project from the XcodeGen spec at `ios/project.yml` before running `pod install`, then packages the app. Dispatch the workflow manually to build the app. Choosing the `signed` target compiles and signs the app, uploading a signed `.ipa` artifact. Provide your distribution certificate, provisioning profile, and export options plist as base64-encoded secrets (`IOS_CERTIFICATE_BASE64`, `IOS_CERT_PASSWORD`, `IOS_PROVISION_PROFILE_BASE64`, `IOS_EXPORT_OPTIONS_PLIST`) and supply a random keychain password via `IOS_KEYCHAIN_PASSWORD`. Selecting `unsigned` runs the script at `scripts/build_unsigned_ios.sh` and uploads the resulting unsigned `.ipa`. Shared setup steps live in the reusable action at `.github/actions/ios-setup`.
 
 An additional script at `ios/MyOfflineLLMApp/Scripts/verify_deployment_target.sh` runs during the Xcode build to ensure the
 deployment target remains set to iOS 17.0.
