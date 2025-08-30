@@ -36,6 +36,8 @@ The assistant can optionally store vector embeddings of conversation snippets in
 
 Ensure Node.js \u226520.19.4 is installed.
 
+The repository includes an `.npmrc` that enables `legacy-peer-deps`, so `npm ci` continues to work even when peer type definitions lag behind React Native.
+
 1. Install dependencies and build the app:
 
    ```bash
@@ -85,6 +87,9 @@ release include:
     `codegenConfig` to land in `build/generated/ios`, and CI workflows run the
     code generator before installing CocoaPods.
   - **Babel preset** now uses `@react-native/babel-preset`.
+  - **MLX Swift bridge** managed via Swift Package Manager. Run
+    `scripts/apply_ios_mlx_fixes.sh` to keep the XcodeGen `project.yml` and
+    `Podfile` aligned with the MLX packages and bridging header.
 
 Run the native module code generator with:
 
@@ -107,7 +112,9 @@ npm run test:ci
 ```
 
 The repository includes a unified GitHub Actions workflow, `ios.yml`, that covers
-all iOS builds. Additionally, `ios-ci.yml` runs on pushes and pull requests to build and upload an unsigned IPA, and `build-unsigned-ios.yml` provides a minimal workflow to archive and export an unsigned `.ipa` on demand.
+all iOS builds. Additionally, `ios-unsigned.yml` runs on pushes and pull requests to build and upload an unsigned IPA, and `build-unsigned-ios.yml` provides a minimal workflow to archive and export an unsigned `.ipa` on demand.
+
+`ios-unsigned.yml` also contains a disabled `signed` job for ad-hoc signing when Apple credentials are supplied.
 
 Each workflow generates an Xcode project from the XcodeGen spec at `ios/project.yml` before running `pod install`, then packages the app. Dispatch the workflow manually to build the app. Choosing the `signed` target compiles and signs the app, uploading a signed `.ipa` artifact. Provide your distribution certificate, provisioning profile, and export options plist as base64-encoded secrets (`IOS_CERTIFICATE_BASE64`, `IOS_CERT_PASSWORD`, `IOS_PROVISION_PROFILE_BASE64`, `IOS_EXPORT_OPTIONS_PLIST`) and supply a random keychain password via `IOS_KEYCHAIN_PASSWORD`. Selecting `unsigned` runs the script at `scripts/build_unsigned_ios.sh` and uploads the resulting unsigned `.ipa`. Shared setup steps live in the reusable action at `.github/actions/ios-setup`.
 

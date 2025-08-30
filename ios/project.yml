@@ -3,27 +3,42 @@ name: MyOfflineLLMApp
 options:
   bundleIdPrefix: com.offllm
   createIntermediateGroups: true
+  minimumXcodeGenVersion: 2.40.0
 
 settings:
   base:
-    IPHONEOS_DEPLOYMENT_TARGET: 14.0
-    SWIFT_VERSION: 5.0
+    IPHONEOS_DEPLOYMENT_TARGET: 15.0
+    SWIFT_VERSION: 5.10
     HEADER_SEARCH_PATHS: "$(inherited)"
     LIBRARY_SEARCH_PATHS: "$(inherited)"
+
+packages:
+  MLX:
+    url: https://github.com/ml-explore/mlx-swift.git
+    from: 0.25.6
+  MLXLibraries:
+    url: https://github.com/ml-explore/mlx-swift-examples
+    from: 2.25.6 # exposes the MLXLLM product
 
 targets:
   MyOfflineLLMApp:
     type: application
     platform: iOS
-    deploymentTarget: "14.0"
+    deploymentTarget: "15.0"
     sources:
       - path: MyOfflineLLMApp
         excludes:
           - "Pods/**"
+          - MLXTurboModule.mm # remove brittle ObjC++ bridge
     settings:
       base:
         PRODUCT_BUNDLE_IDENTIFIER: com.offllm.myofflinellmapp
         CODE_SIGN_STYLE: Automatic
         DEVELOPMENT_TEAM: ""
+    dependencies:
+      - package: MLX
+        product: MLX
+      - package: MLXLibraries
+        product: MLXLLM
     scheme:
       testTargets: []
