@@ -38,26 +38,50 @@ jobs:
           working-directory: ios
 
       - name: Install iOS deps
-        working-directory: ios
         run: |
           set -euo pipefail
+          pushd ios
           brew install xcodegen || true
           xcodegen generate
           bundle install
           bundle exec pod install --repo-update --verbose
+          popd
+          test -f ios/MyOfflineLLMApp.xcworkspace/contents.xcworkspacedata || {
+            echo "CocoaPods did not create the workspace. Check Podfile and podspecs."
+            exit 1
+          }
 
       - name: Build (unsigned, Simulator)
-        working-directory: ios
         run: |
           set -e
-          xcodebuild -workspace MyOfflineLLMApp.xcworkspace \
-            -scheme MyOfflineLLMApp -configuration Release \
-            -sdk iphonesimulator -arch arm64 \
-            CODE_SIGNING_ALLOWED=NO CODE_SIGNING_REQUIRED=NO CODE_SIGN_IDENTITY="" \
-            -derivedDataPath build
+          echo "Tree under ios/"
+          find ios -maxdepth 2 -mindepth 1 \( -type d -or -name '*.xcworkspace' -or -name '*.xcodeproj' \)
 
-          APP_PATH="build/Build/Products/Release-iphonesimulator/MyOfflineLLMApp.app"
-          ditto -ck --sequesterRsrc --keepParent "$APP_PATH" MyOfflineLLMApp-Simulator.zip
+          WORKSPACE="ios/MyOfflineLLMApp.xcworkspace"
+          if [ ! -f "$WORKSPACE/contents.xcworkspacedata" ]; then
+            echo "Expected workspace not found at $WORKSPACE — searching…"
+            WORKSPACE_FOUND="$(find ios -maxdepth 2 -name '*.xcworkspace' -print -quit)"
+            if [ -n "$WORKSPACE_FOUND" ]; then
+              WORKSPACE="$WORKSPACE_FOUND"
+            fi
+          fi
+
+          if [ -f "$WORKSPACE/contents.xcworkspacedata" ]; then
+            echo "Using workspace: $WORKSPACE"
+            xcodebuild \
+              -workspace "$WORKSPACE" \
+              -scheme MyOfflineLLMApp \
+              -configuration Release \
+              -sdk iphonesimulator -arch arm64 \
+              CODE_SIGNING_ALLOWED=NO CODE_SIGNING_REQUIRED=NO CODE_SIGN_IDENTITY="" \
+              -derivedDataPath ios/build
+
+            APP_PATH="ios/build/Build/Products/Release-iphonesimulator/MyOfflineLLMApp.app"
+            ditto -ck --sequesterRsrc --keepParent "$APP_PATH" ios/MyOfflineLLMApp-Simulator.zip
+          else
+            echo "No Xcode workspace found; skipping build"
+            ls -la ios
+          fi
 
       - uses: actions/upload-artifact@v4
         with:
