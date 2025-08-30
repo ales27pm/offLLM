@@ -22,7 +22,10 @@ end
 
 node_require('react-native/scripts/react_native_pods.rb')
 
-project_path = Dir['*.xcodeproj', '**/*.xcodeproj'].first
+# Prefer a root-level .xcodeproj but fall back to any nested one that
+# xcodegen may have produced. This avoids picking an unintended project when
+# layouts change.
+project_path = Dir.glob('*.xcodeproj').first || Dir.glob('**/*.xcodeproj').first
 raise "No .xcodeproj found near Podfile (#{__dir__})" unless project_path
 project project_path
 app_target = File.basename(project_path, '.xcodeproj')
@@ -31,9 +34,10 @@ target app_target do
   use_frameworks! :linkage => :static
 
   config = use_native_modules!
+  react_native_path = config[:reactNativePath] || File.join(__dir__, '..', 'node_modules', 'react-native')
 
   use_react_native!(
-    :path => config[:reactNativePath],
+    :path => react_native_path,
     :hermes_enabled => true,
     :new_arch_enabled => true
   )
