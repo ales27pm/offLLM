@@ -98,7 +98,10 @@ jobs:
           xcodebuild \
             -workspace "$WORKSPACE" \
             -scheme MyOfflineLLMApp \
-            -destination 'generic/platform=iOS Simulator' \
+            -configuration Debug \
+            -destination 'platform=iOS Simulator,name=Any iOS Simulator Device (arm64)' \
+            ONLY_ACTIVE_ARCH=YES \
+            ARCHS=arm64 \
             CODE_SIGNING_ALLOWED=NO
 
       - name: Archive (Device, unsigned)
