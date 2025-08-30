@@ -1,23 +1,9 @@
-import type { TurboModule } from "react-native";
-import { TurboModuleRegistry } from "react-native";
+import type {TurboModule} from 'react-native';
+import {TurboModuleRegistry} from 'react-native';
 
-export interface GenerateOptions {
-  maxTokens?: number;
-  temperature?: number;
-  topK?: number;
-  topP?: number;
-  stop?: string[] | null;
-}
-
-export interface LoadOptions {
-  quantization?: string | null; // e.g., "Q4_0", "Q8_0"
-  contextLength?: number | null;
-}
-
-export interface PerfMetrics {
-  memoryUsage?: number; // 0..1
-  cpuUsage?: number; // 0..1
-}
+export interface GenerateOptions { maxTokens?: number; temperature?: number; topK?: number; topP?: number; stop?: string[] | null; }
+export interface LoadOptions { quantization?: string | null; contextLength?: number | null; }
+export interface PerfMetrics { memoryUsage?: number; cpuUsage?: number; }
 
 export interface Spec extends TurboModule {
   loadModel(path: string, options?: LoadOptions | null): Promise<boolean>;
@@ -32,4 +18,5 @@ export interface Spec extends TurboModule {
   adjustPerformanceMode(mode: string): Promise<boolean>;
 }
 
-export default TurboModuleRegistry.getOptional<Spec>("LLM");
+export default TurboModuleRegistry.getOptional<Spec>('LLM');
+

@@ -7,8 +7,8 @@ options:
 
 settings:
   base:
-    # The deployment target must be kept in sync with React Native's minimum
-    # supported iOS version.  React Native 0.81.x requires iOS 18.0 or newer.
+    # React Native 0.81.x mandates iOS 18.0+. Keep this in sync with RN's
+    # minimum supported version to avoid build or CocoaPods issues.
     IPHONEOS_DEPLOYMENT_TARGET: 18.0
     SWIFT_VERSION: 5.10
     HEADER_SEARCH_PATHS: "$(inherited)"
@@ -26,10 +26,8 @@ targets:
   MyOfflineLLMApp:
     type: application
     platform: iOS
-    # Bump the app's deployment target to match the minimum supported iOS
-    # version for React Native.  This avoids CocoaPods resolution errors when
-    # installing generated pods (e.g. `ReactAppDependencyProvider`) which
-    # specify a higher deployment target.
+    # Match the project's deployment target to React Native's minimum (18.0)
+    # so generated pods do not demand a higher iOS version.
     deploymentTarget: "18.0"
     sources:
       - path: MyOfflineLLMApp

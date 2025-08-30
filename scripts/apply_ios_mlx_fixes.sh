@@ -1,6 +1,7 @@
 #!/usr/bin/env bash
 set -euo pipefail
 
+# Helper to keep MLX sample project aligned with RN's iOS 18.0 minimum.
 YML="ios/MyOfflineLLMApp/project.yml"
 PODFILE="ios/Podfile"
 
