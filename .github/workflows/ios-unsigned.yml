@@ -48,11 +48,21 @@ jobs:
         with:
           ruby-version: "3.2"
           bundler-cache: true
+        env:
+          BUNDLE_GEMFILE: ios/Gemfile   # ensure bundler points to ios/Gemfile
 
       - name: Install XcodeGen & generate .xcodeproj
+        working-directory: ios
         run: |
           brew install xcodegen || true
-          xcodegen generate
+          if [ -f project.yml ]; then
+            xcodegen generate
+          elif [ -f MyOfflineLLMApp/project.yml ]; then
+            xcodegen --spec MyOfflineLLMApp/project.yml
+          else
+            echo "❌ No XcodeGen spec found in ios/. Expected project.yml or MyOfflineLLMApp/project.yml"
+            exit 1
+          fi
         # README step before pods.
 
       - name: Recreate Pods & Workspace
