@@ -1,15 +1,6 @@
 import type {TurboModule} from 'react-native';
 import {TurboModuleRegistry} from 'react-native';
 
-// Mark NativeLLM as used for codegen while swallowing missing-module errors.
-let NativeLLM: Spec | null = null;
-try {
-  // IMPORTANT: codegen looks specifically for `get<Spec>('Name')` calls.
-  NativeLLM = TurboModuleRegistry.get<Spec>('NativeLLM');
-} catch {
-  // No-op at runtime if Turbo module isn't registered yet.
-}
-
 export interface GenerateOptions { maxTokens?: number; temperature?: number; topK?: number; topP?: number; stop?: string[] | null; }
 export interface LoadOptions { quantization?: string | null; contextLength?: number | null; }
 export interface PerfMetrics { memoryUsage?: number; cpuUsage?: number; }
@@ -26,6 +17,18 @@ export interface Spec extends TurboModule {
   addMessageBoundary(): Promise<void>;
   adjustPerformanceMode(mode: string): Promise<boolean>;
 }
+// Mark NativeLLM as used for codegen while tolerating missing native impl.
+(() => {
+  try {
+    // IMPORTANT: codegen looks specifically for `get<Spec>('Name')` calls.
+    TurboModuleRegistry.get<Spec>('NativeLLM');
+  } catch {}
+})();
+
+// Runtime TurboModule lookup; optional to avoid forcing legacy fallback.
+const NativeLLM: Spec | null =
+  (TurboModuleRegistry as any).getOptional?.('LLM') ?? null;
+
 // Runtime TurboModule lookup; falls back to legacy module if unavailable.
 export default NativeLLM;
 
