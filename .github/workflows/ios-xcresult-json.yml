@@ -1,4 +1,4 @@
-name: iOS Build - xcresult JSON (iPhone 16 Pro iOS 18.2)
+name: iOS Build - xcresult JSON (iPhone 16 Pro iOS 18.x fallback 18.6→18.5→18.4)
 
 on:
   workflow_dispatch:
@@ -13,17 +13,17 @@ jobs:
       - name: Checkout
         uses: actions/checkout@v4
 
-      - name: Select Xcode 16.1
+      - name: Select Xcode 16.2
         uses: maxim-lobanov/setup-xcode@v1
         with:
-          xcode-version: "16.1"
+          xcode-version: "16.2"
 
-      - name: Verify Xcode & Runtimes
+      - name: Verify Xcode
         shell: bash
         run: |
           set -euo pipefail
           xcodebuild -version
-          xcrun simctl list runtimes
+          xcodebuild -showsdks || true
           echo "DEVELOPER_DIR=${DEVELOPER_DIR:-not-set}"
 
       - name: Setup Node
@@ -47,7 +47,7 @@ jobs:
           gem install xcpretty -N
           pod --version
 
-      - name: Ensure iOS project exists
+      - name: Ensure iOS project exists (optional XcodeGen)
         shell: bash
         run: |
           set -euo pipefail
@@ -65,37 +65,57 @@ jobs:
           pod repo update
           pod install --repo-update
           cd -
+          find ios -maxdepth 3 -name "*.xcworkspace" -print
 
-      # STRICT iOS 18.2 using jq (no heredocs / Python)
-      - name: Resolve/create & boot Simulator (iPhone 16 Pro / iOS 18.2 only)
+      - name: Ensure jq is available
+        shell: bash
+        run: |
+          set -euo pipefail
+          if ! command -v jq >/dev/null 2>&1; then
+            brew install jq || true
+          fi
+          jq --version || true
+
+      # Prefer iOS 18.6, then 18.5, then 18.4; create iPhone 16 Pro if missing
+      - name: Resolve/create & boot Simulator (iPhone 16 Pro; iOS 18.x highest available)
         id: sim
         shell: bash
         run: |
           set -euo pipefail
 
-          # Find an available iOS 18.2 runtime identifier
-          RUNTIME=$(xcrun simctl list runtimes --json \
-            | jq -r '.runtimes[] | select(.identifier|test("com\\.apple\\.CoreSimulator\\.SimRuntime\\.iOS-18-2$")) | select(.isAvailable==true) | .identifier' \
-            | head -n1)
+          WANT_RUNTIMES=("com.apple.CoreSimulator.SimRuntime.iOS-18-6" \
+                         "com.apple.CoreSimulator.SimRuntime.iOS-18-5" \
+                         "com.apple.CoreSimulator.SimRuntime.iOS-18-4")
 
-          if [ -z "${RUNTIME:-}" ]; then
-            echo "::error::iOS 18.2 runtime is NOT installed on this runner image."
-            echo "Available runtimes:"
-            xcrun simctl list runtimes --json | jq -r '.runtimes[] | select(.isAvailable==true) | "  - \(.identifier)"'
+          RUNTIME=""
+          RUNTIME_LABEL=""
+          RUNTIMES_JSON="$(xcrun simctl list runtimes --json)"
+          for r in "${WANT_RUNTIMES[@]}"; do
+            if printf '%s' "$RUNTIMES_JSON" | jq -e --arg r "$r" '.runtimes[] | select(.identifier==$r and .isAvailable==true)' >/dev/null; then
+              RUNTIME="$r"
+              # Turn identifier into human label like "iOS 18.6"
+              RUNTIME_LABEL="$(printf '%s' "$RUNTIME" | sed -E 's/.*iOS-([0-9]+)-([0-9]+)$/iOS \1.\2/')"
+              break
+            fi
+          done
+
+          if [ -z "$RUNTIME" ]; then
+            echo "::error::No iOS 18.6 / 18.5 / 18.4 runtime found on this runner."
+            xcrun simctl list runtimes
             exit 1
           fi
-          echo "Using runtime: $RUNTIME"
+          echo "Using runtime: $RUNTIME ($RUNTIME_LABEL)"
 
-          # Try to find an existing iPhone 16 Pro on that runtime
-          UDID=$(xcrun simctl list devices --json \
-            | jq -r --arg RUNTIME "$RUNTIME" '.devices[$RUNTIME][] | select(.isAvailable==true) | select(.name=="iPhone 16 Pro") | select(.state=="Shutdown" or .state=="Booted") | .udid' \
-            | head -n1)
+          # Try to find an existing iPhone 16 Pro device on that runtime
+          UDID="$(xcrun simctl list devices --json \
+            | jq -r --arg RUNTIME "$RUNTIME" '.devices[$RUNTIME][]? | select(.isAvailable==true) | select(.name=="iPhone 16 Pro") | select(.state=="Shutdown" or .state=="Booted") | .udid' \
+            | head -n1)"
 
           # Create one if missing
           if [ -z "${UDID:-}" ]; then
-            NAME="iPhone 16 Pro (iOS 18.2)"
+            NAME="iPhone 16 Pro (${RUNTIME_LABEL})"
             echo "Creating simulator: $NAME"
-            UDID=$(xcrun simctl create "$NAME" "iPhone 16 Pro" "$RUNTIME")
+            UDID="$(xcrun simctl create "$NAME" "iPhone 16 Pro" "$RUNTIME")"
           fi
 
           echo "Using UDID: $UDID"
@@ -104,7 +124,7 @@ jobs:
 
           echo "destination=platform=iOS Simulator,id=$UDID" >> "$GITHUB_OUTPUT"
 
-      - name: Build (Simulator, iOS 18.2) and export .xcresult
+      - name: Build (Simulator) and export .xcresult
         shell: bash
         env:
           SCHEME: MyOfflineLLMApp
@@ -133,6 +153,9 @@ jobs:
             --legacy \
             --path "$RESULT_BUNDLE" \
             > "$RESULT_JSON"
+
+          echo "Result bundle: $RESULT_BUNDLE"
+          echo "Result JSON:   $RESULT_JSON"
 
       - name: Upload .xcresult bundle
         uses: actions/upload-artifact@v4
