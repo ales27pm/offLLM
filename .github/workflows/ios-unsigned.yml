@@ -43,8 +43,8 @@ jobs:
       - name: Set up Xcode 16.4
         run: sudo xcode-select -s /Applications/Xcode_16.4.app/Contents/Developer
 
-      - name: Install jq
-        run: brew install jq
+      - name: Ensure jq is installed
+        run: brew list jq || brew install jq
 
       - name: Setup Ruby
         uses: ruby/setup-ruby@v1
