@@ -55,6 +55,9 @@ xcodebuild \
 OUT_DIR="build/unsigned_ipa"
 APP_PATH="build/MyOfflineLLMApp.xcarchive/Products/Applications/MyOfflineLLMApp.app"
 mkdir -p "$OUT_DIR/Payload"
+if [ ! -d "$APP_PATH" ]; then
+  echo "❌ Error: App not found at $APP_PATH"; exit 1
+fi
 cp -R "$APP_PATH" "$OUT_DIR/Payload/"
 # Ensure truly unsigned bundle
 rm -rf "$OUT_DIR/Payload/MyOfflineLLMApp.app/_CodeSignature" "$OUT_DIR/Payload/MyOfflineLLMApp.app/embedded.mobileprovision"
