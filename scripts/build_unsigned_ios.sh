@@ -25,13 +25,11 @@ if [ -n "${IOS_SIM_OS:-}" ]; then
   echo "  IOS_SIM_OS=${IOS_SIM_OS}"
 fi
 echo
-SDK="iphonesimulator"
 
 XCODE_CMD=(xcodebuild
   -workspace "$WORKSPACE"
   -scheme "$SCHEME"
   -configuration Release
-  -sdk "$SDK"
   CODE_SIGNING_ALLOWED=NO
   CODE_SIGNING_REQUIRED=NO
   CODE_SIGN_ENTITLEMENTS=

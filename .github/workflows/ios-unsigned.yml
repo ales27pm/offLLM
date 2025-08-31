@@ -88,6 +88,8 @@ jobs:
         run: |
             #!/bin/bash
             set -euo pipefail
+            echo "Available runtimes: $(xcrun simctl list runtimes -j | jq -r '.runtimes[] | select(.isAvailable) | [.platform, .version] | join(":")')"
+            echo "Available devices: $(xcrun simctl list devices -j | jq -r '.devices | to_entries[] | .value[] | select(.isAvailable) | [.name, .udid, .runtimeVersion] | join(":")')"
             IOS_SIM_OS="${IOS_SIM_OS:-18.6}"
             IOS_SIM_DEVICE="${IOS_SIM_DEVICE:-iPhone 16 Pro}"
             AVAILABLE_RUNTIMES=$(xcrun simctl list runtimes -j | jq -r '.runtimes[] | select(.platform == "iOS" and .isAvailable == true) | .version')
@@ -95,9 +97,11 @@ jobs:
             if ! echo "$AVAILABLE_RUNTIMES" | grep -q "^${IOS_SIM_OS}$"; then
               echo "::warning::iOS ${IOS_SIM_OS} not found, falling back to 18.4"
               IOS_SIM_OS="18.4"
+              echo "Updated IOS_SIM_OS to $IOS_SIM_OS"
               if ! echo "$AVAILABLE_RUNTIMES" | grep -q "^18.4$"; then
                 echo "::warning::iOS 18.4 not found, selecting latest available runtime"
                 IOS_SIM_OS=$(echo "$AVAILABLE_RUNTIMES" | sort -V | tail -n 1)
+                echo "Selected latest runtime: $IOS_SIM_OS"
                 if [ -z "$IOS_SIM_OS" ]; then
                   echo "::error::No available iOS runtimes found"
                   exit 1
