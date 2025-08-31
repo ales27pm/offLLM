@@ -2,13 +2,13 @@
 
 > Offline LLM assistant for mobile devices built with React Native.
 
-![Node](https://img.shields.io/badge/node-%3E=20.19.4-43853d?logo=node.js) ![React Native](https://img.shields.io/badge/React%20Native-0.81.x-61DAFB?logo=react)
+![Node](https://img.shields.io/badge/node-%3E=18.0.0-43853d?logo=node.js) ![React Native](https://img.shields.io/badge/React%20Native-0.81.x-61DAFB?logo=react)
 
 ## Quick Start
 
 ### Prereqs
 
-- Node >= 20.19.4
+- Node >= 18.0.0
 - Xcode 16.x with command line tools
 - Ruby & Bundler
 - CocoaPods
@@ -35,6 +35,12 @@ npx react-native run-ios
 
 ```bash
 npm test
+```
+
+### Clean iOS build
+
+```bash
+./scripts/clean-build-ios.sh
 ```
 
 ## Installation & Setup

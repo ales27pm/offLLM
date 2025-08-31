@@ -1,4 +1,12 @@
 {
   "name": "MyOfflineLLMApp",
-  "displayName": "MyOfflineLLMApp"
+  "displayName": "MyOfflineLLMApp",
+  "ios": {
+    "bundleIdentifier": "com.myofflinellmapp",
+    "buildNumber": "1",
+    "target": "18.0"
+  },
+  "android": {
+    "package": "com.myofflinellmapp"
+  }
 }
