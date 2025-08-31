@@ -17,18 +17,11 @@ export interface Spec extends TurboModule {
   addMessageBoundary(): Promise<void>;
   adjustPerformanceMode(mode: string): Promise<boolean>;
 }
-// Mark NativeLLM as used for codegen while tolerating missing native impl.
-(() => {
-  try {
-    // IMPORTANT: codegen looks specifically for `get<Spec>('Name')` calls.
-    TurboModuleRegistry.get<Spec>('NativeLLM');
-  } catch {}
-})();
 
 // Runtime TurboModule lookup; optional to avoid forcing legacy fallback.
-const NativeLLM: Spec | null =
+const LLMModule: Spec | null =
   (TurboModuleRegistry as any).getOptional?.('LLM') ?? null;
 
 // Runtime TurboModule lookup; falls back to legacy module if unavailable.
-export default NativeLLM;
+export default LLMModule;
 
