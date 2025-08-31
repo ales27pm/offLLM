@@ -32,16 +32,19 @@ jobs:
         run: npm ci
 
       - name: Generate Turbo headers (no-op if none)
-        run: npm run codegen || true
+        run: npm run codegen
         # README: codegen reads src/specs -> headers.
 
       - name: Lint (if configured)
         run: |
           if [ -f eslint.config.js ] || [ -f .eslintrc ] || [ -f .eslintrc.js ]; then
-            npm run lint || npm run lint:ci || true
+            npm run lint
           else
             echo "No ESLint config; skipping."
           fi
 
+      - name: Format check
+        run: npm run format:check
+
       - name: Unit tests
-        run: npm test -- --ci
+        run: npm run test:ci

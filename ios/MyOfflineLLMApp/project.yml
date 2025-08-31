@@ -21,10 +21,18 @@ targets:
     settings:
       base:
         SWIFT_VERSION: 5.10
-        SWIFT_OBJC_BRIDGING_HEADER: MyOfflineLLMApp/MyOfflineLLMApp-Bridging-Header.h
+        SWIFT_OBJC_BRIDGING_HEADER: $(SRCROOT)/MyOfflineLLMApp/MyOfflineLLMApp-Bridging-Header.h
         "EXCLUDED_ARCHS[sdk=iphonesimulator*]": "x86_64" # force arm64-only simulator builds
+        CLANG_ENABLE_MODULES: YES
+        HEADER_SEARCH_PATHS:
+          - $(inherited)
+          - $(SRCROOT)/../build/generated/ios
+        SWIFT_INCLUDE_PATHS:
+          - $(SRCROOT)/../build/generated/ios
     sources:
       - path: .
+      - path: ../build/generated/ios
+        optional: true
     dependencies:
       - package: MLX
         product: MLX

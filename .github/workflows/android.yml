@@ -45,12 +45,12 @@ jobs:
 
       - name: Assemble Release
         working-directory: android
-        run: ./gradlew --no-daemon assembleRelease
+        run: ./gradlew assembleRelease
 
       - name: Upload APKs/AABs
         uses: actions/upload-artifact@v4
         with:
           name: offLLM-android-artifacts
           path: |
-            android/app/build/outputs/apk/**/*.apk
-            android/app/build/outputs/bundle/**/*.aab
+            android/app/build/outputs/apk/release/**/*.apk
+            android/app/build/outputs/bundle/release/**/*.aab

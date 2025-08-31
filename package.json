@@ -80,7 +80,7 @@
   },
   "codegenConfig": {
     "name": "AppSpec",
-    "type": "all",
+    "type": "modules",
     "jsSrcsDir": "src/specs",
     "android": {
       "javaPackageName": "com.myofflinellmapp"
