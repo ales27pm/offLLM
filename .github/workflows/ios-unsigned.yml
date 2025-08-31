@@ -142,6 +142,7 @@ jobs:
             xcrun simctl boot "$UDID" || echo "::warning::Simulator $UDID already booted or failed to boot, continuing"
             xcrun simctl bootstatus "$UDID" -b || true
             echo "Booted device $UDID (${IOS_SIM_DEVICE} / iOS ${IOS_SIM_OS})"
+            # expose selected values for downstream steps
             echo "ios_sim_os=$IOS_SIM_OS" >> "$GITHUB_OUTPUT"
             echo "ios_sim_device=$IOS_SIM_DEVICE" >> "$GITHUB_OUTPUT"
             echo "udid=$UDID" >> "$GITHUB_OUTPUT"
