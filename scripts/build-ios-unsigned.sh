@@ -7,7 +7,11 @@ echo "🚀 Starting failproof iOS unsigned build process..."
 echo "✅ Checking Node.js version..."
 REQUIRED_NODE_VERSION="18.0.0"
 CURRENT_NODE_VERSION=$(node -v | sed 's/v//')
-if ! npx semver -r ">=$REQUIRED_NODE_VERSION" "$CURRENT_NODE_VERSION" >/dev/null 2>&1; then
+version_ge() {
+  # returns 0 if $1 >= $2
+  [ "$(printf '%s\n' "$2" "$1" | sort -V | head -n1)" = "$2" ]
+}
+if ! version_ge "$CURRENT_NODE_VERSION" "$REQUIRED_NODE_VERSION"; then
   echo "❌ Error: Node.js $REQUIRED_NODE_VERSION or higher is required. Current version is $CURRENT_NODE_VERSION."
   exit 1
 fi
