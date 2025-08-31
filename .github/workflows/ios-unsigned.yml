@@ -28,9 +28,6 @@ jobs:
       - name: Run tests
         run: npm test
 
-      - name: Run codegen
-        run: npm run codegen
-
       - name: Select Xcode 16.1
         uses: maxim-lobanov/setup-xcode@v1
         with:
@@ -43,27 +40,88 @@ jobs:
           bundler-cache: true
           working-directory: ios
 
-      - name: Install iOS deps
+      - name: Generate Xcode project
         working-directory: ios
         run: |
           brew install xcodegen || true
           xcodegen generate
-          bundle exec pod install --repo-update
+          bundle install
+
+      - name: Run codegen
+        run: npm run codegen
+
+      - name: Normalize & verify codegen output
+        run: |
+          echo "Listing iOS codegen dir (ios/build/generated/ios) BEFORE normalization:"
+          ls -lah ios/build/generated/ios || true
+
+          # If the generator nested an extra 'build' folder, flatten it
+          if [ -d ios/build/generated/ios/build ]; then
+            echo "Flattening nested codegen dir (ios/build/generated/ios/build -> ios/build/generated/ios)…"
+            shopt -s dotglob
+            mv ios/build/generated/ios/build/* ios/build/generated/ios/ || true
+            rm -rf ios/build/generated/ios/build
+          fi
+
+          echo "Listing iOS codegen dir (ios/build/generated/ios) AFTER normalization:"
+          ls -lah ios/build/generated/ios || true
+
+          # React Native app codegen should emit at least these podspecs
+          if [ ! -f ios/build/generated/ios/ReactCodegen.podspec ] || [ ! -f ios/build/generated/ios/ReactAppDependencyProvider.podspec ]; then
+            echo "::error::Missing expected RN codegen podspec(s)."
+            echo "Expected at least:"
+            echo "  - ios/build/generated/ios/ReactCodegen.podspec"
+            echo "  - ios/build/generated/ios/ReactAppDependencyProvider.podspec"
+            exit 1
+          fi
+
+      - name: Install Pods
+        working-directory: ios
+        run: bundle exec pod install --repo-update
 
       - name: Build (unsigned, Simulator)
         working-directory: ios
         run: |
-          set -e
+          set -euo pipefail
+          RESULT_BUNDLE=MyOfflineLLMApp.xcresult
           xcodebuild -workspace MyOfflineLLMApp.xcworkspace \
-            -scheme MyOfflineLLMApp -configuration Release \
+            -scheme MyOfflineLLMApp \
+            -configuration Release \
             -sdk iphonesimulator -arch arm64 \
             CODE_SIGNING_ALLOWED=NO CODE_SIGNING_REQUIRED=NO CODE_SIGN_IDENTITY="" \
-            -derivedDataPath build
+            -derivedDataPath build \
+            -resultBundlePath "$RESULT_BUNDLE" | tee xcodebuild.log
 
           APP_PATH="build/Build/Products/Release-iphonesimulator/MyOfflineLLMApp.app"
           ditto -ck --sequesterRsrc --keepParent "$APP_PATH" MyOfflineLLMApp-Simulator.zip
 
+      - name: Print Xcode issues
+        if: always()
+        working-directory: ios
+        run: |
+          echo "===== last 2000 lines of xcodebuild.log ====="
+          tail -n 2000 xcodebuild.log || true
+          if [ -d "MyOfflineLLMApp.xcresult" ]; then
+            echo "===== error summaries ====="
+            xcrun xcresulttool get --path MyOfflineLLMApp.xcresult --format json \
+              | jq -r '.issues.errorSummaries[]? | .message.text'
+            echo "===== warning summaries ====="
+            xcrun xcresulttool get --path MyOfflineLLMApp.xcresult --format json \
+              | jq -r '.issues.warningSummaries[]? | .message.text'
+          fi
+
       - uses: actions/upload-artifact@v4
+        if: success()
         with:
           name: MyOfflineLLMApp-Simulator
           path: ios/MyOfflineLLMApp-Simulator.zip
+          if-no-files-found: ignore
+
+      - uses: actions/upload-artifact@v4
+        if: always()
+        with:
+          name: xcode-logs-and-result
+          path: |
+            ios/xcodebuild.log
+            ios/MyOfflineLLMApp.xcresult
+          if-no-files-found: ignore

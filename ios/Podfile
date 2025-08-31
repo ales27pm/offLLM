@@ -37,6 +37,8 @@ target app_target do
     :app_path => "#{Pod::Config.instance.installation_root}/.."
   )
 
+  # Codegen pods (ReactCodegen + ReactAppDependencyProvider) are handled automatically by use_react_native! using :app_path
+
   if USE_FLIPPER
     use_flipper!({ 'Flipper' => '0.203.0' })
   end
@@ -55,6 +57,27 @@ target app_target do
       end
     end
     react_native_post_install(installer)
+
+    # Tidy warnings for a couple of pods
+    installer.pods_project.targets.each do |t|
+      if ['react-native-slider','RNCAsyncStorage'].include? t.name
+        t.build_configurations.each do |cfg|
+          cfg.build_settings['CLANG_ALLOW_NON_MODULAR_INCLUDES_IN_FRAMEWORK_MODULES'] = 'YES'
+          cfg.build_settings['WARNING_CFLAGS'] ||= ['$(inherited)']
+          cfg.build_settings['WARNING_CFLAGS'] << '-Wno-non-modular-include-in-framework-module'
+        end
+      end
+    end
+
+    # Make sure ReactCommon turbomodules headers are discoverable
+    installer.pods_project.targets.each do |t|
+      next unless t.name == 'ReactCommon'
+      t.build_configurations.each do |cfg|
+        cfg.build_settings['HEADER_SEARCH_PATHS'] ||= '$(inherited)'
+        cfg.build_settings['HEADER_SEARCH_PATHS'] << ' $(PODS_ROOT)/Headers/Public/ReactCommon/ReactCommon/react/nativemodule/core'
+      end
+    end
+
     File.write('Pods/.ran_post_install', 'Post install executed successfully')
   end
 end

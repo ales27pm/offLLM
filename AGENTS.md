@@ -15,8 +15,9 @@
 - **Local dev**
   ```bash
   npm ci
+  (cd ios && xcodegen generate && bundle install)
   npm run codegen
-  (cd ios && xcodegen generate && bundle install && bundle exec pod install --repo-update)
+  (cd ios && bundle exec pod install --repo-update)
   ```
 - **Deterministic CI**
   ```bash

@@ -9,3 +9,6 @@ ios/.bundle/
 build/
 android/app/build/
 .env
+ios/build/
+ios/build/generated/ios/
+ios/MyOfflineLLMApp.xcresult
