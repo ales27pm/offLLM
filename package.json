@@ -15,7 +15,7 @@
     "build:ios": "(cd ios && xcodegen generate && bundle install) && BUNDLE_GEMFILE=ios/Gemfile bundle exec pod install --deployment --project-directory=ios && xcodebuild -workspace ios/MyOfflineLLMApp.xcworkspace -scheme MyOfflineLLMApp -configuration Release -destination 'generic/platform=iOS Simulator' CODE_SIGN_IDENTITY='' CODE_SIGNING_REQUIRED=NO CODE_SIGNING_ALLOWED=NO",
     "bundle:android": "react-native bundle --platform android --dev false --entry-file index.js --bundle-output android/app/src/main/assets/index.android.bundle --assets-dest android/app/src/main/res",
     "bundle:ios": "react-native bundle --platform ios --dev false --entry-file index.js --bundle-output ios/main.jsbundle --assets-dest ios",
-    "codegen:ios": "RCT_NEW_ARCH_ENABLED=1 node node_modules/react-native/scripts/generate-codegen-artifacts.js --path . --targetPlatform ios --outputPath .",
+    "codegen:ios": "RCT_NEW_ARCH_ENABLED=1 node node_modules/react-native/scripts/generate-codegen-artifacts.js --path . --targetPlatform ios --outputPath ios",
     "codegen": "npm run codegen:ios",
     "ci:install": "npm ci --legacy-peer-deps"
   },
