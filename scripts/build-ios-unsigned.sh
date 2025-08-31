@@ -19,6 +19,7 @@ rm -rf node_modules package-lock.json
 rm -rf ios/Pods ios/Podfile.lock ios/build
 npx react-native start --reset-cache &
 BUNDLER_PID=$!
+trap 'kill "$BUNDLER_PID" 2>/dev/null || true' EXIT INT TERM
 sleep 10 # Allow the bundler to start
 
 # Step 3: Reinstall dependencies
