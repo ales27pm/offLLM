@@ -49,6 +49,7 @@ npm test
 
  - `npm run codegen` reads [src/specs/](src/specs/) and generates TurboModule headers under `ios/build/generated/ios`.
  - Re-run after editing specs.
+ - CI sets safe defaults for `CODEGEN_OUTPUT_DIR` and `TEMPLATE_SRC_DIR` to avoid path resolution errors.
 
 ### iOS build
 
@@ -81,10 +82,6 @@ npm test
 ```bash
 cd ios && xcodebuild -workspace MyOfflineLLMApp.xcworkspace -scheme MyOfflineLLMApp -configuration Release -sdk iphonesimulator CODE_SIGNING_ALLOWED=NO CODE_SIGN_IDENTITY='' CODE_SIGNING_REQUIRED=NO
 ```
-
-The GitHub Actions workflow [`ios-unsigned.yml`](.github/workflows/ios-unsigned.yml) uploads the unsigned `.ipa` as the `MyOfflineLLMApp-unsigned-ipa` artifact.
-
-If React Native codegen fails during this workflow, the job logs a warning and continues. This temporary behavior keeps iOS builds unblocked while the `AppSpec` generation issue is investigated.
 
 ## Testing & Linting
 
