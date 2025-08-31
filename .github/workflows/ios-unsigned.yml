@@ -38,7 +38,7 @@ jobs:
         with:
           ruby-version: '3.2'
           bundler-cache: true
-          working-directory: ios
+        working-directory: ios
 
       - name: Generate Xcode project
         working-directory: ios
@@ -50,15 +50,27 @@ jobs:
       - name: Run codegen
         run: npm run codegen
 
-      - name: Verify codegen output
+      - name: Normalize & verify codegen output
         run: |
-          echo "Listing iOS codegen dir (ios/build/generated/ios):"
+          echo "Listing iOS codegen dir (ios/build/generated/ios) BEFORE normalization:"
           ls -lah ios/build/generated/ios || true
+
+          # If the generator nested an extra 'build' folder, flatten it
+          if [ -d ios/build/generated/ios/build ]; then
+            echo "Flattening nested codegen dir (ios/build/generated/ios/build -> ios/build/generated/ios)…"
+            shopt -s dotglob
+            mv ios/build/generated/ios/build/* ios/build/generated/ios/ || true
+            rm -rf ios/build/generated/ios/build
+          fi
+
+          echo "Listing iOS codegen dir (ios/build/generated/ios) AFTER normalization:"
+          ls -lah ios/build/generated/ios || true
+
           test -f ios/build/generated/ios/AppSpec.podspec || {
-            echo "::error::Codegen did not produce ios/build/generated/ios/AppSpec.podspec"
-            echo "Make sure src/specs/* exists and that codegen config (package.json: codegenConfig) matches 'AppSpec'."
+              echo "::error::Codegen did not produce ios/build/generated/ios/AppSpec.podspec"
+              echo "Make sure src/specs/* exists and that codegen config (package.json: codegenConfig) matches 'AppSpec'."
             exit 1
-          }
+            }
 
       - name: Install Pods
         working-directory: ios
