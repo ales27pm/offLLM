@@ -5,6 +5,10 @@ import { PluginManager } from "../architecture/pluginManager";
 import { DependencyInjector } from "../architecture/dependencyInjector";
 import { registerLLMPlugins } from "../architecture/pluginSetup";
 import { setupLLMDI } from "../architecture/diSetup";
+import { ensureModelDownloaded } from "../utils/modelDownloader";
+
+const DOLPHIN_URL =
+  "https://huggingface.co/mlx-community/Dolphin3.0-Llama3.2-1B-4Bit/resolve/main/dolphin-4bit.safetensors";
 
 class LLMService {
   #pendingQuantAdjust = null;
@@ -12,6 +16,7 @@ class LLMService {
   constructor() {
     this.isWeb = Platform.OS === "web";
     this.isReady = false;
+    this.modelPath = null;
     this.kvCache = {
       tokens: [],
       size: 0,
@@ -57,6 +62,21 @@ class LLMService {
     return this.#pendingQuantAdjust;
   }
 
+  async loadDolphinModel() {
+    if (this.isWeb || this.isReady) {
+      return true;
+    }
+    try {
+      const path = await ensureModelDownloaded(DOLPHIN_URL);
+      await this.loadModel(path);
+      this.modelPath = path;
+      return true;
+    } catch (error) {
+      console.error("Failed to load Dolphin model:", error);
+      return false;
+    }
+  }
+
   async loadModel(modelPath) {
     try {
       let result;
@@ -94,8 +114,11 @@ class LLMService {
   }
 
   async generate(prompt, maxTokens = 256, temperature = 0.7, options = {}) {
-    if (!this.isReady && !this.isWeb) {
-      throw new Error("Model not loaded");
+    if (!this.isWeb && !this.isReady) {
+      const loaded = await this.loadDolphinModel();
+      if (!loaded) {
+        throw new Error("Model not loaded");
+      }
     }
 
     try {

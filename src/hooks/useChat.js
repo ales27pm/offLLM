@@ -14,6 +14,9 @@ export function useChat() {
   useEffect(() => {
     Tts.setDefaultRate(0.53);
     Tts.setDefaultPitch(1.0);
+    LLMService.loadDolphinModel().catch((e) =>
+      console.warn("Model preload failed", e)
+    );
   }, []);
 
   const send = async (text) => {
