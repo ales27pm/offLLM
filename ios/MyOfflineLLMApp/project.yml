@@ -25,6 +25,8 @@ targets:
         "EXCLUDED_ARCHS[sdk=iphonesimulator*]": "x86_64" # force arm64-only simulator builds
     sources:
       - path: .
+      - path: ../build/generated/ios
+        optional: true
     dependencies:
       - package: MLX
         product: MLX

@@ -35,6 +35,8 @@ targets:
         excludes:
           - "Pods/**"
           - MLXTurboModule.mm # remove brittle ObjC++ bridge
+      - path: build/generated/ios
+        optional: true
     settings:
       base:
         PRODUCT_BUNDLE_IDENTIFIER: com.offllm.myofflinellmapp

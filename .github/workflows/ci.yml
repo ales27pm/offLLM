@@ -43,5 +43,8 @@ jobs:
             echo "No ESLint config; skipping."
           fi
 
+      - name: Format check
+        run: npm run format:check
+
       - name: Unit tests
-        run: npm test -- --ci
+        run: npm run test:ci
