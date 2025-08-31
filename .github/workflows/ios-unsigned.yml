@@ -114,14 +114,23 @@ jobs:
             exit 1
           fi
           echo "Resolved RUNTIME_ID: $RUNTIME_ID"
-          AVAILABLE_DEVICES=$(xcrun simctl list devicetypes -j | jq -r --arg runtime_id "$RUNTIME_ID" '.devicetypes[] | select(.supportedRuntimes[]? | .identifier == $runtime_id) | .name')
+          AVAILABLE_DEVICES=$(xcrun simctl list devicetypes -j | jq -r --arg runtime_id "$RUNTIME_ID" '.devicetypes[] | select(.supportedRuntimes[]? | .identifier == $runtime_id) | .name' 2>/dev/null || true)
+          if [ -z "$AVAILABLE_DEVICES" ]; then
+            echo "::warning::No runtime-specific devices found for iOS ${IOS_SIM_OS}, using all available device types"
+            AVAILABLE_DEVICES=$(xcrun simctl list devicetypes -j | jq -r '.devicetypes[] | .name')
+          fi
           echo "Available device types for iOS ${IOS_SIM_OS}: $AVAILABLE_DEVICES"
           if ! echo "$AVAILABLE_DEVICES" | grep -q "^${IOS_SIM_DEVICE}$"; then
-            echo "::warning::Device ${IOS_SIM_DEVICE} not supported for iOS ${IOS_SIM_OS}, falling back to iPhone 15"
+            echo "::warning::Device ${IOS_SIM_DEVICE} not supported, falling back to iPhone 15"
             IOS_SIM_DEVICE="iPhone 15"
             if ! echo "$AVAILABLE_DEVICES" | grep -q "^iPhone 15$"; then
-              echo "::error::No compatible device types found for iOS ${IOS_SIM_OS}. Available devices: $AVAILABLE_DEVICES"
-              exit 1
+              echo "::warning::Device iPhone 15 not supported, falling back to iPhone 14"
+              IOS_SIM_DEVICE="iPhone 14"
+              if ! echo "$AVAILABLE_DEVICES" | grep -q "^iPhone 14$"; then
+                echo "::error::No compatible device types found for iOS ${IOS_SIM_OS}. Available devices: $AVAILABLE_DEVICES"
+                echo "Raw device types output: $(xcrun simctl list devicetypes -j)"
+                exit 1
+              fi
             fi
             echo "IOS_SIM_DEVICE=$IOS_SIM_DEVICE" >> "$GITHUB_ENV"
           fi
