@@ -65,7 +65,7 @@ jobs:
 
       # Optional; Pod scripts will also run RN codegen. Keep non-blocking.
       - name: Run codegen (non-blocking)
-        run: npm run codegen || echo "Warning: Codegen failed, proceeding with build..."
+        run: 'npm run codegen || echo "Warning: Codegen failed, proceeding with build..."'
 
       - name: Install Pods
         working-directory: ios
