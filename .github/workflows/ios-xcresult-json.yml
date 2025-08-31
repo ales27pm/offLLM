@@ -88,8 +88,8 @@ jobs:
         shell: bash
         run: |
           set -euo pipefail
-          echo "Available simulators (first 120 lines):"
-          xcrun simctl list devices | head -n 120 || true
+          echo "Available simulators (first 500 lines):"
+          xcrun simctl list devices | head -n 500 || true
 
           # Try exact iPhone 16 Pro on iOS 18.x
           UDID=$(xcrun simctl list devices | awk '/iPhone 16 Pro \(.+18\./ && /Shutdown|Booted/ {print $NF}' | tr -d '()' | head -n1)
