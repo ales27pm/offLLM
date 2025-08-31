@@ -47,8 +47,8 @@ npm test
 
 ### Codegen
 
-- `npm run codegen` reads [src/specs/](src/specs/) and generates TurboModule headers.
-- Re-run after editing specs.
+ - `npm run codegen` reads [src/specs/](src/specs/) and generates TurboModule headers under `ios/build/generated/ios`.
+ - Re-run after editing specs.
 
 ### iOS build
 
