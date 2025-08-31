@@ -1,4 +1,4 @@
-name: iOS Build - xcresult JSON
+name: iOS Build - xcresult JSON (iPhone 16 Pro iOS 18.6)
 
 on:
   workflow_dispatch:
@@ -13,7 +13,6 @@ jobs:
       - name: Checkout
         uses: actions/checkout@v4
 
-      # Xcode 16.x (ensure iOS 18 SDK/sims)
       - name: Select Xcode 16.2
         uses: maxim-lobanov/setup-xcode@v1
         with:
@@ -27,7 +26,7 @@ jobs:
           xcodebuild -showsdks || true
           echo "DEVELOPER_DIR=${DEVELOPER_DIR:-not-set}"
 
-      - name: Setup Node (for RN/codegen)
+      - name: Setup Node
         uses: actions/setup-node@v4
         with:
           node-version: "20"
@@ -48,31 +47,17 @@ jobs:
           gem install xcpretty -N
           pod --version
 
-      # If you generate the project (XcodeGen/Tuist), do it BEFORE pods
-      - name: Ensure iOS project exists (.xcodeproj)
+      - name: Ensure iOS project exists
         shell: bash
         run: |
           set -euo pipefail
-          ls -la ios || true
-
           if [ -f "ios/MyOfflineLLMApp/project.yml" ]; then
             echo "Generating project with XcodeGen"
             brew install xcodegen || true
             (cd ios/MyOfflineLLMApp && xcodegen generate)
-          elif [ -f "ios/Project.swift" ] || [ -d "ios/Tuist" ]; then
-            echo "Generating project with Tuist"
-            curl -Ls https://install.tuist.io | bash
-            (cd ios && ~/.tuist/bin/tuist generate)
           fi
 
-          echo "Looking for .xcodeproj:"
-          find ios -maxdepth 3 -name "*.xcodeproj" -print
-          if ! find ios -maxdepth 3 -name "*.xcodeproj" | grep -q . ; then
-            echo "::error::No .xcodeproj found near Podfile. Generate it before 'pod install'."
-            exit 1
-          fi
-
-      - name: Install CocoaPods (after project exists)
+      - name: Install Pods
         shell: bash
         run: |
           set -euo pipefail
@@ -80,36 +65,15 @@ jobs:
           pod repo update
           pod install --repo-update
           cd -
-          find ios -maxdepth 3 -name "*.xcworkspace" -print
 
-      # Prefer iPhone 16 Pro on iOS 18.x; fallback to any iPhone 18.x
-      - name: Resolve and boot Simulator (iPhone 16 Pro / iOS 18.x)
-        id: sim
+      - name: Boot iPhone 16 Pro iOS 18.6
         shell: bash
         run: |
           set -euo pipefail
-          echo "Available simulators (first 500 lines):"
-          xcrun simctl list devices | head -n 500 || true
-
-          # Try exact iPhone 16 Pro on iOS 18.x
-          UDID=$(xcrun simctl list devices | awk '/iPhone 16 Pro \(.+18\./ && /Shutdown|Booted/ {print $NF}' | tr -d '()' | head -n1)
-          # Fallback: any iPhone on iOS 18.x
-          if [ -z "$UDID" ]; then
-            UDID=$(xcrun simctl list devices | awk '/iPhone .* \(.+18\./ && /Shutdown|Booted/ {print $NF}' | tr -d '()' | head -n1)
-          fi
-          if [ -z "$UDID" ]; then
-            echo "::error::No suitable iOS 18.x simulator found on this runner."
-            exit 1
-          fi
-
-          NAME=$(xcrun simctl list devices | grep "$UDID" | sed -E 's/^[[:space:]]*([^()]+) \(.+$/\1/')
-          echo "Picked simulator: $NAME ($UDID)"
-
-          # Boot and wait ready
+          UDID="4459CC99-FE7A-4C54-A9CB-BEAE7D5FB757"
           xcrun simctl boot "$UDID" || true
           xcrun simctl bootstatus "$UDID" -b
-
-          echo "destination=platform=iOS Simulator,id=$UDID" >> "$GITHUB_OUTPUT"
+          echo "destination=platform=iOS Simulator,id=$UDID" >> "$GITHUB_ENV"
 
       - name: Build (Simulator) and export .xcresult
         shell: bash
@@ -122,10 +86,9 @@ jobs:
           RESULT_JSON: ${{ runner.temp }}/MyOfflineLLMApp.xcresult.json
         run: |
           set -euo pipefail
-          DESTINATION="${{ steps.sim.outputs.destination }}"
+          DESTINATION="$destination"
           echo "Using destination: $DESTINATION"
 
-          echo "xcodebuild (workspace: $WORKSPACE, scheme: $SCHEME)"
           xcodebuild \
             -workspace "$WORKSPACE" \
             -scheme "$SCHEME" \
@@ -133,10 +96,8 @@ jobs:
             -sdk "$SDK" \
             -destination "$DESTINATION" \
             -resultBundlePath "$RESULT_BUNDLE" \
-            -showBuildTimingSummary \
             build | xcpretty || true
 
-          echo "Convert .xcresult to JSON (xcresulttool --legacy)"
           /usr/bin/xcrun xcresulttool get \
             --format json \
             --legacy \
