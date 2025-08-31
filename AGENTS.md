@@ -52,7 +52,7 @@
 
 ## CI Playbook
 
-- `ios-unsigned.yml` workflow: xcodegen → pod install → unsigned simulator build → uploads `offLLM-unsigned-ipa` artifact.
+- `ios-unsigned.yml` workflow: xcodegen → pod install → unsigned simulator build → uploads `MyOfflineLLMApp-unsigned-ipa` artifact.
 - If CI fails on pods or project generation, try `pod repo update`, `rm -rf ios/Pods`, and rerun xcodegen.
 
 ## PR Checklist
