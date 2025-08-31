@@ -46,13 +46,20 @@ xcodebuild \
   CODE_SIGNING_ALLOWED=NO
 
 # Step 6: Export the unsigned IPA
-xcodebuild \
-  -exportArchive \
-  -archivePath "build/MyOfflineLLMApp.xcarchive" \
-  -exportPath "build/unsigned_ipa" \
-  -exportOptionsPlist export-options.plist \
-  CODE_SIGNING_ALLOWED=NO
-
+# Step 6: Export the unsigned IPA (manual packaging to avoid signing requirements)
+OUT_DIR="build/unsigned_ipa"
+APP_PATH="build/MyOfflineLLMApp.xcarchive/Products/Applications/MyOfflineLLMApp.app"
+mkdir -p "$OUT_DIR/Payload"
+cp -R "$APP_PATH" "$OUT_DIR/Payload/"
+# Ensure truly unsigned bundle
+rm -rf "$OUT_DIR/Payload/MyOfflineLLMApp.app/_CodeSignature" "$OUT_DIR/Payload/MyOfflineLLMApp.app/embedded.mobileprovision"
+# Zip to IPA
+(
+  cd "$OUT_DIR"
+  zip -qry "MyOfflineLLMApp.ipa" "Payload"
+)
+# Clean up temporary Payload folder
+rm -rf "$OUT_DIR/Payload"
 cd ..
 echo "🎉 Unsigned IPA generated at ./ios/build/unsigned_ipa/MyOfflineLLMApp.ipa"
 
