@@ -1,12 +1,37 @@
 import js from "@eslint/js";
 import reactPlugin from "eslint-plugin-react";
+import globals from "globals";
+import tsParser from "@typescript-eslint/parser";
 
 export default [
+  {
+    ignores: [
+      "node_modules/",
+      "dist/",
+      "build/",
+      "coverage/",
+      "ios/Pods/",
+      "android/.gradle/",
+      "android/build/",
+    ],
+    languageOptions: {
+      ecmaVersion: 2023,
+      globals: {
+        ...globals.node,
+        ...globals.browser,
+        ...globals.jest,
+        console: "readonly",
+        URL: "readonly",
+        setTimeout: "readonly",
+        TextEncoder: "readonly",
+      },
+    },
+  },
   js.configs.recommended,
   {
     files: ["**/*.{js,jsx,ts,tsx}"],
     languageOptions: {
-      ecmaVersion: "latest",
+      parser: tsParser,
       sourceType: "module",
     },
     plugins: {
