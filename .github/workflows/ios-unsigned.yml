@@ -111,20 +111,24 @@ jobs:
             fi
             echo "IOS_SIM_OS=$IOS_SIM_OS" >> "$GITHUB_ENV"
           fi
-          RUNTIME_ID=$(xcrun simctl list runtimes -j | jq -r --arg ios_version "$IOS_SIM_OS" '.runtimes[] | select(.platform == "iOS" and .version == $ios_version and .isAvailable == true) | .identifier')
+          RUNTIME_ID=$(xcrun simctl list runtimes -j | jq -r --arg ios_version "$IOS_SIM_OS" '.runtimes[] | select(.platform == "iOS" and .version == $ios_version and .isAvailable == true) | .identifier' | head -n 1)
           if [ -z "$RUNTIME_ID" ]; then
-            echo "::error::Cannot resolve runtime for iOS ${IOS_SIM_OS}"
+            echo "::error::Cannot resolve runtime identifier for iOS ${IOS_SIM_OS}. Available runtimes: $AVAILABLE_RUNTIMES"
             exit 1
           fi
-          UDID=$(xcrun simctl list devices -j | jq -r --arg ios_version "$IOS_SIM_OS" --arg device_name "$IOS_SIM_DEVICE" '.devices | to_entries[] | select(.key | endswith($ios_version)) | .value[] | select(.name == $device_name and .isAvailable == true) | .udid')
+          echo "Resolved RUNTIME_ID: $RUNTIME_ID"
+          xcrun simctl delete $(xcrun simctl list devices -j | jq -r --arg ios_version "$IOS_SIM_OS" --arg device_name "$IOS_SIM_DEVICE" '.devices | to_entries[] | select(.key | endswith($ios_version)) | .value[] | select(.name == $device_name) | .udid') 2>/dev/null || true
+          UDID=$(xcrun simctl list devices -j | jq -r --arg ios_version "$IOS_SIM_OS" --arg device_name "$IOS_SIM_DEVICE" '.devices | to_entries[] | select(.key | endswith($ios_version)) | .value[] | select(.name == $device_name and .isAvailable == true) | .udid' | head -n 1)
           if [ -z "$UDID" ]; then
+            echo "Creating new simulator for ${IOS_SIM_DEVICE} / iOS ${IOS_SIM_OS}"
             UDID=$(xcrun simctl create "$IOS_SIM_DEVICE" "$RUNTIME_ID")
             if [ -z "$UDID" ]; then
-              echo "::error::Failed to create simulator for ${IOS_SIM_DEVICE} / iOS ${IOS_SIM_OS}"
+              echo "::error::Failed to create simulator for ${IOS_SIM_DEVICE} / iOS ${IOS_SIM_OS}. Runtime ID: $RUNTIME_ID"
               exit 1
             fi
           fi
-          xcrun simctl boot "$UDID" || echo "::warning::Simulator $UDID already booted or failed to boot"
+          echo "Resolved UDID: $UDID"
+          xcrun simctl boot "$UDID" || echo "::warning::Simulator $UDID already booted or failed to boot, continuing"
           xcrun simctl bootstatus "$UDID" -b || true
           echo "Booted device $UDID (${IOS_SIM_DEVICE} / iOS ${IOS_SIM_OS})"
 
