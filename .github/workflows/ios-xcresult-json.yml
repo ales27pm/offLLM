@@ -7,11 +7,26 @@ on:
 
 jobs:
   ios:
-    runs-on: macos-latest
+    # Use a runner image that has Xcode 16 available
+    runs-on: macos-15
 
     steps:
       - name: Checkout
         uses: actions/checkout@v4
+
+      # 🔧 Select Xcode 16.x BEFORE pods/codegen
+      - name: Select Xcode 16.2
+        uses: maxim-lobanov/setup-xcode@v1
+        with:
+          xcode-version: '16.2'   # or '16.1' / '16.3' as needed
+
+      - name: Verify Xcode toolchain
+        shell: bash
+        run: |
+          set -euo pipefail
+          xcodebuild -version
+          # Make sure DEVELOPER_DIR points to the selected Xcode
+          echo "DEVELOPER_DIR=${DEVELOPER_DIR:-not-set}"
 
       - name: Setup Node (for RN codegen)
         uses: actions/setup-node@v4
@@ -33,33 +48,28 @@ jobs:
           gem install cocoapods -N
           gem install xcpretty -N
           pod --version
-          ruby --version
 
-      # 🔧 Ensure the Xcode project exists before running `pod install`
+      # Ensure the Xcode project exists before Pods (XcodeGen/Tuist)
       - name: Ensure iOS project exists (.xcodeproj)
         shell: bash
         run: |
           set -euo pipefail
-          echo "Listing ios/"
           ls -la ios || true
 
-          # If you use XcodeGen, generate the project first
           if [ -f "ios/MyOfflineLLMApp/project.yml" ]; then
-            echo "→ Found ios/MyOfflineLLMApp/project.yml — generating Xcode project with XcodeGen"
+            echo "→ Generating project with XcodeGen"
             brew install xcodegen || true
             (cd ios/MyOfflineLLMApp && xcodegen generate)
-          # Or Tuist
           elif [ -f "ios/Project.swift" ] || [ -d "ios/Tuist" ]; then
-            echo "→ Found Tuist configuration — generating Xcode project with Tuist"
+            echo "→ Generating project with Tuist"
             curl -Ls https://install.tuist.io | bash
             (cd ios && ~/.tuist/bin/tuist generate)
           fi
 
-          echo "After generation, look for .xcodeproj:"
+          echo "Looking for .xcodeproj:"
           find ios -maxdepth 3 -name "*.xcodeproj" -print
-
           if ! find ios -maxdepth 3 -name "*.xcodeproj" | grep -q . ; then
-            echo "::error::No .xcodeproj found near Podfile. Ensure project generation (XcodeGen/Tuist) occurs before 'pod install'."
+            echo "::error::No .xcodeproj found near Podfile. Generate it before 'pod install'."
             exit 1
           fi
 
@@ -71,14 +81,12 @@ jobs:
           pod repo update
           pod install --repo-update
           cd -
-          # Show where the workspace is
           find ios -maxdepth 3 -name "*.xcworkspace" -print
 
       - name: Xcode & Simulator diagnostics
         shell: bash
         run: |
           set -euo pipefail
-          xcodebuild -version
           xcrun simctl list devices | head -n 50
 
       - name: Build (Simulator) and export .xcresult
