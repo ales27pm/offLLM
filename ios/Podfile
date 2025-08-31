@@ -1,17 +1,9 @@
 platform :ios, '18.0'
+ENV['RCT_NEW_ARCH_ENABLED'] = "1" # Enable Fabric/TurboModules
 install! 'cocoapods', :disable_input_output_paths => true
 
-# Resolve RN scripts via Node to support workspaces and custom layouts
-require 'open3'
-
-def node_require(script)
-  cmd = ['node', '-p', "require.resolve('#{script}', {paths: [process.argv[1]]})", __dir__]
-  resolved, status = Open3.capture2(*cmd)
-  raise "Unable to resolve #{script}" unless status.success?
-  require resolved.strip
-end
-
-node_require('react-native/scripts/react_native_pods.rb')
+# Include React Native's CocoaPods helpers
+require_relative '../node_modules/react-native/scripts/react_native_pods'
 
 project_candidates = Dir['*.xcodeproj'] + Dir['**/*.xcodeproj']
 project_path = project_candidates.first
@@ -36,6 +28,9 @@ target app_target do
     :fabric_enabled => NEW_ARCH_ENABLED,
     :app_path => "#{Pod::Config.instance.installation_root}/.."
   )
+
+  pod 'FBReactNativeSpec', :path => "../node_modules/react-native/Libraries/FBReactNativeSpec"
+  pod 'RCTRequired', :path => "../node_modules/react-native/Libraries/TypeSafety"
 
   # Codegen pods (ReactCodegen + ReactAppDependencyProvider) are handled automatically by use_react_native! using :app_path
 

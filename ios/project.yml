@@ -35,7 +35,7 @@ targets:
         excludes:
           - "Pods/**"
           - MLXTurboModule.mm # remove brittle ObjC++ bridge
-      - path: build/generated/ios # ios/build/generated/ios from repo root
+      - path: ../build/generated/ios
         optional: true
     settings:
       base:
@@ -45,9 +45,9 @@ targets:
         CLANG_ENABLE_MODULES: YES
         HEADER_SEARCH_PATHS:
           - $(inherited)
-          - $(SRCROOT)/build/generated/ios
+          - $(SRCROOT)/../build/generated/ios
         SWIFT_INCLUDE_PATHS:
-          - $(SRCROOT)/build/generated/ios
+          - $(SRCROOT)/../build/generated/ios
     dependencies:
       - package: MLX
         product: MLX
