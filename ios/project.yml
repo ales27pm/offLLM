@@ -35,7 +35,7 @@ targets:
         excludes:
           - "Pods/**"
           - MLXTurboModule.mm # remove brittle ObjC++ bridge
-      - path: build/generated/ios
+      - path: build/generated/ios # ios/build/generated/ios from repo root
         optional: true
     settings:
       base:
