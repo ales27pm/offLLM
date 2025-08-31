@@ -90,71 +90,71 @@ jobs:
 
       - name: Boot Simulator with Fallback
         run: |
-          #!/bin/bash
-          set -euo pipefail
-          IOS_SIM_OS="${IOS_SIM_OS:-18.6}"
-          IOS_SIM_DEVICE="${IOS_SIM_DEVICE:-iPhone 16 Pro}"
-          AVAILABLE_RUNTIMES=$(xcrun simctl list runtimes -j | jq -r '.runtimes[] | select(.platform == "iOS" and .isAvailable == true) | .version')
-          echo "Available iOS runtimes: $AVAILABLE_RUNTIMES"
-          if ! echo "$AVAILABLE_RUNTIMES" | grep -q "^${IOS_SIM_OS}$"; then
-            echo "::warning::iOS ${IOS_SIM_OS} not found, falling back to 18.4"
-            IOS_SIM_OS="18.4"
-            if ! echo "$AVAILABLE_RUNTIMES" | grep -q "^18.4$"; then
-              echo "::warning::iOS 18.4 not found, selecting latest available runtime"
-              IOS_SIM_OS=$(echo "$AVAILABLE_RUNTIMES" | sort -V | tail -n 1)
-              if [ -z "$IOS_SIM_OS" ]; then
-                echo "::error::No available iOS runtimes found"
-                exit 1
+            #!/bin/bash
+            set -euo pipefail
+            IOS_SIM_OS="${IOS_SIM_OS:-18.6}"
+            IOS_SIM_DEVICE="${IOS_SIM_DEVICE:-iPhone 16 Pro}"
+            AVAILABLE_RUNTIMES=$(xcrun simctl list runtimes -j | jq -r '.runtimes[] | select(.platform == "iOS" and .isAvailable == true) | .version')
+            echo "Available iOS runtimes: $AVAILABLE_RUNTIMES"
+            if ! echo "$AVAILABLE_RUNTIMES" | grep -q "^${IOS_SIM_OS}$"; then
+              echo "::warning::iOS ${IOS_SIM_OS} not found, falling back to 18.4"
+              IOS_SIM_OS="18.4"
+              if ! echo "$AVAILABLE_RUNTIMES" | grep -q "^18.4$"; then
+                echo "::warning::iOS 18.4 not found, selecting latest available runtime"
+                IOS_SIM_OS=$(echo "$AVAILABLE_RUNTIMES" | sort -V | tail -n 1)
+                if [ -z "$IOS_SIM_OS" ]; then
+                  echo "::error::No available iOS runtimes found"
+                  exit 1
+                fi
               fi
+              echo "IOS_SIM_OS=$IOS_SIM_OS" >> "$GITHUB_ENV"
             fi
-            echo "IOS_SIM_OS=$IOS_SIM_OS" >> "$GITHUB_ENV"
-          fi
-          RUNTIME_ID=$(xcrun simctl list runtimes -j | jq -r --arg ios_version "$IOS_SIM_OS" '.runtimes[] | select(.platform == "iOS" and .version == $ios_version and .isAvailable == true) | .identifier' | head -n 1)
-          if [ -z "$RUNTIME_ID" ]; then
-            echo "::error::Cannot resolve runtime identifier for iOS ${IOS_SIM_OS}. Available runtimes: $AVAILABLE_RUNTIMES"
-            exit 1
-          fi
-          echo "Resolved RUNTIME_ID: $RUNTIME_ID"
-          DEVICE_TYPE_ID=$(xcrun simctl list devicetypes -j | jq -r --arg device_name "$IOS_SIM_DEVICE" '.devicetypes[] | select(.name == $device_name) | .identifier' | head -n 1)
-          if [ -z "$DEVICE_TYPE_ID" ]; then
-            echo "::warning::Device ${IOS_SIM_DEVICE} not found, falling back to iPhone 15"
-            IOS_SIM_DEVICE="iPhone 15"
-            DEVICE_TYPE_ID=$(xcrun simctl list devicetypes -j | jq -r --arg device_name "iPhone 15" '.devicetypes[] | select(.name == $device_name) | .identifier' | head -n 1)
+            RUNTIME_ID=$(xcrun simctl list runtimes -j | jq -r --arg ios_version "$IOS_SIM_OS" '.runtimes[] | select(.platform == "iOS" and .version == $ios_version and .isAvailable == true) | .identifier' | head -n 1)
+            if [ -z "$RUNTIME_ID" ]; then
+              echo "::error::Cannot resolve runtime identifier for iOS ${IOS_SIM_OS}. Available runtimes: $AVAILABLE_RUNTIMES"
+              exit 1
+            fi
+            echo "Resolved RUNTIME_ID: $RUNTIME_ID"
+            DEVICE_TYPE_ID=$(xcrun simctl list devicetypes -j | jq -r --arg device_name "$IOS_SIM_DEVICE" '.devicetypes[] | select(.name == $device_name) | .identifier' | head -n 1)
             if [ -z "$DEVICE_TYPE_ID" ]; then
-              echo "::warning::Device iPhone 15 not found, falling back to iPhone 14"
-              IOS_SIM_DEVICE="iPhone 14"
-              DEVICE_TYPE_ID=$(xcrun simctl list devicetypes -j | jq -r --arg device_name "iPhone 14" '.devicetypes[] | select(.name == $device_name) | .identifier' | head -n 1)
+              echo "::warning::Device ${IOS_SIM_DEVICE} not found, falling back to iPhone 15"
+              IOS_SIM_DEVICE="iPhone 15"
+              DEVICE_TYPE_ID=$(xcrun simctl list devicetypes -j | jq -r --arg device_name "iPhone 15" '.devicetypes[] | select(.name == $device_name) | .identifier' | head -n 1)
               if [ -z "$DEVICE_TYPE_ID" ]; then
-                echo "::error::No compatible device types found for iOS ${IOS_SIM_OS}. Available devices: $(xcrun simctl list devicetypes -j | jq -r '.devicetypes[] | .name')"
+                echo "::warning::Device iPhone 15 not found, falling back to iPhone 14"
+                IOS_SIM_DEVICE="iPhone 14"
+                DEVICE_TYPE_ID=$(xcrun simctl list devicetypes -j | jq -r --arg device_name "iPhone 14" '.devicetypes[] | select(.name == $device_name) | .identifier' | head -n 1)
+                if [ -z "$DEVICE_TYPE_ID" ]; then
+                  echo "::error::No compatible device types found for iOS ${IOS_SIM_OS}. Available devices: $(xcrun simctl list devicetypes -j | jq -r '.devicetypes[] | .name')"
+                  echo "Raw device types output: $(xcrun simctl list devicetypes -j)"
+                  exit 1
+                fi
+              fi
+              echo "IOS_SIM_DEVICE=$IOS_SIM_DEVICE" >> "$GITHUB_ENV"
+            fi
+            echo "Resolved DEVICE_TYPE_ID: $DEVICE_TYPE_ID for ${IOS_SIM_DEVICE}"
+            xcrun simctl delete $(xcrun simctl list devices -j | jq -r --arg RUNTIME_ID "$RUNTIME_ID" --arg device_name "$IOS_SIM_DEVICE" '.devices | to_entries[] | select(.key == $RUNTIME_ID) | .value[] | select(.name == $device_name) | .udid') 2>/dev/null || true
+            UDID=$(xcrun simctl list devices -j | jq -r --arg RUNTIME_ID "$RUNTIME_ID" --arg device_name "$IOS_SIM_DEVICE" '.devices | to_entries[] | select(.key == $RUNTIME_ID) | .value[] | select(.name == $device_name and .isAvailable == true) | .udid' | head -n 1)
+            if [ -z "$UDID" ]; then
+              echo "Creating new simulator for ${IOS_SIM_DEVICE} / iOS ${IOS_SIM_OS}"
+              UDID=$(xcrun simctl create "Custom ${IOS_SIM_DEVICE}" "$DEVICE_TYPE_ID" "$RUNTIME_ID")
+              if [ -z "$UDID" ]; then
+                echo "::error::Failed to create simulator for ${IOS_SIM_DEVICE} / iOS ${IOS_SIM_OS}. Device Type ID: $DEVICE_TYPE_ID, Runtime ID: $RUNTIME_ID"
                 echo "Raw device types output: $(xcrun simctl list devicetypes -j)"
                 exit 1
               fi
             fi
-            echo "IOS_SIM_DEVICE=$IOS_SIM_DEVICE" >> "$GITHUB_ENV"
-          fi
-          echo "Resolved DEVICE_TYPE_ID: $DEVICE_TYPE_ID for ${IOS_SIM_DEVICE}"
-          xcrun simctl delete $(xcrun simctl list devices -j | jq -r --arg RUNTIME_ID "$RUNTIME_ID" --arg device_name "$IOS_SIM_DEVICE" '.devices | to_entries[] | select(.key == $RUNTIME_ID) | .value[] | select(.name == $device_name) | .udid') 2>/dev/null || true
-          UDID=$(xcrun simctl list devices -j | jq -r --arg RUNTIME_ID "$RUNTIME_ID" --arg device_name "$IOS_SIM_DEVICE" '.devices | to_entries[] | select(.key == $RUNTIME_ID) | .value[] | select(.name == $device_name and .isAvailable == true) | .udid' | head -n 1)
-          if [ -z "$UDID" ]; then
-            echo "Creating new simulator for ${IOS_SIM_DEVICE} / iOS ${IOS_SIM_OS}"
-            UDID=$(xcrun simctl create "Custom ${IOS_SIM_DEVICE}" "$DEVICE_TYPE_ID" "$RUNTIME_ID")
-            if [ -z "$UDID" ]; then
-              echo "::error::Failed to create simulator for ${IOS_SIM_DEVICE} / iOS ${IOS_SIM_OS}. Device Type ID: $DEVICE_TYPE_ID, Runtime ID: $RUNTIME_ID"
-              echo "Raw device types output: $(xcrun simctl list devicetypes -j)"
-              exit 1
-            fi
-          fi
-          echo "Resolved UDID: $UDID"
-          xcrun simctl boot "$UDID" || echo "::warning::Simulator $UDID already booted or failed to boot, continuing"
-          xcrun simctl bootstatus "$UDID" -b || true
-          echo "Booted device $UDID (${IOS_SIM_DEVICE} / iOS ${IOS_SIM_OS})"
+            echo "Resolved UDID: $UDID"
+            xcrun simctl boot "$UDID" || echo "::warning::Simulator $UDID already booted or failed to boot, continuing"
+            xcrun simctl bootstatus "$UDID" -b || true
+            echo "Booted device $UDID (${IOS_SIM_DEVICE} / iOS ${IOS_SIM_OS})"
 
       - name: Build (Simulator)
         run: |
-          set -euo pipefail
-          IOS_DESTINATION="platform=iOS Simulator,OS=${IOS_SIM_OS},name=${IOS_SIM_DEVICE}"
-          export IOS_DESTINATION
-          ./scripts/build_unsigned_ios.sh
+            set -euo pipefail
+            IOS_DESTINATION="platform=iOS Simulator,OS=${IOS_SIM_OS},name=${IOS_SIM_DEVICE}"
+            export IOS_DESTINATION
+            ./scripts/build_unsigned_ios.sh
 
       - name: Export xcresult to JSON (sim)
         if: always()
