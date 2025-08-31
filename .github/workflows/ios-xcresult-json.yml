@@ -1,4 +1,4 @@
-name: iOS Build - xcresult JSON (iPhone 16 Pro iOS 18.6)
+name: iOS Build - xcresult JSON (iPhone 16 Pro iOS 18.2)
 
 on:
   workflow_dispatch:
@@ -7,23 +7,29 @@ on:
 
 jobs:
   ios:
+    # macOS 15 is required for Xcode 16 / iOS 18 SDKs
     runs-on: macos-15
+
+    strategy:
+      fail-fast: false
+      matrix:
+        xcode: [ "16.1", "16.0", "16.2" ]  # Try versions most likely to include iOS 18.2
 
     steps:
       - name: Checkout
         uses: actions/checkout@v4
 
-      - name: Select Xcode 16.2
+      - name: Select Xcode ${{ matrix.xcode }}
         uses: maxim-lobanov/setup-xcode@v1
         with:
-          xcode-version: "16.2"
+          xcode-version: ${{ matrix.xcode }}
 
       - name: Verify Xcode
         shell: bash
         run: |
           set -euo pipefail
           xcodebuild -version
-          xcodebuild -showsdks || true
+          xcrun simctl list runtimes
           echo "DEVELOPER_DIR=${DEVELOPER_DIR:-not-set}"
 
       - name: Setup Node
@@ -66,35 +72,82 @@ jobs:
           pod install --repo-update
           cd -
 
-      # Prefer iPhone 16 Pro on iOS 18.x; fallback to any iPhone on iOS 18.x
-      - name: Resolve and boot Simulator (iPhone 16 Pro / iOS 18.x)
+      # === STRICT iOS 18.2 FIND/CREATE/BOOT ===
+      - name: Resolve/create & boot Simulator (iPhone 16 Pro / iOS 18.2 only)
         id: sim
         shell: bash
         run: |
           set -euo pipefail
-          echo "Available simulators (first 120 lines):"
-          xcrun simctl list devices | head -n 120 || true
 
-          # Try iPhone 16 Pro on iOS 18.x
-          UDID=$(xcrun simctl list devices | awk '/iPhone 16 Pro \(.+18\./ && /(Shutdown|Booted)/ {gsub(/[()]/,"",$NF); print $NF; exit}')
-          # Fallback: any iPhone on iOS 18.x
-          if [ -z "$UDID" ]; then
-            UDID=$(xcrun simctl list devices | awk '/iPhone .* \(.+18\./ && /(Shutdown|Booted)/ {gsub(/[()]/,"",$NF); print $NF; exit}')
-          fi
-          if [ -z "$UDID" ]; then
-            echo "::error::No suitable iOS 18.x simulator found on this runner."
+          echo "Querying runtimes (JSON)…"
+          xcrun simctl list runtimes --json > runtimes.json
+          echo "Querying devices (JSON)…"
+          xcrun simctl list devices --json > devices.json
+
+          python3 - <<'PY' > pick.txt
+import json, sys, re, subprocess
+# Load JSON
+runtimes = json.load(open("runtimes.json"))
+devices  = json.load(open("devices.json"))
+
+# Find the iOS 18.2 runtime identifier
+ios182_id = None
+for rt in runtimes.get("runtimes", []):
+    if rt.get("identifier","").startswith("com.apple.CoreSimulator.SimRuntime.iOS-18-2") and rt.get("isAvailable", False):
+        ios182_id = rt["identifier"]
+        break
+
+# If runtime missing, print available ones and exit with code 66
+if not ios182_id:
+    avail = [rt.get("identifier") for rt in runtimes.get("runtimes", []) if rt.get("isAvailable")]
+    print("MISSING iOS 18.2 runtime on this runner.", file=sys.stderr)
+    print("Available runtimes:", *avail, sep="\n  - ", file=sys.stderr)
+    sys.exit(66)
+
+# Look for an iPhone 16 Pro using this runtime
+udid = None
+for runtime_key, devs in devices.get("devices", {}).items():
+    if runtime_key != ios182_id:
+        continue
+    for d in devs:
+        if d.get("isAvailable") and d.get("name") == "iPhone 16 Pro" and d.get("state") in ("Shutdown","Booted"):
+            udid = d["udid"]
+            break
+
+# If not found, create it
+if not udid:
+    # Create a new simulator
+    name = "iPhone 16 Pro (iOS 18.2)"
+    print(f"Creating simulator: {name} with runtime {ios182_id}", file=sys.stderr)
+    # `simctl create <name> <device_type> <runtime>`
+    udid = subprocess.check_output([
+        "xcrun","simctl","create",name,"iPhone 16 Pro", ios182_id
+    ], text=True).strip()
+
+# Output: "<udid>|iPhone 16 Pro|com.apple.CoreSimulator.SimRuntime.iOS-18-2"
+print(f"{udid}|iPhone 16 Pro|{ios182_id}")
+PY
+
+          STATUS=$?
+          if [ $STATUS -eq 66 ]; then
+            echo "::error::iOS 18.2 runtime is NOT installed on this runner image for Xcode ${{ matrix.xcode }}."
+            echo "Tip: Try a different Xcode version in the matrix or a different macOS runner image that includes iOS 18.2."
             exit 1
+          elif [ $STATUS -ne 0 ]; then
+            echo "::error::Unexpected failure while selecting/creating simulator."
+            exit $STATUS
           fi
 
-          NAME=$(xcrun simctl list devices | grep "$UDID" | sed -E 's/^[[:space:]]*([^()]+) \(.+$/\1/')
-          echo "Picked simulator: $NAME ($UDID)"
+          IFS="|" read -r UDID NAME RUNTIME_ID < pick.txt
+          echo "Using device: $NAME ($UDID) with runtime: $RUNTIME_ID"
 
+          # Boot and wait
           xcrun simctl boot "$UDID" || true
           xcrun simctl bootstatus "$UDID" -b
 
           echo "destination=platform=iOS Simulator,id=$UDID" >> "$GITHUB_OUTPUT"
 
-      - name: Build (Simulator) and export .xcresult
+      - name: Build (Simulator, iOS 18.2) and export .xcresult
         shell: bash
         env:
           SCHEME: MyOfflineLLMApp
@@ -106,7 +159,7 @@ jobs:
         run: |
           set -euo pipefail
           DESTINATION="${{ steps.sim.outputs.destination }}"
-          echo "Using destination: $DESTINATION"
+          echo "Building with destination: $DESTINATION"
 
           xcodebuild \
             -workspace "$WORKSPACE" \
