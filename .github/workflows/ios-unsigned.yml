@@ -57,15 +57,34 @@ jobs:
       - name: Build (unsigned, Simulator)
         working-directory: ios
         run: |
-          set -e
+          set -euo pipefail
+          RESULT_BUNDLE=MyOfflineLLMApp.xcresult
           xcodebuild -workspace MyOfflineLLMApp.xcworkspace \
-            -scheme MyOfflineLLMApp -configuration Release \
+            -scheme MyOfflineLLMApp \
+            -configuration Release \
             -sdk iphonesimulator -arch arm64 \
             CODE_SIGNING_ALLOWED=NO CODE_SIGNING_REQUIRED=NO CODE_SIGN_IDENTITY="" \
-            -derivedDataPath build
+            -derivedDataPath build \
+            -resultBundlePath "$RESULT_BUNDLE" \
+            | tee xcodebuild.log
 
           APP_PATH="build/Build/Products/Release-iphonesimulator/MyOfflineLLMApp.app"
           ditto -ck --sequesterRsrc --keepParent "$APP_PATH" MyOfflineLLMApp-Simulator.zip
+
+          xcrun xcresulttool get --path "$RESULT_BUNDLE" --format json \
+            | jq '.issues.testFailureSummaries + .issues.warningSummaries | length'
+
+      - name: Print Xcode errors (if build failed)
+        if: failure()
+        working-directory: ios
+        run: |
+          echo "===== last 400 lines of xcodebuild.log ====="
+          tail -n 400 xcodebuild.log || true
+          if [ -d "MyOfflineLLMApp.xcresult" ]; then
+            echo "===== parsed issues from xcresult ====="
+            xcrun xcresulttool get --path MyOfflineLLMApp.xcresult --format json \
+              | jq -r '[.issues.errorSummaries[]? | { message: .message?.text, target: .target?.name, file: .documentLocationInCreatingWorkspace?.url }]' || true
+          fi
 
       - uses: actions/upload-artifact@v4
         with:
