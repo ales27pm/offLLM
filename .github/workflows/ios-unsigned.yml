@@ -72,7 +72,13 @@ jobs:
         run: bundle exec pod install --repo-update
 
       - name: Ensure jq is available
-        run: bash -lc 'command -v jq >/dev/null 2>&1 || brew install jq || true; jq --version || true'
+        shell: bash
+        run: |
+          set -euo pipefail
+          if ! command -v jq >/dev/null 2>&1; then
+            brew install jq || true
+          fi
+          jq --version || true
 
       # Prefer iOS 18.6 → 18.5 → 18.4; create iPhone 16 Pro if missing
       - name: Resolve/create & boot Simulator (iPhone 16 Pro; iOS 18.x highest available)
