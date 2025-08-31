@@ -89,6 +89,7 @@ jobs:
           xcrun simctl list runtimes
 
       - name: Boot Simulator with Fallback
+        id: boot
         run: |
             #!/bin/bash
             set -euo pipefail
@@ -107,7 +108,6 @@ jobs:
                   exit 1
                 fi
               fi
-              echo "IOS_SIM_OS=$IOS_SIM_OS" >> "$GITHUB_ENV"
             fi
             RUNTIME_ID=$(xcrun simctl list runtimes -j | jq -r --arg ios_version "$IOS_SIM_OS" '.runtimes[] | select(.platform == "iOS" and .version == $ios_version and .isAvailable == true) | .identifier' | head -n 1)
             if [ -z "$RUNTIME_ID" ]; then
@@ -130,7 +130,6 @@ jobs:
                   exit 1
                 fi
               fi
-              echo "IOS_SIM_DEVICE=$IOS_SIM_DEVICE" >> "$GITHUB_ENV"
             fi
             echo "Resolved DEVICE_TYPE_ID: $DEVICE_TYPE_ID for ${IOS_SIM_DEVICE}"
             xcrun simctl delete $(xcrun simctl list devices -j | jq -r --arg RUNTIME_ID "$RUNTIME_ID" --arg device_name "$IOS_SIM_DEVICE" '.devices | to_entries[] | select(.key == $RUNTIME_ID) | .value[] | select(.name == $device_name) | .udid') 2>/dev/null || true
@@ -148,10 +147,14 @@ jobs:
             xcrun simctl boot "$UDID" || echo "::warning::Simulator $UDID already booted or failed to boot, continuing"
             xcrun simctl bootstatus "$UDID" -b || true
             echo "Booted device $UDID (${IOS_SIM_DEVICE} / iOS ${IOS_SIM_OS})"
+            echo "ios_sim_os=$IOS_SIM_OS" >> "$GITHUB_OUTPUT"
+            echo "ios_sim_device=$IOS_SIM_DEVICE" >> "$GITHUB_OUTPUT"
 
       - name: Build (Simulator)
         run: |
             set -euo pipefail
+            IOS_SIM_OS="${{ steps.boot.outputs.ios_sim_os }}"
+            IOS_SIM_DEVICE="${{ steps.boot.outputs.ios_sim_device }}"
             IOS_DESTINATION="platform=iOS Simulator,OS=${IOS_SIM_OS},name=${IOS_SIM_DEVICE}"
             export IOS_DESTINATION IOS_SIM_OS IOS_SIM_DEVICE
             ./scripts/build_unsigned_ios.sh
