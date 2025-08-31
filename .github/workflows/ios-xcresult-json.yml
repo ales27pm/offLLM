@@ -66,78 +66,42 @@ jobs:
           pod install --repo-update
           cd -
 
-      # STRICT iOS 18.2: find the iOS 18.2 runtime, create/boot iPhone 16 Pro only on that runtime
+      # STRICT iOS 18.2 using jq (no heredocs / Python)
       - name: Resolve/create & boot Simulator (iPhone 16 Pro / iOS 18.2 only)
         id: sim
         shell: bash
         run: |
           set -euo pipefail
-          xcrun simctl list runtimes --json > runtimes.json
-          xcrun simctl list devicetypes --json > devicetypes.json
-          xcrun simctl list devices --json > devices.json
 
-          cat > pick.py <<'PY'
-import json, sys, subprocess
+          # Find an available iOS 18.2 runtime identifier
+          RUNTIME=$(xcrun simctl list runtimes --json \
+            | jq -r '.runtimes[] | select(.identifier|test("com\\.apple\\.CoreSimulator\\.SimRuntime\\.iOS-18-2$")) | select(.isAvailable==true) | .identifier' \
+            | head -n1)
 
-with open("runtimes.json") as f: runtimes = json.load(f)
-with open("devices.json")  as f: devices  = json.load(f)
-
-# Find iOS 18.2 runtime identifier
-ios182_id = None
-for rt in runtimes.get("runtimes", []):
-    ident = rt.get("identifier","")
-    if ident.startswith("com.apple.CoreSimulator.SimRuntime.iOS-18-2") and rt.get("isAvailable", False):
-        ios182_id = ident
-        break
-
-if not ios182_id:
-    print("ERROR: iOS 18.2 runtime is NOT installed on this runner.", file=sys.stderr)
-    print("Available runtimes:", file=sys.stderr)
-    for rt in runtimes.get("runtimes", []):
-        if rt.get("isAvailable"):
-            print(f"  - {rt.get('identifier')}", file=sys.stderr)
-    sys.exit(66)
-
-# Look for an existing iPhone 16 Pro device on iOS 18.2
-udid = None
-for runtime_key, devs in devices.get("devices", {}).items():
-    if runtime_key != ios182_id:
-        continue
-    for d in devs:
-        if d.get("isAvailable") and d.get("name") == "iPhone 16 Pro" and d.get("state") in ("Shutdown","Booted"):
-            udid = d["udid"]
-            break
-
-# If not found, create it
-if not udid:
-    name = "iPhone 16 Pro (iOS 18.2)"
-    # simctl create <name> <deviceTypeName> <runtimeIdentifier>
-    udid = subprocess.check_output([
-        "xcrun","simctl","create", name, "iPhone 16 Pro", ios182_id
-    ], text=True).strip()
-
-print(udid)
-PY
-
-          if ! python3 pick.py > udid.txt ; then
-            status=$?
-            if [ $status -eq 66 ]; then
-              echo "::error::iOS 18.2 runtime is not present on this runner image."
-              exit 1
-            fi
-            echo "::error::Simulator selection/creation failed."
-            exit $status
-          fi
-
-          UDID="$(cat udid.txt | tr -d '[:space:]')"
-          if [ -z "$UDID" ]; then
-            echo "::error::Failed to determine a simulator UDID for iOS 18.2."
+          if [ -z "${RUNTIME:-}" ]; then
+            echo "::error::iOS 18.2 runtime is NOT installed on this runner image."
+            echo "Available runtimes:"
+            xcrun simctl list runtimes --json | jq -r '.runtimes[] | select(.isAvailable==true) | "  - \(.identifier)"'
             exit 1
+          fi
+          echo "Using runtime: $RUNTIME"
+
+          # Try to find an existing iPhone 16 Pro on that runtime
+          UDID=$(xcrun simctl list devices --json \
+            | jq -r --arg RUNTIME "$RUNTIME" '.devices[$RUNTIME][] | select(.isAvailable==true) | select(.name=="iPhone 16 Pro") | select(.state=="Shutdown" or .state=="Booted") | .udid' \
+            | head -n1)
+
+          # Create one if missing
+          if [ -z "${UDID:-}" ]; then
+            NAME="iPhone 16 Pro (iOS 18.2)"
+            echo "Creating simulator: $NAME"
+            UDID=$(xcrun simctl create "$NAME" "iPhone 16 Pro" "$RUNTIME")
           fi
 
           echo "Using UDID: $UDID"
           xcrun simctl boot "$UDID" || true
           xcrun simctl bootstatus "$UDID" -b
+
           echo "destination=platform=iOS Simulator,id=$UDID" >> "$GITHUB_OUTPUT"
 
       - name: Build (Simulator, iOS 18.2) and export .xcresult
