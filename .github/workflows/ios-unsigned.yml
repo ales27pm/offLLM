@@ -50,17 +50,18 @@ jobs:
           bundler-cache: true
           working-directory: ios
 
-      - name: Install XcodeGen (if needed)
-        working-directory: ios
-        run: brew install xcodegen || true
+      - name: Install xcodegen
+        run: brew install xcodegen
 
-      - name: Generate Xcode project
-        working-directory: ios
-        run: xcodegen generate
+      - name: Generate Xcode Workspace
+        run: |
+          cd ios
+          xcodegen generate
 
-      - name: Bundle install
-        working-directory: ios
-        run: bundle install
+      - name: Install Ruby dependencies
+        run: |
+          cd ios
+          bundle install
       - name: Codegen env guard
         run: |
           set -euo pipefail
@@ -68,19 +69,19 @@ jobs:
           export TEMPLATE_SRC_DIR="${TEMPLATE_SRC_DIR:-$(pwd)/src/specs}"
           npm run codegen
 
-      - name: Show key build settings (Release)
-        run: |
-          xcodebuild -showBuildSettings \
-            -workspace "${{ env.WORKSPACE }}" \
-            -scheme "${{ env.SCHEME }}" \
-            -configuration Release | egrep 'SDKROOT|IPHONEOS_DEPLOYMENT_TARGET|SUPPORTED_PLATFORMS|TARGETED_DEVICE_FAMILY' || true
-
       - name: Install Pods (verbose, fail-fast)
         working-directory: ios
         run: |
           set -euo pipefail
           bundle exec pod repo update
           RCT_NEW_ARCH_ENABLED=1 bundle exec pod install --repo-update --verbose
+
+      - name: Show key build settings (Release)
+        run: |
+          xcodebuild -showBuildSettings \
+            -workspace "${{ env.WORKSPACE }}" \
+            -scheme "${{ env.SCHEME }}" \
+            -configuration Release | egrep 'SDKROOT|IPHONEOS_DEPLOYMENT_TARGET|SUPPORTED_PLATFORMS|TARGETED_DEVICE_FAMILY' || true
 
       - name: Show Xcode & Runtimes
         run: |
