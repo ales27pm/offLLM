@@ -48,7 +48,7 @@ jobs:
           bundle install
 
       - name: Run codegen
-        run: "npm run codegen || echo 'Warning: Codegen failed, proceeding with build...'"
+        run: npm run codegen || echo 'Warning: Codegen failed, proceeding with build...'
 
       - name: Normalize & verify codegen output
         run: |
