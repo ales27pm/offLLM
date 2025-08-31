@@ -110,6 +110,26 @@ npm run format:check
 - `MODEL_URL` – remote model to download on first run.
 - `MEMORY_ENABLED` / `MEMORY_MAX_MB` – toggle and size for on-device memory.
 
+## Consent Management
+
+The app uses a privacy-focused consent system (`src/privacy/consents.ts`) to manage permissions for features like camera and location.
+
+- Validates consent keys (`camera`, `location`, `contacts`, `photos`, `microphone`).
+- Stores consents with timestamps in AsyncStorage.
+- Logs operations for debugging.
+- Throws `ConsentError` for invalid keys.
+
+```typescript
+import { getConsent, setConsent } from './src/privacy/consents';
+
+async function requestCameraAccess() {
+  const consent = await getConsent('camera');
+  if (!consent?.value) {
+    await setConsent('camera', true);
+  }
+}
+```
+
 ## Troubleshooting
 
 - **npm ERESOLVE**: installs ignore peers via `.npmrc` or `npm run ci:install`.
