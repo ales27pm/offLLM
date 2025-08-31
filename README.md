@@ -49,6 +49,7 @@ npm test
 
  - `npm run codegen` reads [src/specs/](src/specs/) and generates TurboModule headers under `ios/build/generated/ios`.
  - Re-run after editing specs.
+ - CI sets safe defaults for `CODEGEN_OUTPUT_DIR` and `TEMPLATE_SRC_DIR` to avoid path resolution errors.
 
 ### iOS build
 

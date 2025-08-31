@@ -32,7 +32,11 @@ jobs:
         run: npm ci
 
       - name: Generate Turbo headers (no-op if none)
-        run: npm run codegen
+        run: |
+          set -euo pipefail
+          export CODEGEN_OUTPUT_DIR="${CODEGEN_OUTPUT_DIR:-$(pwd)/ios/build/generated}"
+          export TEMPLATE_SRC_DIR="${TEMPLATE_SRC_DIR:-$(pwd)/src/specs}"
+          npm run codegen
         # README: codegen reads src/specs -> headers.
 
       - name: Lint (if configured)
