@@ -135,6 +135,7 @@ async function requestCameraAccess() {
 - **npm ERESOLVE**: installs ignore peers via `.npmrc` or `npm run ci:install`.
 - **Pod install failures**: run `bundle exec pod install --repo-update`.
 - **Xcode version mismatch**: ensure Xcode 16.x via `xcode-select -switch`.
+- **Simulator runtime mismatch**: the CI boot step automatically falls back to iOS 18.4 or the newest available runtime if the requested `IOS_SIM_OS` is missing. If the device (e.g., iPhone 16 Pro) is unsupported, it falls back to iPhone 15 or iPhone 14 using device type IDs. Clean stale simulators with `xcrun simctl delete unavailable` and verify device types with `xcrun simctl list devicetypes`.
 - **Simulator arch errors**: Apple Silicon users should not exclude `arm64`. Intel hosts can set `EXCLUDED_ARCHS=arm64`. To detect CPU: `uname -m | grep -q x86_64 && export EXCLUDED_ARCHS=arm64`. Clean Pods and retry: `rm -rf ios/Pods ios/Podfile.lock && (cd ios && pod repo update && pod install)`.
 
 ## Contributing / License
