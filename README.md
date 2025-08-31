@@ -43,6 +43,12 @@ npm test
 ./scripts/clean-build-ios.sh
 ```
 
+### Failproof unsigned IPA build
+
+```bash
+./scripts/build-ios-unsigned.sh
+```
+
 ## Installation & Setup
 
 ### Node & npm determinism
@@ -82,6 +88,7 @@ npm test
 | `npm test`           | Run Jest suite                  |
 | `npm run lint`       | ESLint                          |
 | `npm run ios`        | Run iOS simulator               |
+| `./scripts/build-ios-unsigned.sh` | Clean install & unsigned IPA build |
 
 ## iOS Unsigned Build (Simulator)
 

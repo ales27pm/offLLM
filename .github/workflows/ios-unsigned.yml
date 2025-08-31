@@ -17,7 +17,7 @@ env:
   WORKSPACE: "ios/MyOfflineLLMApp.xcworkspace"
   ENABLE_SIGNED_EXPORT: "false"   # set to "true" if you want the optional signed export steps
   IOS_SIM_DEVICE: "iPhone 16 Pro"
-  IOS_SIM_OS: "18.5"              # default runtime; Boot step falls back if missing
+  IOS_SIM_OS: "18.6"              # default runtime; Boot step falls back if missing
 
 jobs:
   sim-build:

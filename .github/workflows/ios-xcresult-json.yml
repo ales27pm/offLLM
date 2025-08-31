@@ -1,4 +1,4 @@
-name: iOS Build - xcresult JSON (iPhone 16 Pro iOS 18.x fallback 18.6→18.5→18.4)
+name: iOS Build - xcresult JSON (iPhone 16 Pro iOS 18.x fallback 18.6→18.4)
 
 on:
   workflow_dispatch:
@@ -76,7 +76,7 @@ jobs:
           fi
           jq --version || true
 
-      # Prefer iOS 18.6, then 18.5, then 18.4; create iPhone 16 Pro if missing
+      # Prefer iOS 18.6, then 18.4; create iPhone 16 Pro if missing
       - name: Resolve/create & boot Simulator (iPhone 16 Pro; iOS 18.x highest available)
         id: sim
         shell: bash
@@ -84,7 +84,6 @@ jobs:
           set -euo pipefail
 
           WANT_RUNTIMES=("com.apple.CoreSimulator.SimRuntime.iOS-18-6" \
-                         "com.apple.CoreSimulator.SimRuntime.iOS-18-5" \
                          "com.apple.CoreSimulator.SimRuntime.iOS-18-4")
 
           RUNTIME=""
@@ -99,7 +98,7 @@ jobs:
           done
 
           if [ -z "$RUNTIME" ]; then
-            echo "::error::No iOS 18.6 / 18.5 / 18.4 runtime found on this runner."
+            echo "::error::No iOS 18.6 / 18.4 runtime found on this runner."
             xcrun simctl list runtimes
             exit 1
           fi
