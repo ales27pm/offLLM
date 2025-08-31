@@ -133,8 +133,8 @@ jobs:
             echo "IOS_SIM_DEVICE=$IOS_SIM_DEVICE" >> "$GITHUB_ENV"
           fi
           echo "Resolved DEVICE_TYPE_ID: $DEVICE_TYPE_ID for ${IOS_SIM_DEVICE}"
-          xcrun simctl delete $(xcrun simctl list devices -j | jq -r --arg ios_version "$IOS_SIM_OS" --arg device_name "$IOS_SIM_DEVICE" '.devices | to_entries[] | select(.key | endswith($ios_version)) | .value[] | select(.name == $device_name) | .udid') 2>/dev/null || true
-          UDID=$(xcrun simctl list devices -j | jq -r --arg ios_version "$IOS_SIM_OS" --arg device_name "$IOS_SIM_DEVICE" '.devices | to_entries[] | select(.key | endswith($ios_version)) | .value[] | select(.name == $device_name and .isAvailable == true) | .udid' | head -n 1)
+          xcrun simctl delete $(xcrun simctl list devices -j | jq -r --arg RUNTIME_ID "$RUNTIME_ID" --arg device_name "$IOS_SIM_DEVICE" '.devices | to_entries[] | select(.key == $RUNTIME_ID) | .value[] | select(.name == $device_name) | .udid') 2>/dev/null || true
+          UDID=$(xcrun simctl list devices -j | jq -r --arg RUNTIME_ID "$RUNTIME_ID" --arg device_name "$IOS_SIM_DEVICE" '.devices | to_entries[] | select(.key == $RUNTIME_ID) | .value[] | select(.name == $device_name and .isAvailable == true) | .udid' | head -n 1)
           if [ -z "$UDID" ]; then
             echo "Creating new simulator for ${IOS_SIM_DEVICE} / iOS ${IOS_SIM_OS}"
             UDID=$(xcrun simctl create "Custom ${IOS_SIM_DEVICE}" "$DEVICE_TYPE_ID" "$RUNTIME_ID")
@@ -150,10 +150,10 @@ jobs:
           echo "Booted device $UDID (${IOS_SIM_DEVICE} / iOS ${IOS_SIM_OS})"
 
       - name: Build (Simulator)
-        env:
-          IOS_DESTINATION: "platform=iOS Simulator,OS=${{ env.IOS_SIM_OS }},name=${{ env.IOS_SIM_DEVICE }}"
         run: |
           set -euo pipefail
+          IOS_DESTINATION="platform=iOS Simulator,OS=${IOS_SIM_OS},name=${IOS_SIM_DEVICE}"
+          export IOS_DESTINATION
           ./scripts/build_unsigned_ios.sh
 
       - name: Export xcresult to JSON (sim)
