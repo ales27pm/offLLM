@@ -84,6 +84,8 @@ cd ios && xcodebuild -workspace MyOfflineLLMApp.xcworkspace -scheme MyOfflineLLM
 
 The GitHub Actions workflow [`ios-unsigned.yml`](.github/workflows/ios-unsigned.yml) uploads the unsigned `.ipa` as the `offLLM-unsigned-ipa` artifact.
 
+If React Native codegen fails during this workflow, the job logs a warning and continues. This temporary behavior keeps iOS builds unblocked while the `AppSpec` generation issue is investigated.
+
 ## Testing & Linting
 
 ```bash
