@@ -18,6 +18,14 @@ export interface Spec extends TurboModule {
   adjustPerformanceMode(mode: string): Promise<boolean>;
 }
 
+// Probe for codegen so the spec is marked as used.
+try {
+  // IMPORTANT: codegen looks specifically for `get<Spec>('Name')` calls.
+  TurboModuleRegistry.get<Spec>('NativeLLM');
+} catch {
+  // Ignore missing native module during runtime.
+}
+
 // Expose the TurboModule; returns `null` when the native implementation is missing.
-export default TurboModuleRegistry.get<Spec>('LLM');
+export default TurboModuleRegistry.getOptional<Spec>('LLM');
 
