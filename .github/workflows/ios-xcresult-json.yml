@@ -169,32 +169,33 @@ jobs:
           name: MyOfflineLLMApp-xcresult.json
           path: ${{ runner.temp }}/MyOfflineLLMApp.xcresult.json
 
-      # === DEVICE BUILD + UNSIGNED IPA PACKAGING ===
-      - name: Build (Device, unsigned .app)
+      # === DEVICE BUILD + UNSIGNED IPA PACKAGING (fixed SDK) ===
+      - name: Build (Device, unsigned .app) — force SDKROOT
         shell: bash
         env:
           SCHEME: MyOfflineLLMApp
           WORKSPACE: ios/MyOfflineLLMApp.xcworkspace
           CONFIGURATION: Release
-          SDK: iphoneos
           DERIVED: ${{ runner.temp }}/dd
         run: |
           set -euo pipefail
-          echo "Building device .app (no codesign)…"
+          echo "Building device .app (no codesign), forcing SDKROOT=iphoneos…"
           xcodebuild \
             -workspace "$WORKSPACE" \
             -scheme "$SCHEME" \
             -configuration "$CONFIGURATION" \
-            -sdk "$SDK" \
-            -destination "generic/platform=iOS" \
+            -sdk iphoneos \
+            SDKROOT=iphoneos \
             CODE_SIGNING_ALLOWED=NO CODE_SIGNING_REQUIRED=NO CODE_SIGN_IDENTITY="" \
+            ONLY_ACTIVE_ARCH=NO ARCHS=arm64 \
             -derivedDataPath "$DERIVED" \
             build | xcpretty || true
 
           APP_PATH="$DERIVED/Build/Products/${CONFIGURATION}-iphoneos/${SCHEME}.app"
           if [ ! -d "$APP_PATH" ]; then
             echo "::error::Device .app not found at $APP_PATH"
-            find "$DERIVED/Build/Products" -maxdepth 3 -type d -name "*.app" -print || true
+            echo "Available .app bundles under derived data:"
+            find "$DERIVED/Build/Products" -type d -name "*.app" -print || true
             exit 1
           fi
           echo "APP_PATH=$APP_PATH" >> "$GITHUB_ENV"
@@ -208,19 +209,20 @@ jobs:
           set -euo pipefail
           : "${APP_PATH:?APP_PATH not set}"
 
-          # Clean any embedded signing remnants (optional)
+          # Strip any signing remnants just in case
           rm -rf "$APP_PATH/_CodeSignature" || true
           rm -f "$APP_PATH/embedded.mobileprovision" || true
 
-          # Package as Payload/*.app → .ipa (zip)
+          # Package Payload/*.app -> .ipa
           WORK_DIR="$(mktemp -d)"
           mkdir -p "$WORK_DIR/Payload"
           cp -R "$APP_PATH" "$WORK_DIR/Payload/"
+
           (cd "$WORK_DIR" && zip -qry "$IPA_OUT" Payload)
 
           mv "$IPA_OUT" .
-          echo "Unsigned IPA created: $(pwd)/$(basename "$IPA_OUT")"
           echo "IPA_PATH=$(pwd)/$(basename "$IPA_OUT")" >> "$GITHUB_ENV"
+          echo "Unsigned IPA created at: $(pwd)/$(basename "$IPA_OUT")"
 
       - name: Upload unsigned IPA
         uses: actions/upload-artifact@v4
