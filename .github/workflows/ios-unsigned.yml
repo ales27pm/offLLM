@@ -63,18 +63,14 @@ jobs:
         run: bundle install
 
       - name: Run codegen (non-blocking)
-        run: npm run codegen || echo 'Warning: Codegen failed, proceeding with build...'
+        run: npm run codegen || echo "Warning: Codegen failed, proceeding with build..."
 
       - name: Install Pods
         working-directory: ios
         run: bundle exec pod install --repo-update
 
       - name: Ensure jq is available
-        run: |
-          if ! command -v jq >/dev/null 2>&1; then
-            brew install jq || true
-          fi
-          jq --version || true
+        run: bash -lc 'command -v jq >/dev/null 2>&1 || brew install jq || true; jq --version || true'
 
       # Prefer iOS 18.6 → 18.5 → 18.4; create iPhone 16 Pro if missing
       - name: Resolve/create & boot Simulator (iPhone 16 Pro; iOS 18.x highest available)
@@ -86,7 +82,7 @@ jobs:
           RUNTIME=""; RUNTIME_LABEL=""
           RUNTIMES_JSON="$(xcrun simctl list runtimes --json)"
           for r in "${WANT_RUNTIMES[@]}"; do
-            if printf '%s' "$RUNTIMES_JSON" | jq -e --arg r "$r" '.runtimes[] | select(.identifier==$r and .isAvailable==true)' >/dev/null; then
+            if printf '%s\n' "$RUNTIMES_JSON" | jq -e --arg r "$r" '.runtimes[] | select(.identifier==$r and .isAvailable==true)' >/dev/null; then
               RUNTIME="$r"
               RUNTIME_LABEL="$(printf '%s' "$RUNTIME" | sed -E 's/.*iOS-([0-9]+)-([0-9]+)$/iOS \1.\2/')"
               break
@@ -98,12 +94,16 @@ jobs:
             exit 1
           fi
           echo "Using runtime: $RUNTIME ($RUNTIME_LABEL)"
-          UDID="$(xcrun simctl list devices --json | jq -r --arg RUNTIME "$RUNTIME" '.devices[$RUNTIME][]? | select(.isAvailable==true) | select(.name=="iPhone 16 Pro") | select(.state=="Shutdown" or .state=="Booted") | .udid' | head -n1)"
+
+          UDID="$(xcrun simctl list devices --json \
+            | jq -r --arg RUNTIME "$RUNTIME" '.devices[$RUNTIME][]? | select(.isAvailable==true) | select(.name=="iPhone 16 Pro") | select(.state=="Shutdown" or .state=="Booted") | .udid' \
+            | head -n1)"
           if [ -z "${UDID:-}" ]; then
             NAME="iPhone 16 Pro (${RUNTIME_LABEL})"
             echo "Creating simulator: $NAME"
             UDID="$(xcrun simctl create "$NAME" "iPhone 16 Pro" "$RUNTIME")"
           fi
+
           echo "Using UDID: $UDID"
           xcrun simctl boot "$UDID" || true
           xcrun simctl bootstatus "$UDID" -b
@@ -134,14 +134,20 @@ jobs:
           path: ios/${{ env.SCHEME }}-Simulator.zip
           if-no-files-found: ignore
 
-      - name: Upload logs and xcresult
+      - name: Upload xcodebuild.log
         uses: actions/upload-artifact@v4
         if: always()
         with:
-          name: sim-xcode-logs-and-result
-          path: |
-            ios/xcodebuild.log
-            ios/${{ env.SCHEME }}.xcresult
+          name: sim-xcodebuild-log
+          path: ios/xcodebuild.log
+          if-no-files-found: ignore
+
+      - name: Upload xcresult
+        uses: actions/upload-artifact@v4
+        if: always()
+        with:
+          name: sim-xcresult
+          path: ios/${{ env.SCHEME }}.xcresult
           if-no-files-found: ignore
 
   device-archive:
@@ -210,8 +216,28 @@ jobs:
           name: ${{ env.SCHEME }}-xcarchive
           path: ios/build/${{ env.SCHEME }}.xcarchive
 
-      # Optional IPA export if signing secrets are provided
-      - name: Export IPA via manual signing (P12 + profile)
+      # Optional IPA export if signing secrets are provided (no heredoc to avoid YAML issues)
+      - name: Prepare ExportOptions.plist
+        if: ${{ secrets.IOS_SIGNING_CERT_P12 && secrets.IOS_P12_PASSWORD && secrets.IOS_MOBILEPROVISION_B64 && secrets.IOS_PROFILE_NAME && secrets.IOS_BUNDLE_ID }}
+        working-directory: ios
+        shell: bash
+        run: |
+          set -euo pipefail
+          printf '%s\n' \
+          '<?xml version="1.0" encoding="UTF-8"?>' \
+          '<!DOCTYPE plist PUBLIC "-//Apple//DTD PLIST 1.0//EN" "http://www.apple.com/DTDs/PropertyList-1.0.dtd">' \
+          '<plist version="1.0"><dict>' \
+          '<key>method</key><string>ad-hoc</string>' \
+          '<key>signingStyle</key><string>manual</string>' \
+          '<key>provisioningProfiles</key><dict>' \
+          "<key>${{ secrets.IOS_BUNDLE_ID }}</key><string>${{ secrets.IOS_PROFILE_NAME }}</string>" \
+          '</dict>' \
+          '<key>stripSwiftSymbols</key><true/>' \
+          '<key>compileBitcode</key><false/>' \
+          '</dict></plist>' > ExportOptions.plist
+          cat ExportOptions.plist
+
+      - name: Install signing assets and export IPA
         if: ${{ secrets.IOS_SIGNING_CERT_P12 && secrets.IOS_P12_PASSWORD && secrets.IOS_MOBILEPROVISION_B64 && secrets.IOS_PROFILE_NAME && secrets.IOS_BUNDLE_ID }}
         working-directory: ios
         shell: bash
@@ -226,22 +252,6 @@ jobs:
           security list-keychain -d user -s "$KEYCHAIN" login.keychain-db
           mkdir -p "$HOME/Library/MobileDevice/Provisioning Profiles"
           echo "${{ secrets.IOS_MOBILEPROVISION_B64 }}" | base64 --decode > "$HOME/Library/MobileDevice/Provisioning Profiles/${{ secrets.IOS_PROFILE_NAME }}.mobileprovision"
-          cat > ExportOptions.plist <<PLIST
-          <?xml version="1.0" encoding="UTF-8"?>
-          <!DOCTYPE plist PUBLIC "-//Apple//DTD PLIST 1.0//EN" "http://www.apple.com/DTDs/PropertyList-1.0.dtd">
-          <plist version="1.0">
-          <dict>
-            <key>method</key><string>ad-hoc</string>
-            <key>signingStyle</key><string>manual</string>
-            <key>provisioningProfiles</key>
-            <dict>
-              <key>${{ secrets.IOS_BUNDLE_ID }}</key><string>${{ secrets.IOS_PROFILE_NAME }}</string>
-            </dict>
-            <key>stripSwiftSymbols</key><true/>
-            <key>compileBitcode</key><false/>
-          </dict>
-          </plist>
-          PLIST
           xcodebuild -exportArchive \
             -archivePath "${{ steps.archive.outputs.archive }}" \
             -exportOptionsPlist ExportOptions.plist \
