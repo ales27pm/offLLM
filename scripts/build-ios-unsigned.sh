@@ -6,7 +6,7 @@ echo "🚀 Starting failproof iOS unsigned build process..."
 # Step 1: Verify Node.js version
 echo "✅ Checking Node.js version..."
 REQUIRED_NODE_VERSION="18.0.0"
-CURRENT_NODE_VERSION=$(node -v | sed 's/v//')
+CURRENT_NODE_VERSION="$(node -v | sed 's/v//')"
 version_ge() {
   # returns 0 if $1 >= $2
   [ "$(printf '%s\n' "$2" "$1" | sort -V | head -n1)" = "$2" ]
