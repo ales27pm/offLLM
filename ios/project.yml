@@ -42,6 +42,12 @@ targets:
         PRODUCT_BUNDLE_IDENTIFIER: com.offllm.myofflinellmapp
         CODE_SIGN_STYLE: Automatic
         DEVELOPMENT_TEAM: ""
+        CLANG_ENABLE_MODULES: YES
+        HEADER_SEARCH_PATHS:
+          - $(inherited)
+          - $(SRCROOT)/build/generated/ios
+        SWIFT_INCLUDE_PATHS:
+          - $(SRCROOT)/build/generated/ios
     dependencies:
       - package: MLX
         product: MLX
