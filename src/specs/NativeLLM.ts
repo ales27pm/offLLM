@@ -21,7 +21,7 @@ export interface Spec extends TurboModule {
 // Probe for codegen so the spec is marked as used.
 try {
   // IMPORTANT: codegen looks specifically for `get<Spec>('Name')` calls.
-  TurboModuleRegistry.get<Spec>('NativeLLM');
+  TurboModuleRegistry.get<Spec>('LLM');
 } catch {
   // Ignore missing native module during runtime.
 }
