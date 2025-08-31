@@ -83,11 +83,6 @@ jobs:
             -scheme "${{ env.SCHEME }}" \
             -configuration Release | egrep 'SDKROOT|IPHONEOS_DEPLOYMENT_TARGET|SUPPORTED_PLATFORMS|TARGETED_DEVICE_FAMILY' || true
 
-      - name: Show Xcode & Runtimes
-        run: |
-          xcodebuild -version
-          xcrun simctl list runtimes
-
       - name: Boot Simulator with Fallback
         id: boot
         run: |
@@ -149,6 +144,15 @@ jobs:
             echo "Booted device $UDID (${IOS_SIM_DEVICE} / iOS ${IOS_SIM_OS})"
             echo "ios_sim_os=$IOS_SIM_OS" >> "$GITHUB_OUTPUT"
             echo "ios_sim_device=$IOS_SIM_DEVICE" >> "$GITHUB_OUTPUT"
+      - name: Verify SDKs and Runtimes
+        run: |
+          set -euo pipefail
+          echo "Xcode version:"
+          xcodebuild -version
+          echo "Available SDKs:"
+          xcodebuild -showsdks
+          echo "Available runtimes:"
+          xcrun simctl list runtimes
 
       - name: Build (Simulator)
         run: |
