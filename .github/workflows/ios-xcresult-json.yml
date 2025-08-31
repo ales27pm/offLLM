@@ -1,4 +1,4 @@
-name: iOS Build → xcresult JSON
+name: iOS Build - xcresult JSON
 
 on:
   workflow_dispatch:
@@ -13,20 +13,21 @@ jobs:
       - name: Checkout
         uses: actions/checkout@v4
 
-      # Use Xcode 16.x (adjust to 16.1 / 16.3 if you prefer)
+      # Xcode 16.x (ensure iOS 18 SDK/sims)
       - name: Select Xcode 16.2
         uses: maxim-lobanov/setup-xcode@v1
         with:
-          xcode-version: '16.2'
+          xcode-version: "16.2"
 
       - name: Verify Xcode
         shell: bash
         run: |
           set -euo pipefail
           xcodebuild -version
+          xcodebuild -showsdks || true
           echo "DEVELOPER_DIR=${DEVELOPER_DIR:-not-set}"
 
-      - name: Setup Node (for RN codegen)
+      - name: Setup Node (for RN/codegen)
         uses: actions/setup-node@v4
         with:
           node-version: "20"
@@ -55,11 +56,11 @@ jobs:
           ls -la ios || true
 
           if [ -f "ios/MyOfflineLLMApp/project.yml" ]; then
-            echo "→ Generating project with XcodeGen"
+            echo "Generating project with XcodeGen"
             brew install xcodegen || true
             (cd ios/MyOfflineLLMApp && xcodegen generate)
           elif [ -f "ios/Project.swift" ] || [ -d "ios/Tuist" ]; then
-            echo "→ Generating project with Tuist"
+            echo "Generating project with Tuist"
             curl -Ls https://install.tuist.io | bash
             (cd ios && ~/.tuist/bin/tuist generate)
           fi
@@ -71,11 +72,6 @@ jobs:
             exit 1
           fi
 
-          # NOTE: If you keep seeing:
-          #   "file reference for 'Scripts'/'Turbo' is a member of multiple groups"
-          # fix duplicate group references in your .xcodeproj or project.yml,
-          # then regenerate / commit the corrected project.
-
       - name: Install CocoaPods (after project exists)
         shell: bash
         run: |
@@ -86,32 +82,33 @@ jobs:
           cd -
           find ios -maxdepth 3 -name "*.xcworkspace" -print
 
-      # Pick a valid Simulator dynamically (avoid missing 'latest' OS)
-      - name: Resolve Simulator destination
+      # Prefer iPhone 16 Pro on iOS 18.x; fallback to any iPhone 18.x
+      - name: Resolve and boot Simulator (iPhone 16 Pro / iOS 18.x)
         id: sim
         shell: bash
         run: |
           set -euo pipefail
-          echo "Available simulators (first 100 lines):"
-          xcrun simctl list devices | head -n 100
+          echo "Available simulators (first 120 lines):"
+          xcrun simctl list devices | head -n 120 || true
 
-          # Prefer iPhone 15 Pro, otherwise any iPhone (Booted or Shutdown)
-          DEST=$(xcrun simctl list devices | \
-            sed -n 's/^[ ]*\\([^()]*iPhone 15 Pro[^()]*\\) (\\([0-9A-F-]\\{36\\}\\)) (\\(.*\\))$/\\1|\\2|\\3/p' | head -n1)
-          if [ -z "$DEST" ]; then
-            DEST=$(xcrun simctl list devices | \
-              sed -n 's/^[ ]*\\([^()]*iPhone[^()]*\\) (\\([0-9A-F-]\\{36\\}\\)) (\\(.*\\))$/\\1|\\2|\\3/p' | head -n1)
+          # Try exact iPhone 16 Pro on iOS 18.x
+          UDID=$(xcrun simctl list devices | awk '/iPhone 16 Pro \(.+18\./ && /Shutdown|Booted/ {print $NF}' | tr -d '()' | head -n1)
+          # Fallback: any iPhone on iOS 18.x
+          if [ -z "$UDID" ]; then
+            UDID=$(xcrun simctl list devices | awk '/iPhone .* \(.+18\./ && /Shutdown|Booted/ {print $NF}' | tr -d '()' | head -n1)
           fi
-
-          if [ -z "$DEST" ]; then
-            echo "::error::No suitable iOS Simulator found on this runner."
+          if [ -z "$UDID" ]; then
+            echo "::error::No suitable iOS 18.x simulator found on this runner."
             exit 1
           fi
 
-          NAME=$(echo "$DEST" | cut -d'|' -f1 | xargs)
-          UDID=$(echo "$DEST" | cut -d'|' -f2 | xargs)
+          NAME=$(xcrun simctl list devices | grep "$UDID" | sed -E 's/^[[:space:]]*([^()]+) \(.+$/\1/')
+          echo "Picked simulator: $NAME ($UDID)"
 
-          echo "Picked simulator: name='$NAME' udid=$UDID"
+          # Boot and wait ready
+          xcrun simctl boot "$UDID" || true
+          xcrun simctl bootstatus "$UDID" -b
+
           echo "destination=platform=iOS Simulator,id=$UDID" >> "$GITHUB_OUTPUT"
 
       - name: Build (Simulator) and export .xcresult
@@ -125,11 +122,10 @@ jobs:
           RESULT_JSON: ${{ runner.temp }}/MyOfflineLLMApp.xcresult.json
         run: |
           set -euo pipefail
-
           DESTINATION="${{ steps.sim.outputs.destination }}"
           echo "Using destination: $DESTINATION"
 
-          echo "→ xcodebuild (workspace: $WORKSPACE, scheme: $SCHEME)"
+          echo "xcodebuild (workspace: $WORKSPACE, scheme: $SCHEME)"
           xcodebuild \
             -workspace "$WORKSPACE" \
             -scheme "$SCHEME" \
@@ -140,7 +136,7 @@ jobs:
             -showBuildTimingSummary \
             build | xcpretty || true
 
-          echo "→ Convert .xcresult to JSON with xcresulttool (--legacy required on Xcode 16)"
+          echo "Convert .xcresult to JSON (xcresulttool --legacy)"
           /usr/bin/xcrun xcresulttool get \
             --format json \
             --legacy \
