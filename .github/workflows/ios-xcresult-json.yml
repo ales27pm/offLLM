@@ -25,11 +25,61 @@ jobs:
         uses: ruby/setup-ruby@v1
         with:
           ruby-version: "3.2"
-      - run: |
+
+      - name: Install CocoaPods & xcpretty
+        shell: bash
+        run: |
+          set -euo pipefail
           gem install cocoapods -N
+          gem install xcpretty -N
+          pod --version
+          ruby --version
+
+      # 🔧 Ensure the Xcode project exists before running `pod install`
+      - name: Ensure iOS project exists (.xcodeproj)
+        shell: bash
+        run: |
+          set -euo pipefail
+          echo "Listing ios/"
+          ls -la ios || true
+
+          # If you use XcodeGen, generate the project first
+          if [ -f "ios/MyOfflineLLMApp/project.yml" ]; then
+            echo "→ Found ios/MyOfflineLLMApp/project.yml — generating Xcode project with XcodeGen"
+            brew install xcodegen || true
+            (cd ios/MyOfflineLLMApp && xcodegen generate)
+          # Or Tuist
+          elif [ -f "ios/Project.swift" ] || [ -d "ios/Tuist" ]; then
+            echo "→ Found Tuist configuration — generating Xcode project with Tuist"
+            curl -Ls https://install.tuist.io | bash
+            (cd ios && ~/.tuist/bin/tuist generate)
+          fi
+
+          echo "After generation, look for .xcodeproj:"
+          find ios -maxdepth 3 -name "*.xcodeproj" -print
+
+          if ! find ios -maxdepth 3 -name "*.xcodeproj" | grep -q . ; then
+            echo "::error::No .xcodeproj found near Podfile. Ensure project generation (XcodeGen/Tuist) occurs before 'pod install'."
+            exit 1
+          fi
+
+      - name: Install CocoaPods (after project exists)
+        shell: bash
+        run: |
+          set -euo pipefail
           cd ios
           pod repo update
           pod install --repo-update
+          cd -
+          # Show where the workspace is
+          find ios -maxdepth 3 -name "*.xcworkspace" -print
+
+      - name: Xcode & Simulator diagnostics
+        shell: bash
+        run: |
+          set -euo pipefail
+          xcodebuild -version
+          xcrun simctl list devices | head -n 50
 
       - name: Build (Simulator) and export .xcresult
         shell: bash
@@ -44,6 +94,7 @@ jobs:
         run: |
           set -euo pipefail
 
+          echo "→ xcodebuild (workspace: $WORKSPACE, scheme: $SCHEME)"
           xcodebuild \
             -workspace "$WORKSPACE" \
             -scheme "$SCHEME" \
@@ -54,10 +105,14 @@ jobs:
             -showBuildTimingSummary \
             build | xcpretty || true
 
+          echo "→ Convert .xcresult to JSON with xcresulttool"
           /usr/bin/xcrun xcresulttool get \
             --format json \
             --path "$RESULT_BUNDLE" \
             > "$RESULT_JSON"
+
+          echo "Result bundle: $RESULT_BUNDLE"
+          echo "Result JSON:   $RESULT_JSON"
 
       - name: Upload .xcresult bundle
         uses: actions/upload-artifact@v4
