@@ -1,8 +1,10 @@
-name: iOS (unsigned) — Simulator .app & Device Archive
+name: iOS (unsigned) - Simulator app & Device archive
 
 on:
-  push: { branches: [main] }
+  push:
+    branches: [ main ]
   pull_request:
+    branches: [ main ]
 
 concurrency:
   group: ios-unsigned-${{ github.ref }}
@@ -16,17 +18,15 @@ env:
   WORKSPACE: "ios/MyOfflineLLMApp.xcworkspace"
 
 jobs:
-  # =========================
-  # 1) Simulator build (iPhone 16 Pro / iOS 18)
-  # =========================
   sim-build:
+    name: Simulator build (iPhone 16 Pro / iOS 18)
     runs-on: macos-15
     env:
       NODE_OPTIONS: --max_old_space_size=4096
       RCT_NEW_ARCH_ENABLED: 1
-
     steps:
       - uses: actions/checkout@v4
+
       - uses: actions/setup-node@v4
         with:
           node-version: ${{ env.NODE_VERSION }}
@@ -38,7 +38,7 @@ jobs:
       - name: Run tests
         run: npm test
 
-      - name: Select Xcode ${{ env.XCODE_VERSION }}
+      - name: Select Xcode
         uses: maxim-lobanov/setup-xcode@v1
         with:
           xcode-version: ${{ env.XCODE_VERSION }}
@@ -65,45 +65,46 @@ jobs:
         run: bundle exec pod install --repo-update
 
       - name: Boot iPhone 16 Pro (iOS 18.x) simulator
+        id: boot
+        shell: bash
         run: |
           set -e
-          UDID=$(xcrun simctl list devices | awk '/iPhone 16 Pro \(.*18\./ && /Shutdown/ {print $NF}' | tr -d '()' | head -n1)
-          if [ -z "$UDID" ]; then
-            echo "❌ No iPhone 16 Pro iOS 18.x simulator found on this runner."
+          UDID=$(xcrun simctl list devices | awk '/iPhone 16 Pro \(.+18\./ && /Shutdown/ {print $NF}' | tr -d '()' | head -n1)
+          if [[ -z "$UDID" ]]; then
+            echo "No iPhone 16 Pro iOS 18.x simulator found."
             exit 1
           fi
-          echo "Booting simulator $UDID"
           xcrun simctl boot "$UDID"
           xcrun simctl bootstatus "$UDID" -b
-          echo "SIM_DEST=platform=iOS Simulator,id=$UDID" >> $GITHUB_ENV
+          echo "dest=platform=iOS Simulator,id=$UDID" >> "$GITHUB_OUTPUT"
 
       - name: Build (unsigned, Simulator)
         working-directory: ios
+        shell: bash
         run: |
           set -euo pipefail
-          RESULT_BUNDLE=${{ env.SCHEME }}.xcresult
+          RESULT_BUNDLE="${{ env.SCHEME }}.xcresult"
           xcodebuild \
             -workspace "${{ env.WORKSPACE }}" \
             -scheme "${{ env.SCHEME }}" \
             -configuration Release \
             -sdk iphonesimulator -arch arm64 \
-            -destination "$SIM_DEST" \
+            -destination "${{ steps.boot.outputs.dest }}" \
             CODE_SIGNING_ALLOWED=NO CODE_SIGNING_REQUIRED=NO CODE_SIGN_IDENTITY="" \
             -derivedDataPath build \
             -resultBundlePath "$RESULT_BUNDLE" | tee xcodebuild.log
 
           APP_PATH="build/Build/Products/Release-iphonesimulator/${{ env.SCHEME }}.app"
-          ditto -ck --sequesterRsrc --keepParent "$APP_PATH" ${{ env.SCHEME }}-Simulator.zip
+          ditto -ck --sequesterRsrc --keepParent "$APP_PATH" "${{ env.SCHEME }}-Simulator.zip"
 
       - name: Upload Simulator app (zip)
         uses: actions/upload-artifact@v4
-        if: success()
         with:
           name: ${{ env.SCHEME }}-Simulator
           path: ios/${{ env.SCHEME }}-Simulator.zip
           if-no-files-found: ignore
 
-      - name: Upload logs & xcresult
+      - name: Upload logs and xcresult
         uses: actions/upload-artifact@v4
         if: always()
         with:
@@ -113,27 +114,22 @@ jobs:
             ios/${{ env.SCHEME }}.xcresult
           if-no-files-found: ignore
 
-  # =========================
-  # 2) Device archive (+ conditional IPA export if signing is provided)
-  # =========================
   device-archive:
+    name: Device archive (+ optional IPA if signing present)
     runs-on: macos-15
     needs: sim-build
     env:
       NODE_OPTIONS: --max_old_space_size=4096
       RCT_NEW_ARCH_ENABLED: 1
-
     steps:
       - uses: actions/checkout@v4
+
       - uses: actions/setup-node@v4
         with:
           node-version: ${{ env.NODE_VERSION }}
           cache: npm
 
-      - name: Install JS deps
-        run: npm run ci:install
-
-      - name: Select Xcode ${{ env.XCODE_VERSION }}
+      - name: Select Xcode
         uses: maxim-lobanov/setup-xcode@v1
         with:
           xcode-version: ${{ env.XCODE_VERSION }}
@@ -145,7 +141,7 @@ jobs:
           bundler-cache: true
           working-directory: ios
 
-      - name: Generate Xcode project & install pods
+      - name: Generate Xcode project and install pods
         working-directory: ios
         run: |
           brew install xcodegen || true
@@ -154,10 +150,12 @@ jobs:
           bundle exec pod install --repo-update
 
       - name: Archive (device, unsigned)
+        id: archive
         working-directory: ios
+        shell: bash
         run: |
           set -euo pipefail
-          ARCHIVE_PATH=build/${{ env.SCHEME }}.xcarchive
+          ARCHIVE_PATH="build/${{ env.SCHEME }}.xcarchive"
           xcodebuild \
             -workspace "${{ env.WORKSPACE }}" \
             -scheme "${{ env.SCHEME }}" \
@@ -166,7 +164,7 @@ jobs:
             -archivePath "$ARCHIVE_PATH" \
             CODE_SIGNING_ALLOWED=NO CODE_SIGNING_REQUIRED=NO CODE_SIGN_IDENTITY="" \
             archive | tee xcodebuild-archive.log
-          echo "ARCHIVE_PATH=$ARCHIVE_PATH" >> $GITHUB_ENV
+          echo "archive=$ARCHIVE_PATH" >> "$GITHUB_OUTPUT"
 
       - name: Upload .xcarchive
         uses: actions/upload-artifact@v4
@@ -174,20 +172,14 @@ jobs:
           name: ${{ env.SCHEME }}-xcarchive
           path: ios/build/${{ env.SCHEME }}.xcarchive
 
-      # ---- Optional path A: Export IPA using P12 + mobileprovision secrets ----
-      # Provide these as GitHub Secrets (base64-encoded files):
-      #  - IOS_SIGNING_CERT_P12     : base64 of your .p12
-      #  - IOS_P12_PASSWORD         : password for the .p12
-      #  - IOS_MOBILEPROVISION_B64  : base64 of your .mobileprovision (Ad Hoc or Development)
-      #  - IOS_PROFILE_NAME         : profile name (e.g., "My AdHoc Profile")
-      #  - IOS_BUNDLE_ID            : e.g., com.yourcompany.MyOfflineLLMApp
+      # Optional IPA export if signing secrets are provided
       - name: Export IPA via manual signing (P12 + profile)
-        if: ${{ secrets.IOS_SIGNING_CERT_P12 != '' && secrets.IOS_P12_PASSWORD != '' && secrets.IOS_MOBILEPROVISION_B64 != '' && secrets.IOS_PROFILE_NAME != '' && secrets.IOS_BUNDLE_ID != '' }}
+        if: ${{ secrets.IOS_SIGNING_CERT_P12 && secrets.IOS_P12_PASSWORD && secrets.IOS_MOBILEPROVISION_B64 && secrets.IOS_PROFILE_NAME && secrets.IOS_BUNDLE_ID }}
         working-directory: ios
+        shell: bash
         run: |
           set -euo pipefail
 
-          echo "::group::Install signing cert & profile"
           KEYCHAIN="$RUNNER_TEMP/build.keychain-db"
           security create-keychain -p "" "$KEYCHAIN"
           security set-keychain-settings "$KEYCHAIN"
@@ -199,9 +191,8 @@ jobs:
 
           mkdir -p "$HOME/Library/MobileDevice/Provisioning Profiles"
           echo "${{ secrets.IOS_MOBILEPROVISION_B64 }}" | base64 --decode > "$HOME/Library/MobileDevice/Provisioning Profiles/${{ secrets.IOS_PROFILE_NAME }}.mobileprovision"
-          echo "::endgroup::"
 
-          cat > ExportOptions.plist <<'PLIST'
+          cat > ExportOptions.plist <<PLIST
           <?xml version="1.0" encoding="UTF-8"?>
           <!DOCTYPE plist PUBLIC "-//Apple//DTD PLIST 1.0//EN" "http://www.apple.com/DTDs/PropertyList-1.0.dtd">
           <plist version="1.0">
@@ -210,7 +201,7 @@ jobs:
             <key>signingStyle</key><string>manual</string>
             <key>provisioningProfiles</key>
             <dict>
-              <key>${IOS_BUNDLE_ID}</key><string>${IOS_PROFILE_NAME}</string>
+              <key>${{ secrets.IOS_BUNDLE_ID }}</key><string>${{ secrets.IOS_PROFILE_NAME }}</string>
             </dict>
             <key>stripSwiftSymbols</key><true/>
             <key>compileBitcode</key><false/>
@@ -218,19 +209,11 @@ jobs:
           </plist>
           PLIST
 
-          # Expand variables in the plist
-          export IOS_BUNDLE_ID='${{ secrets.IOS_BUNDLE_ID }}'
-          export IOS_PROFILE_NAME='${{ secrets.IOS_PROFILE_NAME }}'
-          envsubst < ExportOptions.plist > ExportOptions.evaluated.plist
-
           xcodebuild -exportArchive \
-            -archivePath "$ARCHIVE_PATH" \
-            -exportOptionsPlist ExportOptions.evaluated.plist \
+            -archivePath "${{ steps.archive.outputs.archive }}" \
+            -exportOptionsPlist ExportOptions.plist \
             -exportPath build/export-ipa \
             -allowProvisioningUpdates | tee xcodebuild-export.log
-
-          echo "IPA export complete."
-          ls -lah build/export-ipa || true
 
       - name: Upload IPA (if exported)
         uses: actions/upload-artifact@v4
@@ -239,11 +222,6 @@ jobs:
           path: ios/build/export-ipa/*.ipa
           if-no-files-found: ignore
 
-      # ---- Optional path B: (Alternative) Using App Store Connect API key via Fastlane match/sigh ----
-      # If you prefer ASC API (no P12), add your fastlane step here using secrets:
-      #  - ASC_KEY_ID, ASC_ISSUER_ID, ASC_PRIVATE_KEY (base64)
-      # Then run `fastlane sigh --adhoc` to fetch a profile and export similarly.
-
       - name: Export IPA skipped (no signing secrets)
-        if: ${{ !(secrets.IOS_SIGNING_CERT_P12 != '' && secrets.IOS_P12_PASSWORD != '' && secrets.IOS_MOBILEPROVISION_B64 != '' && secrets.IOS_PROFILE_NAME != '' && secrets.IOS_BUNDLE_ID != '') }}
-        run: echo "Skipping IPA export — provide signing secrets to enable."
+        if: ${{ !(secrets.IOS_SIGNING_CERT_P12 && secrets.IOS_P12_PASSWORD && secrets.IOS_MOBILEPROVISION_B64 && secrets.IOS_PROFILE_NAME && secrets.IOS_BUNDLE_ID) }}
+        run: echo "Skipping IPA export - provide signing secrets to enable."
