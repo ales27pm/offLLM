@@ -1,4 +1,4 @@
-name: iOS (unsigned) - Simulator app & Device archive
+name: iOS (unsigned) - Device archive
 
 on:
   push:
@@ -16,12 +16,10 @@ env:
   SCHEME: "MyOfflineLLMApp"
   WORKSPACE: "ios/MyOfflineLLMApp.xcworkspace"
   ENABLE_SIGNED_EXPORT: "false"   # set to "true" if you want the optional signed export steps
-  IOS_SIM_DEVICE: "iPhone 16 Pro"
-  IOS_SIM_OS: "18.6"              # default runtime; Boot step falls back to 18.4 if missing
 
 jobs:
-  sim-build:
-    name: Simulator build (iPhone 16 Pro / iOS 18)
+  device-archive:
+    name: Device archive + Unsigned IPA
     runs-on: macos-15
     env:
       NODE_OPTIONS: --max_old_space_size=4096
@@ -39,190 +37,6 @@ jobs:
 
       - name: Run tests
         run: npm run test:ci
-
-      - name: Set up Xcode 16.4
-        run: sudo xcode-select -s /Applications/Xcode_16.4.app/Contents/Developer
-
-      - name: Setup Ruby
-        uses: ruby/setup-ruby@v1
-        with:
-          ruby-version: ${{ env.RUBY_VERSION }}
-          bundler-cache: true
-          working-directory: ios
-
-      - name: Install xcodegen
-        run: brew install xcodegen
-
-      - name: Generate Xcode Workspace
-        run: |
-          cd ios
-          xcodegen generate
-
-      - name: Install Ruby dependencies
-        run: |
-          cd ios
-          bundle install
-      - name: Codegen env guard
-        run: |
-          set -euo pipefail
-          export CODEGEN_OUTPUT_DIR="${CODEGEN_OUTPUT_DIR:-$(pwd)/ios/build/generated}"
-          export TEMPLATE_SRC_DIR="${TEMPLATE_SRC_DIR:-$(pwd)/src/specs}"
-          npm run codegen
-
-      - name: Install Pods (verbose, fail-fast)
-        working-directory: ios
-        run: |
-          set -euo pipefail
-          bundle exec pod repo update
-          RCT_NEW_ARCH_ENABLED=1 bundle exec pod install --repo-update --verbose
-
-      - name: Show key build settings (Release)
-        run: |
-          xcodebuild -showBuildSettings \
-            -workspace "${{ env.WORKSPACE }}" \
-            -scheme "${{ env.SCHEME }}" \
-            -configuration Release | egrep 'SDKROOT|IPHONEOS_DEPLOYMENT_TARGET|SUPPORTED_PLATFORMS|TARGETED_DEVICE_FAMILY' || true
-
-      - name: Boot Simulator with Fallback
-        id: boot
-        run: |
-            #!/bin/bash
-            set -euo pipefail
-            echo "Available runtimes: $(xcrun simctl list runtimes -j | jq -r '.runtimes[] | select(.isAvailable) | [.platform, .version] | join(":")')"
-            echo "Available devices: $(xcrun simctl list devices -j | jq -r '.devices | to_entries[] | .value[] | select(.isAvailable) | [.name, .udid, .runtimeVersion] | join(":")')"
-            IOS_SIM_OS="${IOS_SIM_OS:-18.6}"
-            IOS_SIM_DEVICE="${IOS_SIM_DEVICE:-iPhone 16 Pro}"
-            AVAILABLE_RUNTIMES=$(xcrun simctl list runtimes -j | jq -r '.runtimes[] | select(.platform == "iOS" and .isAvailable == true) | .version')
-            echo "Available iOS runtimes: $AVAILABLE_RUNTIMES"
-            if ! echo "$AVAILABLE_RUNTIMES" | grep -q "^${IOS_SIM_OS}$"; then
-              echo "::warning::iOS ${IOS_SIM_OS} not found, falling back to 18.4"
-              IOS_SIM_OS="18.4"
-              echo "Updated IOS_SIM_OS to $IOS_SIM_OS"
-              if ! echo "$AVAILABLE_RUNTIMES" | grep -q "^18.4$"; then
-                echo "::warning::iOS 18.4 not found, selecting latest available runtime"
-                IOS_SIM_OS=$(echo "$AVAILABLE_RUNTIMES" | sort -V | tail -n 1)
-                echo "Selected latest runtime: $IOS_SIM_OS"
-                if [ -z "$IOS_SIM_OS" ]; then
-                  echo "::error::No available iOS runtimes found"
-                  exit 1
-                fi
-              fi
-            fi
-            RUNTIME_ID=$(xcrun simctl list runtimes -j | jq -r --arg ios_version "$IOS_SIM_OS" '.runtimes[] | select(.platform == "iOS" and .version == $ios_version and .isAvailable == true) | .identifier' | head -n 1)
-            if [ -z "$RUNTIME_ID" ]; then
-              echo "::error::Cannot resolve runtime identifier for iOS ${IOS_SIM_OS}. Available runtimes: $AVAILABLE_RUNTIMES"
-              exit 1
-            fi
-            echo "Resolved RUNTIME_ID: $RUNTIME_ID"
-            DEVICE_TYPE_ID=$(xcrun simctl list devicetypes -j | jq -r --arg device_name "$IOS_SIM_DEVICE" '.devicetypes[] | select(.name == $device_name) | .identifier' | head -n 1)
-            if [ -z "$DEVICE_TYPE_ID" ]; then
-              echo "::warning::Device ${IOS_SIM_DEVICE} not found, falling back to iPhone 15"
-              IOS_SIM_DEVICE="iPhone 15"
-              DEVICE_TYPE_ID=$(xcrun simctl list devicetypes -j | jq -r --arg device_name "iPhone 15" '.devicetypes[] | select(.name == $device_name) | .identifier' | head -n 1)
-              if [ -z "$DEVICE_TYPE_ID" ]; then
-                echo "::warning::Device iPhone 15 not found, falling back to iPhone 14"
-                IOS_SIM_DEVICE="iPhone 14"
-                DEVICE_TYPE_ID=$(xcrun simctl list devicetypes -j | jq -r --arg device_name "iPhone 14" '.devicetypes[] | select(.name == $device_name) | .identifier' | head -n 1)
-                if [ -z "$DEVICE_TYPE_ID" ]; then
-                  echo "::error::No compatible device types found for iOS ${IOS_SIM_OS}. Available devices: $(xcrun simctl list devicetypes -j | jq -r '.devicetypes[] | .name')"
-                  echo "Raw device types output: $(xcrun simctl list devicetypes -j)"
-                  exit 1
-                fi
-              fi
-            fi
-            echo "Resolved DEVICE_TYPE_ID: $DEVICE_TYPE_ID for ${IOS_SIM_DEVICE}"
-            xcrun simctl delete $(xcrun simctl list devices -j | jq -r --arg RUNTIME_ID "$RUNTIME_ID" --arg device_name "$IOS_SIM_DEVICE" '.devices | to_entries[] | select(.key == $RUNTIME_ID) | .value[] | select(.name == $device_name) | .udid') 2>/dev/null || true
-            UDID=$(xcrun simctl list devices -j | jq -r --arg RUNTIME_ID "$RUNTIME_ID" --arg device_name "$IOS_SIM_DEVICE" '.devices | to_entries[] | select(.key == $RUNTIME_ID) | .value[] | select(.name == $device_name and .isAvailable == true) | .udid' | head -n 1)
-            if [ -z "$UDID" ]; then
-              echo "Creating new simulator for ${IOS_SIM_DEVICE} / iOS ${IOS_SIM_OS}"
-              UDID=$(xcrun simctl create "$IOS_SIM_DEVICE" "$DEVICE_TYPE_ID" "$RUNTIME_ID")
-              if [ -z "$UDID" ]; then
-                echo "::error::Failed to create simulator for ${IOS_SIM_DEVICE} / iOS ${IOS_SIM_OS}. Device Type ID: $DEVICE_TYPE_ID, Runtime ID: $RUNTIME_ID"
-                echo "Raw device types output: $(xcrun simctl list devicetypes -j)"
-                exit 1
-              fi
-            fi
-            echo "Resolved UDID: $UDID"
-            xcrun simctl boot "$UDID" || echo "::warning::Simulator $UDID already booted or failed to boot, continuing"
-            xcrun simctl bootstatus "$UDID" -b || true
-            echo "Booted device $UDID (${IOS_SIM_DEVICE} / iOS ${IOS_SIM_OS})"
-            # expose selected values as outputs for downstream steps
-            echo "ios_sim_os=$IOS_SIM_OS" >> "$GITHUB_OUTPUT"
-            echo "ios_sim_device=$IOS_SIM_DEVICE" >> "$GITHUB_OUTPUT"
-            echo "udid=$UDID" >> "$GITHUB_OUTPUT"
-      - name: Verify SDKs and Runtimes
-        run: |
-          set -euo pipefail
-          echo "Xcode version:"
-          xcodebuild -version
-          echo "Available SDKs:"
-          xcodebuild -showsdks
-          echo "Available runtimes:"
-          xcrun simctl list runtimes
-
-      - name: Build (Simulator)
-        run: |
-            set -euo pipefail
-            IOS_SIM_OS="${{ steps.boot.outputs.ios_sim_os }}"
-            IOS_SIM_DEVICE="${{ steps.boot.outputs.ios_sim_device }}"
-            UDID="${{ steps.boot.outputs.udid }}"
-            IOS_DESTINATION="platform=iOS Simulator,id=${UDID}"
-            RESULT_BUNDLE="${RUNNER_TEMP}/SimBuild.xcresult"
-            echo "RESULT_BUNDLE=$RESULT_BUNDLE" >> "$GITHUB_ENV"
-            export IOS_DESTINATION IOS_SIM_OS IOS_SIM_DEVICE RESULT_BUNDLE
-            ./scripts/build_unsigned_ios.sh
-
-      - name: Export xcresult as JSON
-        if: always()
-        run: |
-          set -euo pipefail
-          BUNDLE="${RESULT_BUNDLE}"
-          if [ ! -d "$BUNDLE" ]; then
-            echo "No xcresult at $BUNDLE; searching..."
-            BUNDLE="$(find . -name '*.xcresult' -type d -print -quit)"
-          fi
-          echo "Using xcresult: $BUNDLE"
-          xcrun xcresulttool get --path "$BUNDLE" --format json > xcresult.json
-
-      - name: Upload xcresult bundle and JSON
-        if: always()
-        uses: actions/upload-artifact@v4
-        with:
-          name: sim-xcresult
-          path: |
-            ${{ env.RESULT_BUNDLE }}
-            xcresult.json
-          if-no-files-found: warn
-
-      - name: Upload Simulator app (zip)
-        uses: actions/upload-artifact@v4
-        with:
-          name: ${{ env.SCHEME }}-Simulator
-          path: ios/${{ env.SCHEME }}-Simulator.zip
-          if-no-files-found: ignore
-
-      - name: Upload xcodebuild.log
-        uses: actions/upload-artifact@v4
-        if: always()
-        with:
-          name: sim-xcodebuild-log
-          path: ios/xcodebuild.log
-          if-no-files-found: ignore
-
-  device-archive:
-    name: Device archive + Unsigned IPA
-    runs-on: macos-15
-    needs: sim-build
-    env:
-      NODE_OPTIONS: --max_old_space_size=4096
-      RCT_NEW_ARCH_ENABLED: 1
-    steps:
-      - uses: actions/checkout@v4
-
-      - uses: actions/setup-node@v4
-        with:
-          node-version: ${{ env.NODE_VERSION }}
-          cache: npm
 
       - name: Set up Xcode 16.4
         run: sudo xcode-select -s /Applications/Xcode_16.4.app/Contents/Developer
@@ -256,6 +70,14 @@ jobs:
       - name: Install Pods
         working-directory: ios
         run: bundle exec pod install --repo-update
+
+      - name: Cache DerivedData
+        uses: actions/cache@v4
+        with:
+          path: ios/build
+          key: ${{ runner.os }}-derived-${{ env.SCHEME }}-${{ hashFiles('ios/Podfile.lock') }}
+          restore-keys: |
+            ${{ runner.os }}-derived-${{ env.SCHEME }}-
 
       # Show settings to detect any pinned SDKs
       - name: Show effective build settings (SDK/Platforms)
@@ -304,6 +126,7 @@ jobs:
             CODE_SIGNING_ALLOWED=NO CODE_SIGNING_REQUIRED=NO CODE_SIGN_IDENTITY="" \
             ONLY_ACTIVE_ARCH=NO ARCHS=arm64 \
             -destination "generic/platform=iOS" \
+            -derivedDataPath build \
             -archivePath "$ARCHIVE_PATH" \
             archive | tee xcodebuild-archive.log
 
