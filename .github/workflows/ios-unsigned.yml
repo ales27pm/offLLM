@@ -1,95 +1,92 @@
-name: iOS Build - xcresult JSON (iPhone 16 Pro iOS 18.x fallback 18.6→18.5→18.4)
+name: iOS (unsigned) - Simulator app & Device archive
 
 on:
-  workflow_dispatch:
   push:
-    branches: [ "main" ]
+    branches: [ main ]
+  pull_request:
+    branches: [ main ]
+
+concurrency:
+  group: ios-unsigned-${{ github.ref }}
+  cancel-in-progress: true
+
+env:
+  NODE_VERSION: "20"
+  XCODE_VERSION: "16.2"        # was 16.1 → switch to 16.2 to avoid iphoneos18.1 pin
+  RUBY_VERSION: "3.2"
+  SCHEME: "MyOfflineLLMApp"
+  WORKSPACE: "ios/MyOfflineLLMApp.xcworkspace"
 
 jobs:
-  ios:
+  sim-build:
+    name: Simulator build (iPhone 16 Pro / iOS 18)
     runs-on: macos-15
-
+    env:
+      NODE_OPTIONS: --max_old_space_size=4096
+      RCT_NEW_ARCH_ENABLED: 1
     steps:
-      - name: Checkout
-        uses: actions/checkout@v4
+      - uses: actions/checkout@v4
 
-      - name: Select Xcode 16.2
-        uses: maxim-lobanov/setup-xcode@v1
+      - uses: actions/setup-node@v4
         with:
-          xcode-version: "16.2"
-
-      - name: Verify Xcode
-        shell: bash
-        run: |
-          set -euo pipefail
-          xcodebuild -version
-          xcodebuild -showsdks || true
-          echo "DEVELOPER_DIR=${DEVELOPER_DIR:-not-set}"
-
-      - name: Setup Node
-        uses: actions/setup-node@v4
-        with:
-          node-version: "20"
+          node-version: ${{ env.NODE_VERSION }}
+          cache: npm
 
       - name: Install JS deps
-        run: npm ci
+        run: npm run ci:install
 
-      - name: Setup Ruby & CocoaPods
+      - name: Run tests
+        run: npm test
+
+      - name: Select Xcode
+        uses: maxim-lobanov/setup-xcode@v1
+        with:
+          xcode-version: ${{ env.XCODE_VERSION }}
+
+      - name: Setup Ruby
         uses: ruby/setup-ruby@v1
         with:
-          ruby-version: "3.2"
+          ruby-version: ${{ env.RUBY_VERSION }}
+          bundler-cache: true
+          working-directory: ios
 
-      - name: Install CocoaPods & xcpretty
-        shell: bash
-        run: |
-          set -euo pipefail
-          gem install cocoapods -N
-          gem install xcpretty -N
-          pod --version
+      - name: Install XcodeGen (if needed)
+        working-directory: ios
+        run: brew install xcodegen || true
 
-      - name: Ensure iOS project exists (optional XcodeGen)
-        shell: bash
+      - name: Generate Xcode project
+        working-directory: ios
+        run: xcodegen generate
+
+      - name: Bundle install
+        working-directory: ios
+        run: bundle install
+
+      # Optional; Pods will also run RN codegen. Keep non-blocking.
+      - name: Run codegen (non-blocking)
         run: |
-          set -euo pipefail
-          if [ -f "ios/MyOfflineLLMApp/project.yml" ]; then
-            echo "Generating project with XcodeGen"
-            brew install xcodegen || true
-            (cd ios/MyOfflineLLMApp && xcodegen generate)
-          fi
+          npm run codegen || echo "Warning: Codegen failed, proceeding with build..."
 
       - name: Install Pods
-        shell: bash
-        run: |
-          set -euo pipefail
-          cd ios
-          pod repo update
-          pod install --repo-update
-          cd -
-          find ios -maxdepth 3 -name "*.xcworkspace" -print
+        working-directory: ios
+        run: bundle exec pod install --repo-update
 
       - name: Ensure jq is available
-        shell: bash
-        run: |
-          set -euo pipefail
-          command -v jq >/dev/null 2>&1 || brew install jq || true
-          jq --version || true
+        run: bash -lc 'command -v jq >/dev/null 2>&1 || brew install jq || true; jq --version || true'
 
-      # Prefer iOS 18.6, then 18.5, then 18.4; create iPhone 16 Pro if missing
+      # Prefer iOS 18.6 → 18.5 → 18.4; create iPhone 16 Pro if missing
       - name: Resolve/create & boot Simulator (iPhone 16 Pro; iOS 18.x highest available)
-        id: sim
+        id: boot
         shell: bash
         run: |
           set -euo pipefail
-          WANT_RUNTIMES=("com.apple.CoreSimulator.SimRuntime.iOS-18-6" \
-                         "com.apple.CoreSimulator.SimRuntime.iOS-18-5" \
-                         "com.apple.CoreSimulator.SimRuntime.iOS-18-4")
-          RUNTIME=""
-          LABEL=""
+          WANT_RUNTIMES=("com.apple.CoreSimulator.SimRuntime.iOS-18-6" "com.apple.CoreSimulator.SimRuntime.iOS-18-5" "com.apple.CoreSimulator.SimRuntime.iOS-18-4")
+          RUNTIME=""; RUNTIME_LABEL=""
           RUNTIMES_JSON="$(xcrun simctl list runtimes --json)"
           for r in "${WANT_RUNTIMES[@]}"; do
-            if printf '%s' "$RUNTIMES_JSON" | jq -e --arg r "$r" '.runtimes[] | select(.identifier==$r and .isAvailable==true)' >/dev/null; then
+            if printf '%s\n' "$RUNTIMES_JSON" | jq -e --arg r "$r" '.runtimes[] | select(.identifier==$r and .isAvailable==true)' >/dev/null; then
               RUNTIME="$r"
-              LABEL="$(printf '%s' "$r" | sed -E 's/.*iOS-([0-9]+)-([0-9]+)$/iOS \1.\2/')"
+              RUNTIME_LABEL="$(printf '%s' "$RUNTIME" | sed -E 's/.*iOS-([0-9]+)-([0-9]+)$/iOS \1.\2/')"
               break
             fi
           done
@@ -98,58 +95,120 @@ jobs:
             xcrun simctl list runtimes
             exit 1
           fi
-          echo "Using runtime: $RUNTIME ($LABEL)"
-          UDID="$(xcrun simctl list devices --json | jq -r --arg RUNTIME "$RUNTIME" '.devices[$RUNTIME][]? | select(.isAvailable==true) | select(.name=="iPhone 16 Pro") | select(.state=="Shutdown" or .state=="Booted") | .udid' | head -n1)"
+          echo "Using runtime: $RUNTIME ($RUNTIME_LABEL)"
+
+          UDID="$(xcrun simctl list devices --json \
+            | jq -r --arg RUNTIME "$RUNTIME" '.devices[$RUNTIME][]? | select(.isAvailable==true) | select(.name=="iPhone 16 Pro") | select(.state=="Shutdown" or .state=="Booted") | .udid' \
+            | head -n1)"
           if [ -z "${UDID:-}" ]; then
-            NAME="iPhone 16 Pro (${LABEL})"
+            NAME="iPhone 16 Pro (${RUNTIME_LABEL})"
             echo "Creating simulator: $NAME"
             UDID="$(xcrun simctl create "$NAME" "iPhone 16 Pro" "$RUNTIME")"
           fi
+
           echo "Using UDID: $UDID"
           xcrun simctl boot "$UDID" || true
           xcrun simctl bootstatus "$UDID" -b
-          echo "destination=platform=iOS Simulator,id=$UDID" >> "$GITHUB_OUTPUT"
+          echo "dest=platform=iOS Simulator,id=$UDID" >> "$GITHUB_OUTPUT"
 
-      - name: Build (Simulator) and export .xcresult
+      - name: Build (unsigned, Simulator)
+        working-directory: ios
         shell: bash
-        env:
-          SCHEME: MyOfflineLLMApp
-          WORKSPACE: ios/MyOfflineLLMApp.xcworkspace
-          CONFIGURATION: Debug
-          SDK: iphonesimulator
-          RESULT_BUNDLE: ${{ runner.temp }}/MyOfflineLLMApp.xcresult
-          RESULT_JSON: ${{ runner.temp }}/MyOfflineLLMApp.xcresult.json
         run: |
           set -euo pipefail
-          DESTINATION="${{ steps.sim.outputs.destination }}"
-          echo "Building with destination: $DESTINATION"
+          RESULT_BUNDLE="${{ env.SCHEME }}.xcresult"
           xcodebuild \
-            -workspace "$WORKSPACE" \
-            -scheme "$SCHEME" \
-            -configuration "$CONFIGURATION" \
-            -sdk "$SDK" \
-            -destination "$DESTINATION" \
-            -resultBundlePath "$RESULT_BUNDLE" \
-            -showBuildTimingSummary \
-            build | xcpretty
-          /usr/bin/xcrun xcresulttool get --format json --legacy --path "$RESULT_BUNDLE" > "$RESULT_JSON"
-          echo "Result bundle: $RESULT_BUNDLE"
-          echo "Result JSON:   $RESULT_JSON"
+            -workspace "${{ env.WORKSPACE }}" \
+            -scheme "${{ env.SCHEME }}" \
+            -configuration Release \
+            -sdk iphonesimulator -arch arm64 \
+            -destination "${{ steps.boot.outputs.dest }}" \
+            CODE_SIGNING_ALLOWED=NO CODE_SIGNING_REQUIRED=NO CODE_SIGN_IDENTITY="" \
+            -derivedDataPath build \
+            -resultBundlePath "$RESULT_BUNDLE" | tee xcodebuild.log
+          APP_PATH="build/Build/Products/Release-iphonesimulator/${{ env.SCHEME }}.app"
+          ditto -ck --sequesterRsrc --keepParent "$APP_PATH" "${{ env.SCHEME }}-Simulator.zip"
 
-      - name: Upload .xcresult bundle
+      - name: Upload Simulator app (zip)
         uses: actions/upload-artifact@v4
         with:
-          name: MyOfflineLLMApp-xcresult
-          path: ${{ runner.temp }}/MyOfflineLLMApp.xcresult
+          name: ${{ env.SCHEME }}-Simulator
+          path: ios/${{ env.SCHEME }}-Simulator.zip
+          if-no-files-found: ignore
 
-      - name: Upload xcresult JSON
+      - name: Upload xcodebuild.log
         uses: actions/upload-artifact@v4
+        if: always()
         with:
-          name: MyOfflineLLMApp-xcresult.json
-          path: ${{ runner.temp }}/MyOfflineLLMApp.xcresult.json
+          name: sim-xcodebuild-log
+          path: ios/xcodebuild.log
+          if-no-files-found: ignore
 
-      # ---------- DEVICE ARCHIVE (UNSIGNED) + IPA PACKAGING ----------
-      # 1) Show current effective settings (helps diagnose pins)
+      - name: Upload xcresult
+        uses: actions/upload-artifact@v4
+        if: always()
+        with:
+          name: sim-xcresult
+          path: ios/${{ env.SCHEME }}.xcresult
+          if-no-files-found: ignore
+
+  device-archive:
+    name: Device archive + Unsigned IPA
+    runs-on: macos-15
+    needs: sim-build
+    env:
+      NODE_OPTIONS: --max_old_space_size=4096
+      RCT_NEW_ARCH_ENABLED: 1
+    steps:
+      - uses: actions/checkout@v4
+
+      - uses: actions/setup-node@v4
+        with:
+          node-version: ${{ env.NODE_VERSION }}
+          cache: npm
+
+      # Re-select and verify Xcode 16.2 here (guard against image drift)
+      - name: Select Xcode 16.2 (guard)
+        uses: maxim-lobanov/setup-xcode@v1
+        with:
+          xcode-version: "16.2"
+
+      - name: Verify active Xcode is 16.2
+        shell: bash
+        run: |
+          set -euo pipefail
+          xcodebuild -version
+          XVER=$(xcodebuild -version | awk 'NR==1{print $2}')
+          if [ "$XVER" != "16.2" ]; then
+            echo "::error::Expected Xcode 16.2 but got $XVER"
+            exit 1
+          fi
+          echo "Active DEVELOPER_DIR: ${DEVELOPER_DIR:-$(xcode-select -p)}"
+
+      - name: Setup Ruby
+        uses: ruby/setup-ruby@v1
+        with:
+          ruby-version: ${{ env.RUBY_VERSION }}
+          bundler-cache: true
+          working-directory: ios
+
+      - name: Install XcodeGen (if needed)
+        working-directory: ios
+        run: brew install xcodegen || true
+
+      - name: Generate Xcode project
+        working-directory: ios
+        run: xcodegen generate
+
+      - name: Bundle install
+        working-directory: ios
+        run: bundle install
+
+      - name: Install Pods
+        working-directory: ios
+        run: bundle exec pod install --repo-update
+
+      # Show current settings (useful if anything still pins SDKROOT)
       - name: Show effective build settings (SDK/Platforms)
         shell: bash
         run: |
@@ -158,39 +217,38 @@ jobs:
             -scheme MyOfflineLLMApp \
             -configuration Release | egrep 'SDKROOT|SUPPORTED_PLATFORMS|IPHONEOS_DEPLOYMENT_TARGET' || true
 
-      # 2) Unpin any iphoneos18.x Base SDK in pbxproj/xcconfigs
+      # Unpin any 'iphoneos18.x' Base SDK in pbxproj / xcconfigs
       - name: Unpin Base SDK (SDKROOT) if pinned to iphoneos18.x
         shell: bash
         run: |
           set -euo pipefail
-          # pbxproj
           if [ -f "ios/MyOfflineLLMApp.xcodeproj/project.pbxproj" ]; then
-            sed -E -i '' 's/SDKROOT = iphoneos18\.[0-9]+;/SDKROOT = iphoneos;/g' ios/MyOfflineLLMApp.xcodeproj/project.pbxproj || true
+            sed -E -i '' \
+              -e 's/SDKROOT = iphoneos18\.[0-9]+;/SDKROOT = iphoneos;/g' \
+              -e 's/SDKROOT = iphoneos18\.[0-9]+/SDKROOT = iphoneos/g' \
+              ios/MyOfflineLLMApp.xcodeproj/project.pbxproj || true
           fi
-          # xcconfigs
-          find ios -name "*.xcconfig" -print0 | xargs -0 -I{} sed -E -i '' 's/SDKROOT *= *iphoneos18\.[0-9]+/SDKROOT = iphoneos/g' "{}" || true
+          find ios -name "*.xcconfig" -print0 | xargs -0 -I{} \
+            sed -E -i '' 's/SDKROOT *= *iphoneos18\.[0-9]+/SDKROOT = iphoneos/g' "{}" || true
+
           echo "After unpinning — effective SDKROOT:"
           xcodebuild -showBuildSettings \
             -workspace ios/MyOfflineLLMApp.xcworkspace \
             -scheme MyOfflineLLMApp \
             -configuration Release | grep -E "^ *SDKROOT" || true
 
-      # 3) Archive using generic iOS device (no signing)
-      - name: Archive for generic iOS device (no signing)
+      - name: Archive (device, unsigned; generic iOS; force latest SDK)
         id: archive
+        working-directory: ios
         shell: bash
-        env:
-          SCHEME: MyOfflineLLMApp
-          WORKSPACE: ios/MyOfflineLLMApp.xcworkspace
-          CONFIGURATION: Release
-          ARCHIVE_PATH: ${{ runner.temp }}/MyOfflineLLMApp.xcarchive
         run: |
           set -euo pipefail
-          echo "Archiving (generic iOS, no codesign, latest installed SDK)…"
+          ARCHIVE_PATH="build/${{ env.SCHEME }}.xcarchive"
+          echo "Archiving with $(xcodebuild -version | head -1)…"
           xcodebuild \
-            -workspace "$WORKSPACE" \
-            -scheme "$SCHEME" \
-            -configuration "$CONFIGURATION" \
+            -workspace "${{ env.WORKSPACE }}" \
+            -scheme "${{ env.SCHEME }}" \
+            -configuration Release \
             -sdk iphoneos \
             SDKROOT=iphoneos \
             SUPPORTED_PLATFORMS=iphoneos \
@@ -198,31 +256,41 @@ jobs:
             ONLY_ACTIVE_ARCH=NO ARCHS=arm64 \
             -destination "generic/platform=iOS" \
             -archivePath "$ARCHIVE_PATH" \
-            archive | xcpretty
+            archive | tee xcodebuild-archive.log
+
           if [ ! -d "$ARCHIVE_PATH/Products/Applications" ]; then
             echo "::error::Archive missing Applications folder: $ARCHIVE_PATH/Products/Applications"
-            xcodebuild -showdestinations -workspace "$WORKSPACE" -scheme "$SCHEME" -sdk iphoneos || true
+            xcodebuild -showdestinations -workspace "${{ env.WORKSPACE }}" -scheme "${{ env.SCHEME }}" -sdk iphoneos || true
+            xcodebuild -showBuildSettings -workspace "${{ env.WORKSPACE }}" -scheme "${{ env.SCHEME }}" -configuration Release | grep -E '^ *SDKROOT' || true
             exit 1
           fi
-          APP_PATH="$(/usr/bin/find "$ARCHIVE_PATH/Products/Applications" -maxdepth 1 -type d -name '*.app' -print -quit)"
-          if [ -z "$APP_PATH" ]; then
-            echo "::error::No .app found inside archive."
-            /usr/bin/find "$ARCHIVE_PATH" -name '*.app' -print || true
-            exit 1
-          fi
-          echo "APP_PATH=$APP_PATH" >> "$GITHUB_ENV"
-          echo "ARCHIVE_PATH=$ARCHIVE_PATH" >> "$GITHUB_ENV"
+          echo "archive=$ARCHIVE_PATH" >> "$GITHUB_OUTPUT"
 
-      # 4) Zip Payload -> unsigned IPA
+      - name: Upload .xcarchive
+        uses: actions/upload-artifact@v4
+        with:
+          name: ${{ env.SCHEME }}-xcarchive
+          path: ios/build/${{ env.SCHEME }}.xcarchive
+
+      # Always create an unsigned IPA from the archive (no signing required)
       - name: Create unsigned IPA from archive
+        working-directory: ios
         shell: bash
         env:
-          IPA_OUT: ${{ runner.temp }}/offLLM-unsigned.ipa
+          IPA_OUT: ${{ runner.temp }}/MyOfflineLLMApp-unsigned.ipa
         run: |
           set -euo pipefail
-          : "${APP_PATH:?APP_PATH not set}"
+          : "${{ steps.archive.outputs.archive:?Archive path missing }}"
+          APP_PATH="$(/usr/bin/find "${{ steps.archive.outputs.archive }}/Products/Applications" -maxdepth 1 -type d -name '*.app' -print -quit)"
+          if [ -z "$APP_PATH" ]; then
+            echo "::error::No .app found inside archive."
+            /usr/bin/find "${{ steps.archive.outputs.archive }}" -name '*.app' -print || true
+            exit 1
+          fi
+          # strip any signing remnants
           rm -rf "$APP_PATH/_CodeSignature" || true
           rm -f "$APP_PATH/embedded.mobileprovision" || true
+
           WORK_DIR="$(mktemp -d)"
           mkdir -p "$WORK_DIR/Payload"
           cp -R "$APP_PATH" "$WORK_DIR/Payload/"
@@ -234,7 +302,55 @@ jobs:
       - name: Upload unsigned IPA
         uses: actions/upload-artifact@v4
         with:
-          name: offLLM-unsigned-ipa
+          name: MyOfflineLLMApp-unsigned-ipa
           path: ${{ env.IPA_PATH }}
           if-no-files-found: error
 
+      # (Optional) Signed export path remains available if you add secrets later
+      - name: Prepare ExportOptions.plist
+        if: ${{ secrets.IOS_SIGNING_CERT_P12 && secrets.IOS_P12_PASSWORD && secrets.IOS_MOBILEPROVISION_B64 && secrets.IOS_PROFILE_NAME && secrets.IOS_BUNDLE_ID }}
+        working-directory: ios
+        shell: bash
+        run: |
+          set -euo pipefail
+          printf '%s\n' \
+          '<?xml version="1.0" encoding="UTF-8"?>' \
+          '<!DOCTYPE plist PUBLIC "-//Apple//DTD PLIST 1.0//EN" "http://www.apple.com/DTDs/PropertyList-1.0.dtd">' \
+          '<plist version="1.0"><dict>' \
+          '<key>method</key><string>ad-hoc</string>' \
+          '<key>signingStyle</key><string>manual</string>' \
+          '<key>provisioningProfiles</key><dict>' \
+          "<key>${{ secrets.IOS_BUNDLE_ID }}</key><string>${{ secrets.IOS_PROFILE_NAME }}</string>" \
+          '</dict>' \
+          '<key>stripSwiftSymbols</key><true/>' \
+          '<key>compileBitcode</key><false/>' \
+          '</dict></plist>' > ExportOptions.plist
+          cat ExportOptions.plist
+
+      - name: Install signing assets and export IPA
+        if: ${{ secrets.IOS_SIGNING_CERT_P12 && secrets.IOS_P12_PASSWORD && secrets.IOS_MOBILEPROVISION_B64 && secrets.IOS_PROFILE_NAME && secrets.IOS_BUNDLE_ID }}
+        working-directory: ios
+        shell: bash
+        run: |
+          set -euo pipefail
+          KEYCHAIN="$RUNNER_TEMP/build.keychain-db"
+          security create-keychain -p "" "$KEYCHAIN"
+          security set-keychain-settings "$KEYCHAIN"
+          security unlock-keychain -p "" "$KEYCHAIN"
+          echo "${{ secrets.IOS_SIGNING_CERT_P12 }}" | base64 --decode > cert.p12
+          security import cert.p12 -k "$KEYCHAIN" -P "${{ secrets.IOS_P12_PASSWORD }}" -A
+          security list-keychain -d user -s "$KEYCHAIN" login.keychain-db
+          mkdir -p "$HOME/Library/MobileDevice/Provisioning Profiles"
+          echo "${{ secrets.IOS_MOBILEPROVISION_B64 }}" | base64 --decode > "$HOME/Library/MobileDevice/Provisioning Profiles/${{ secrets.IOS_PROFILE_NAME }}.mobileprovision"
+          xcodebuild -exportArchive \
+            -archivePath "${{ steps.archive.outputs.archive }}" \
+            -exportOptionsPlist ExportOptions.plist \
+            -exportPath build/export-ipa \
+            -allowProvisioningUpdates | tee xcodebuild-export.log
+
+      - name: Upload IPA (if exported)
+        uses: actions/upload-artifact@v4
+        with:
+          name: ${{ env.SCHEME }}-IPA
+          path: ios/build/export-ipa/*.ipa
+          if-no-files-found: ignore
