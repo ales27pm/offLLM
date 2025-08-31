@@ -66,11 +66,14 @@ jobs:
           echo "Listing iOS codegen dir (ios/build/generated/ios) AFTER normalization:"
           ls -lah ios/build/generated/ios || true
 
-          test -f ios/build/generated/ios/AppSpec.podspec || {
-            echo "::error::Codegen did not produce ios/build/generated/ios/AppSpec.podspec"
-            echo "Make sure src/specs/* exists and that codegen config (package.json: codegenConfig) matches 'AppSpec'."
+          # React Native app codegen should emit at least these podspecs
+          if [ ! -f ios/build/generated/ios/ReactCodegen.podspec ] || [ ! -f ios/build/generated/ios/ReactAppDependencyProvider.podspec ]; then
+            echo "::error::Missing expected RN codegen podspec(s)."
+            echo "Expected at least:"
+            echo "  - ios/build/generated/ios/ReactCodegen.podspec"
+            echo "  - ios/build/generated/ios/ReactAppDependencyProvider.podspec"
             exit 1
-          }
+          fi
 
       - name: Install Pods
         working-directory: ios
