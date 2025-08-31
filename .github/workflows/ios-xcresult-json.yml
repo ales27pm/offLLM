@@ -7,25 +7,23 @@ on:
 
 jobs:
   ios:
-    # Use a runner image that has Xcode 16 available
     runs-on: macos-15
 
     steps:
       - name: Checkout
         uses: actions/checkout@v4
 
-      # 🔧 Select Xcode 16.x BEFORE pods/codegen
+      # Use Xcode 16.x (adjust to 16.1 / 16.3 if you prefer)
       - name: Select Xcode 16.2
         uses: maxim-lobanov/setup-xcode@v1
         with:
-          xcode-version: '16.2'   # or '16.1' / '16.3' as needed
+          xcode-version: '16.2'
 
-      - name: Verify Xcode toolchain
+      - name: Verify Xcode
         shell: bash
         run: |
           set -euo pipefail
           xcodebuild -version
-          # Make sure DEVELOPER_DIR points to the selected Xcode
           echo "DEVELOPER_DIR=${DEVELOPER_DIR:-not-set}"
 
       - name: Setup Node (for RN codegen)
@@ -49,7 +47,7 @@ jobs:
           gem install xcpretty -N
           pod --version
 
-      # Ensure the Xcode project exists before Pods (XcodeGen/Tuist)
+      # If you generate the project (XcodeGen/Tuist), do it BEFORE pods
       - name: Ensure iOS project exists (.xcodeproj)
         shell: bash
         run: |
@@ -73,6 +71,11 @@ jobs:
             exit 1
           fi
 
+          # NOTE: If you keep seeing:
+          #   "file reference for 'Scripts'/'Turbo' is a member of multiple groups"
+          # fix duplicate group references in your .xcodeproj or project.yml,
+          # then regenerate / commit the corrected project.
+
       - name: Install CocoaPods (after project exists)
         shell: bash
         run: |
@@ -83,11 +86,33 @@ jobs:
           cd -
           find ios -maxdepth 3 -name "*.xcworkspace" -print
 
-      - name: Xcode & Simulator diagnostics
+      # Pick a valid Simulator dynamically (avoid missing 'latest' OS)
+      - name: Resolve Simulator destination
+        id: sim
         shell: bash
         run: |
           set -euo pipefail
-          xcrun simctl list devices | head -n 50
+          echo "Available simulators (first 100 lines):"
+          xcrun simctl list devices | head -n 100
+
+          # Prefer iPhone 15 Pro, otherwise any iPhone (Booted or Shutdown)
+          DEST=$(xcrun simctl list devices | \
+            sed -n 's/^[ ]*\\([^()]*iPhone 15 Pro[^()]*\\) (\\([0-9A-F-]\\{36\\}\\)) (\\(.*\\))$/\\1|\\2|\\3/p' | head -n1)
+          if [ -z "$DEST" ]; then
+            DEST=$(xcrun simctl list devices | \
+              sed -n 's/^[ ]*\\([^()]*iPhone[^()]*\\) (\\([0-9A-F-]\\{36\\}\\)) (\\(.*\\))$/\\1|\\2|\\3/p' | head -n1)
+          fi
+
+          if [ -z "$DEST" ]; then
+            echo "::error::No suitable iOS Simulator found on this runner."
+            exit 1
+          fi
+
+          NAME=$(echo "$DEST" | cut -d'|' -f1 | xargs)
+          UDID=$(echo "$DEST" | cut -d'|' -f2 | xargs)
+
+          echo "Picked simulator: name='$NAME' udid=$UDID"
+          echo "destination=platform=iOS Simulator,id=$UDID" >> "$GITHUB_OUTPUT"
 
       - name: Build (Simulator) and export .xcresult
         shell: bash
@@ -96,11 +121,13 @@ jobs:
           WORKSPACE: ios/MyOfflineLLMApp.xcworkspace
           CONFIGURATION: Debug
           SDK: iphonesimulator
-          DESTINATION: "platform=iOS Simulator,name=iPhone 15"
           RESULT_BUNDLE: ${{ runner.temp }}/MyOfflineLLMApp.xcresult
           RESULT_JSON: ${{ runner.temp }}/MyOfflineLLMApp.xcresult.json
         run: |
           set -euo pipefail
+
+          DESTINATION="${{ steps.sim.outputs.destination }}"
+          echo "Using destination: $DESTINATION"
 
           echo "→ xcodebuild (workspace: $WORKSPACE, scheme: $SCHEME)"
           xcodebuild \
@@ -113,9 +140,10 @@ jobs:
             -showBuildTimingSummary \
             build | xcpretty || true
 
-          echo "→ Convert .xcresult to JSON with xcresulttool"
+          echo "→ Convert .xcresult to JSON with xcresulttool (--legacy required on Xcode 16)"
           /usr/bin/xcrun xcresulttool get \
             --format json \
+            --legacy \
             --path "$RESULT_BUNDLE" \
             > "$RESULT_JSON"
 
