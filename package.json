@@ -87,7 +87,7 @@
     },
     "ios": {
       "libraryName": "AppSpec",
-      "outputDir": "build/generated/ios"
+      "outputDir": "ios/build/generated/ios"
     }
   }
 }
