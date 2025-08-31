@@ -18,8 +18,9 @@
 
 ```bash
 npm ci
+(cd ios && xcodegen generate && bundle install)
 npm run codegen
-(cd ios && xcodegen generate && bundle install && bundle exec pod install --repo-update)
+(cd ios && bundle exec pod install --repo-update)
 ```
 
 ### Run iOS simulator
@@ -53,8 +54,9 @@ npm test
 
 1. `cd ios && xcodegen generate`
 2. `bundle install`
-3. `bundle exec pod install --repo-update`
-4. build via `npx react-native run-ios` or `npm run build:ios` (unsigned)
+3. `npm run codegen`
+4. `bundle exec pod install --repo-update`
+5. build via `npx react-native run-ios` or `npm run build:ios` (unsigned)
 
 ## Architecture Overview
 

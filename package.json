@@ -15,7 +15,8 @@
     "build:ios": "cd ios && xcodegen generate && pod install && xcodebuild -workspace MyOfflineLLMApp.xcworkspace -scheme MyOfflineLLMApp -configuration Release -destination 'generic/platform=iOS Simulator' CODE_SIGN_IDENTITY='' CODE_SIGNING_REQUIRED=NO CODE_SIGNING_ALLOWED=NO",
     "bundle:android": "react-native bundle --platform android --dev false --entry-file index.js --bundle-output android/app/src/main/assets/index.android.bundle --assets-dest android/app/src/main/res",
     "bundle:ios": "react-native bundle --platform ios --dev false --entry-file index.js --bundle-output ios/main.jsbundle --assets-dest ios",
-    "codegen": "node scripts/generate-codegen-artifacts.js",
+    "codegen:ios": "RCT_NEW_ARCH_ENABLED=1 node node_modules/react-native/scripts/generate-codegen-artifacts.js --path . --targetPlatform ios --outputPath ios/",
+    "codegen": "npm run codegen:ios",
     "ci:install": "npm ci --legacy-peer-deps"
   },
   "dependencies": {
@@ -78,15 +79,11 @@
     "newArchEnabled": true
   },
   "codegenConfig": {
-    "name": "AppSpec",
-    "type": "modules",
+    "name": "MyOfflineLLMApp",
+    "type": "all",
     "jsSrcsDir": "src/specs",
     "android": {
-      "javaPackageName": "com.myofflinellmapp.generated"
-    },
-    "ios": {
-      "libraryName": "AppSpec",
-      "outputDir": "build/generated/ios"
+      "javaPackageName": "com.myofflinellmapp"
     }
   }
 }
