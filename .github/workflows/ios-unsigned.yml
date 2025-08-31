@@ -12,10 +12,11 @@ concurrency:
 
 env:
   NODE_VERSION: "20"
-  XCODE_VERSION: "16.2"        # was 16.1 → switch to 16.2 to avoid iphoneos18.1 pin
+  XCODE_VERSION: "16.2"           # use 16.2 to avoid iphoneos18.1 requirement
   RUBY_VERSION: "3.2"
   SCHEME: "MyOfflineLLMApp"
   WORKSPACE: "ios/MyOfflineLLMApp.xcworkspace"
+  ENABLE_SIGNED_EXPORT: "false"   # set to "true" if you want the optional signed export steps
 
 jobs:
   sim-build:
@@ -62,10 +63,9 @@ jobs:
         working-directory: ios
         run: bundle install
 
-      # Optional; Pods will also run RN codegen. Keep non-blocking.
+      # Optional; Pod scripts will also run RN codegen. Keep non-blocking.
       - name: Run codegen (non-blocking)
-        run: |
-          npm run codegen || echo "Warning: Codegen failed, proceeding with build..."
+        run: npm run codegen || echo "Warning: Codegen failed, proceeding with build..."
 
       - name: Install Pods
         working-directory: ios
@@ -167,23 +167,18 @@ jobs:
           node-version: ${{ env.NODE_VERSION }}
           cache: npm
 
-      # Re-select and verify Xcode 16.2 here (guard against image drift)
-      - name: Select Xcode 16.2 (guard)
+      # Re-select Xcode 16.2 explicitly for this job
+      - name: Select Xcode
         uses: maxim-lobanov/setup-xcode@v1
         with:
-          xcode-version: "16.2"
+          xcode-version: ${{ env.XCODE_VERSION }}
 
-      - name: Verify active Xcode is 16.2
+      - name: Verify active Xcode
         shell: bash
         run: |
           set -euo pipefail
           xcodebuild -version
-          XVER=$(xcodebuild -version | awk 'NR==1{print $2}')
-          if [ "$XVER" != "16.2" ]; then
-            echo "::error::Expected Xcode 16.2 but got $XVER"
-            exit 1
-          fi
-          echo "Active DEVELOPER_DIR: ${DEVELOPER_DIR:-$(xcode-select -p)}"
+          echo "DEVELOPER_DIR=${DEVELOPER_DIR:-$(xcode-select -p)}"
 
       - name: Setup Ruby
         uses: ruby/setup-ruby@v1
@@ -208,7 +203,7 @@ jobs:
         working-directory: ios
         run: bundle exec pod install --repo-update
 
-      # Show current settings (useful if anything still pins SDKROOT)
+      # Show settings to detect any pinned SDKs
       - name: Show effective build settings (SDK/Platforms)
         shell: bash
         run: |
@@ -217,7 +212,7 @@ jobs:
             -scheme MyOfflineLLMApp \
             -configuration Release | egrep 'SDKROOT|SUPPORTED_PLATFORMS|IPHONEOS_DEPLOYMENT_TARGET' || true
 
-      # Unpin any 'iphoneos18.x' Base SDK in pbxproj / xcconfigs
+      # Unpin any iphoneos18.x Base SDK in pbxproj/xcconfigs
       - name: Unpin Base SDK (SDKROOT) if pinned to iphoneos18.x
         shell: bash
         run: |
@@ -272,7 +267,7 @@ jobs:
           name: ${{ env.SCHEME }}-xcarchive
           path: ios/build/${{ env.SCHEME }}.xcarchive
 
-      # Always create an unsigned IPA from the archive (no signing required)
+      # Always create an unsigned IPA from the archive
       - name: Create unsigned IPA from archive
         working-directory: ios
         shell: bash
@@ -280,18 +275,15 @@ jobs:
           IPA_OUT: ${{ runner.temp }}/MyOfflineLLMApp-unsigned.ipa
         run: |
           set -euo pipefail
-          ARCHIVE="${{ steps.archive.outputs.archive }}"
-          : "${ARCHIVE:?Archive path missing}"
-          APP_PATH="$(/usr/bin/find "$ARCHIVE/Products/Applications" -maxdepth 1 -type d -name '*.app' -print -quit)"
+          : "${{ steps.archive.outputs.archive:?Archive path missing }}"
+          APP_PATH="$(/usr/bin/find "${{ steps.archive.outputs.archive }}/Products/Applications" -maxdepth 1 -type d -name '*.app' -print -quit)"
           if [ -z "$APP_PATH" ]; then
             echo "::error::No .app found inside archive."
-            /usr/bin/find "$ARCHIVE" -name '*.app' -print || true
+            /usr/bin/find "${{ steps.archive.outputs.archive }}" -name '*.app' -print || true
             exit 1
           fi
-          # strip any signing remnants
           rm -rf "$APP_PATH/_CodeSignature" || true
           rm -f "$APP_PATH/embedded.mobileprovision" || true
-
           WORK_DIR="$(mktemp -d)"
           mkdir -p "$WORK_DIR/Payload"
           cp -R "$APP_PATH" "$WORK_DIR/Payload/"
@@ -307,9 +299,9 @@ jobs:
           path: ${{ env.IPA_PATH }}
           if-no-files-found: error
 
-      # (Optional) Signed export path remains available if you add secrets later
+      # --- Optional signed export (disabled by default to avoid 'secrets' in if:) ---
       - name: Prepare ExportOptions.plist
-        if: ${{ secrets.IOS_SIGNING_CERT_P12 != '' && secrets.IOS_P12_PASSWORD != '' && secrets.IOS_MOBILEPROVISION_B64 != '' && secrets.IOS_PROFILE_NAME != '' && secrets.IOS_BUNDLE_ID != '' }}
+        if: ${{ env.ENABLE_SIGNED_EXPORT == 'true' }}
         working-directory: ios
         shell: bash
         run: |
@@ -329,7 +321,7 @@ jobs:
           cat ExportOptions.plist
 
       - name: Install signing assets and export IPA
-        if: ${{ secrets.IOS_SIGNING_CERT_P12 != '' && secrets.IOS_P12_PASSWORD != '' && secrets.IOS_MOBILEPROVISION_B64 != '' && secrets.IOS_PROFILE_NAME != '' && secrets.IOS_BUNDLE_ID != '' }}
+        if: ${{ env.ENABLE_SIGNED_EXPORT == 'true' }}
         working-directory: ios
         shell: bash
         run: |
@@ -350,6 +342,7 @@ jobs:
             -allowProvisioningUpdates | tee xcodebuild-export.log
 
       - name: Upload IPA (if exported)
+        if: ${{ env.ENABLE_SIGNED_EXPORT == 'true' }}
         uses: actions/upload-artifact@v4
         with:
           name: ${{ env.SCHEME }}-IPA
