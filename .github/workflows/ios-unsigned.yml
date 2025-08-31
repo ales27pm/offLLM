@@ -43,6 +43,9 @@ jobs:
       - name: Set up Xcode 16.4
         run: sudo xcode-select -s /Applications/Xcode_16.4.app/Contents/Developer
 
+      - name: Ensure jq is installed
+        run: brew list jq || brew install jq
+
       - name: Setup Ruby
         uses: ruby/setup-ruby@v1
         with:
@@ -89,23 +92,44 @@ jobs:
 
       - name: Boot Simulator with Fallback
         run: |
+          #!/bin/bash
           set -euo pipefail
-          if ! xcrun simctl list runtimes | grep -q "iOS ${IOS_SIM_OS}"; then
+          IOS_SIM_OS="${IOS_SIM_OS:-18.6}"
+          IOS_SIM_DEVICE="${IOS_SIM_DEVICE:-iPhone 16 Pro}"
+          AVAILABLE_RUNTIMES=$(xcrun simctl list runtimes -j | jq -r '.runtimes[] | select(.platform == "iOS" and .isAvailable == true) | .version')
+          echo "Available iOS runtimes: $AVAILABLE_RUNTIMES"
+          if ! echo "$AVAILABLE_RUNTIMES" | grep -q "^${IOS_SIM_OS}$"; then
             echo "::warning::iOS ${IOS_SIM_OS} not found, falling back to 18.4"
             IOS_SIM_OS="18.4"
+            if ! echo "$AVAILABLE_RUNTIMES" | grep -q "^18.4$"; then
+              echo "::warning::iOS 18.4 not found, selecting latest available runtime"
+              IOS_SIM_OS=$(echo "$AVAILABLE_RUNTIMES" | sort -V | tail -n 1)
+              if [ -z "$IOS_SIM_OS" ]; then
+                echo "::error::No available iOS runtimes found"
+                exit 1
+              fi
+            fi
             echo "IOS_SIM_OS=$IOS_SIM_OS" >> "$GITHUB_ENV"
           fi
-          RUNTIME_ID=$(xcrun simctl list runtimes -j | python3 -c 'import json,sys,os; j=json.load(sys.stdin); t=os.environ["IOS_SIM_OS"]; print(next((r["identifier"] for r in j["runtimes"] if r.get("platform")=="iOS" and r.get("version")==t and r.get("isAvailable",True)), ""))')
-          if [ -z "${RUNTIME_ID}" ]; then
-            echo "::error::Cannot resolve runtime for iOS ${IOS_SIM_OS}"
+          RUNTIME_ID=$(xcrun simctl list runtimes -j | jq -r --arg ios_version "$IOS_SIM_OS" '.runtimes[] | select(.platform == "iOS" and .version == $ios_version and .isAvailable == true) | .identifier' | head -n 1)
+          if [ -z "$RUNTIME_ID" ]; then
+            echo "::error::Cannot resolve runtime identifier for iOS ${IOS_SIM_OS}. Available runtimes: $AVAILABLE_RUNTIMES"
             exit 1
           fi
-          UDID=$(xcrun simctl list devices -j | python3 -c 'import json,sys,os; d=json.load(sys.stdin)["devices"]; t=os.environ["IOS_SIM_OS"]; n=os.environ["IOS_SIM_DEVICE"]; import itertools; print(next((dev["udid"] for k,arr in d.items() if k.endswith(t) for dev in arr if dev["name"]==n and dev.get("isAvailable",True)), ""))')
+          echo "Resolved RUNTIME_ID: $RUNTIME_ID"
+          xcrun simctl delete $(xcrun simctl list devices -j | jq -r --arg ios_version "$IOS_SIM_OS" --arg device_name "$IOS_SIM_DEVICE" '.devices | to_entries[] | select(.key | endswith($ios_version)) | .value[] | select(.name == $device_name) | .udid') 2>/dev/null || true
+          UDID=$(xcrun simctl list devices -j | jq -r --arg ios_version "$IOS_SIM_OS" --arg device_name "$IOS_SIM_DEVICE" '.devices | to_entries[] | select(.key | endswith($ios_version)) | .value[] | select(.name == $device_name and .isAvailable == true) | .udid' | head -n 1)
           if [ -z "$UDID" ]; then
-            UDID=$(xcrun simctl create "${IOS_SIM_DEVICE}" "$RUNTIME_ID")
+            echo "Creating new simulator for ${IOS_SIM_DEVICE} / iOS ${IOS_SIM_OS}"
+            UDID=$(xcrun simctl create "$IOS_SIM_DEVICE" "$RUNTIME_ID")
+            if [ -z "$UDID" ]; then
+              echo "::error::Failed to create simulator for ${IOS_SIM_DEVICE} / iOS ${IOS_SIM_OS}. Runtime ID: $RUNTIME_ID"
+              exit 1
+            fi
           fi
-          xcrun simctl boot "$UDID" || true
-          xcrun simctl bootstatus "$UDID" -b
+          echo "Resolved UDID: $UDID"
+          xcrun simctl boot "$UDID" || echo "::warning::Simulator $UDID already booted or failed to boot, continuing"
+          xcrun simctl bootstatus "$UDID" -b || true
           echo "Booted device $UDID (${IOS_SIM_DEVICE} / iOS ${IOS_SIM_OS})"
 
       - name: Build (Simulator)
