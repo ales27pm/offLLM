@@ -21,13 +21,20 @@ echo "  WORKSPACE=${WORKSPACE}"
 if [ -n "${IOS_DESTINATION}" ]; then
   echo "  IOS_DESTINATION=${IOS_DESTINATION}"
 fi
+if [ -n "${IOS_SIM_OS:-}" ]; then
+  echo "  IOS_SIM_OS=${IOS_SIM_OS}"
+fi
 echo
+SDK="iphonesimulator"
+if [ -n "${IOS_SIM_OS:-}" ]; then
+  SDK="iphonesimulator${IOS_SIM_OS}"
+fi
 
 XCODE_CMD=(xcodebuild
   -workspace "$WORKSPACE"
   -scheme "$SCHEME"
   -configuration Release
-  -sdk iphonesimulator
+  -sdk "$SDK"
   CODE_SIGNING_ALLOWED=NO
   CODE_SIGNING_REQUIRED=NO
   CODE_SIGN_ENTITLEMENTS=

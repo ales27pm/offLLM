@@ -153,7 +153,7 @@ jobs:
         run: |
             set -euo pipefail
             IOS_DESTINATION="platform=iOS Simulator,OS=${IOS_SIM_OS},name=${IOS_SIM_DEVICE}"
-            export IOS_DESTINATION
+            export IOS_DESTINATION IOS_SIM_OS IOS_SIM_DEVICE
             ./scripts/build_unsigned_ios.sh
 
       - name: Export xcresult to JSON (sim)
