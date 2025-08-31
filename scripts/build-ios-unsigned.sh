@@ -21,10 +21,20 @@ echo "Node.js version $CURRENT_NODE_VERSION is compatible."
 echo "🧹 Cleaning all dependencies and caches..."
 rm -rf node_modules package-lock.json
 rm -rf ios/Pods ios/Podfile.lock ios/build
-npx react-native start --reset-cache &
+npx react-native start --reset-cache >/dev/null 2>&1 &
 BUNDLER_PID=$!
+if ! kill -0 "$BUNDLER_PID" 2>/dev/null; then
+  echo "❌ Failed to start React Native bundler."
+  exit 1
+fi
 trap 'kill "$BUNDLER_PID" 2>/dev/null || true' EXIT INT TERM
-sleep 10 # Allow the bundler to start
+# Wait up to 30s for Metro to listen on default port 8081
+for i in {1..30}; do
+  if nc -z localhost 8081 2>/dev/null; then
+    break
+  fi
+  sleep 1
+done
 
 # Step 3: Reinstall dependencies
 echo "📦 Reinstalling dependencies..."
