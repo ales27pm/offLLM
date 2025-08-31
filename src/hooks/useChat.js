@@ -42,7 +42,7 @@ export function useChat() {
       Tts.stop();
       const speechText = reply.replace(
         /([.?!])\s+/g,
-        '$1 <break time="500ms"/> '
+        '$1 <break time="500ms"/> ',
       );
       Tts.speak(speechText, {
         androidParams: {
