@@ -109,11 +109,11 @@ jobs:
           tail -n 2000 xcodebuild.log || true
           if [ -d "MyOfflineLLMApp.xcresult" ]; then
             echo "===== error summaries ====="
-            xcrun xcresulttool get --path MyOfflineLLMApp.xcresult --format json --legacy \
-              | jq -r '.issues.errorSummaries[]? | .message.text'
+            xcrun xcresulttool get --path MyOfflineLLMApp.xcresult --format json \
+              | jq -r '.issues.errorSummaries[]? | .message.text' || true
             echo "===== warning summaries ====="
-            xcrun xcresulttool get --path MyOfflineLLMApp.xcresult --format json --legacy \
-              | jq -r '.issues.warningSummaries[]? | .message.text'
+            xcrun xcresulttool get --path MyOfflineLLMApp.xcresult --format json \
+              | jq -r '.issues.warningSummaries[]? | .message.text' || true
           fi
 
       - uses: actions/upload-artifact@v4
