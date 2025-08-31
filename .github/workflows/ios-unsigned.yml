@@ -281,11 +281,12 @@ jobs:
           IPA_OUT: ${{ runner.temp }}/MyOfflineLLMApp-unsigned.ipa
         run: |
           set -euo pipefail
-          : "${{ steps.archive.outputs.archive:?Archive path missing }}"
-          APP_PATH="$(/usr/bin/find "${{ steps.archive.outputs.archive }}/Products/Applications" -maxdepth 1 -type d -name '*.app' -print -quit)"
+          archive_path="${{ steps.archive.outputs.archive }}"
+          : "${archive_path:?Archive path missing}"
+          APP_PATH="$(/usr/bin/find "$archive_path/Products/Applications" -maxdepth 1 -type d -name '*.app' -print -quit)"
           if [ -z "$APP_PATH" ]; then
             echo "::error::No .app found inside archive."
-            /usr/bin/find "${{ steps.archive.outputs.archive }}" -name '*.app' -print || true
+            /usr/bin/find "$archive_path" -name '*.app' -print || true
             exit 1
           fi
           rm -rf "$APP_PATH/_CodeSignature" || true
