@@ -41,6 +41,10 @@ fi
 "${XCODE_CMD[@]}" | tee "$LOG_FILE"
 
 APP_PATH="${DERIVED}/Build/Products/Release-iphonesimulator/${SCHEME}.app"
+if [ ! -d "${APP_PATH}" ]; then
+  echo "error: expected app bundle at ${APP_PATH}" >&2
+  exit 1
+fi
 ditto -ck --sequesterRsrc --keepParent "$APP_PATH" "${IOS_DIR}/${SCHEME}-Simulator.zip"
 
 echo "✅  Simulator build finished."

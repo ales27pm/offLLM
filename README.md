@@ -83,8 +83,6 @@ npm test
 cd ios && xcodebuild -workspace MyOfflineLLMApp.xcworkspace -scheme MyOfflineLLMApp -configuration Release -sdk iphonesimulator CODE_SIGNING_ALLOWED=NO CODE_SIGN_IDENTITY='' CODE_SIGNING_REQUIRED=NO
 ```
 
-The GitHub Actions workflow [`ios-unsigned.yml`](.github/workflows/ios-unsigned.yml) uploads the unsigned `.ipa` as the `MyOfflineLLMApp-unsigned-ipa` artifact. React Native codegen runs as a required step and will fail fast if generation fails.
-
 ## Testing & Linting
 
 ```bash
