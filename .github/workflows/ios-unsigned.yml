@@ -38,7 +38,7 @@ jobs:
         with:
           ruby-version: '3.2'
           bundler-cache: true
-        working-directory: ios
+          working-directory: ios
 
       - name: Generate Xcode project
         working-directory: ios
