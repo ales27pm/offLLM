@@ -1,9 +1,9 @@
 import Foundation
 import React
-import AppSpec // exposes NativeLLMSpec
+import AppSpec // exposes LLMSpec
 
 @objc(LLM)
-class LLM: NSObject, NativeLLMSpec {
+class LLM: NSObject, LLMSpec {
   private var isModelLoaded = false
 
   func loadModel(_ path: String, options: [AnyHashable: Any]?, resolve: @escaping RCTPromiseResolveBlock, reject: @escaping RCTPromiseRejectBlock) {

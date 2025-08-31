@@ -2,7 +2,7 @@
 // Safe at runtime: we swallow the error if the native module isn't present.
 
 import { TurboModuleRegistry } from 'react-native';
-import type { Spec } from './NativeLLM';
+import type { Spec } from './specs/NativeLLM';
 
 // Mark LLM as used for codegen. Do not export anything.
 (() => {
