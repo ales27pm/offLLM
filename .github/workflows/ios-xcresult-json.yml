@@ -66,14 +66,33 @@ jobs:
           pod install --repo-update
           cd -
 
-      - name: Boot iPhone 16 Pro iOS 18.6
+      # Prefer iPhone 16 Pro on iOS 18.x; fallback to any iPhone on iOS 18.x
+      - name: Resolve and boot Simulator (iPhone 16 Pro / iOS 18.x)
+        id: sim
         shell: bash
         run: |
           set -euo pipefail
-          UDID="4459CC99-FE7A-4C54-A9CB-BEAE7D5FB757"
+          echo "Available simulators (first 120 lines):"
+          xcrun simctl list devices | head -n 120 || true
+
+          # Try iPhone 16 Pro on iOS 18.x
+          UDID=$(xcrun simctl list devices | awk '/iPhone 16 Pro \(.+18\./ && /(Shutdown|Booted)/ {gsub(/[()]/,"",$NF); print $NF; exit}')
+          # Fallback: any iPhone on iOS 18.x
+          if [ -z "$UDID" ]; then
+            UDID=$(xcrun simctl list devices | awk '/iPhone .* \(.+18\./ && /(Shutdown|Booted)/ {gsub(/[()]/,"",$NF); print $NF; exit}')
+          fi
+          if [ -z "$UDID" ]; then
+            echo "::error::No suitable iOS 18.x simulator found on this runner."
+            exit 1
+          fi
+
+          NAME=$(xcrun simctl list devices | grep "$UDID" | sed -E 's/^[[:space:]]*([^()]+) \(.+$/\1/')
+          echo "Picked simulator: $NAME ($UDID)"
+
           xcrun simctl boot "$UDID" || true
           xcrun simctl bootstatus "$UDID" -b
-          echo "destination=platform=iOS Simulator,id=$UDID" >> "$GITHUB_ENV"
+
+          echo "destination=platform=iOS Simulator,id=$UDID" >> "$GITHUB_OUTPUT"
 
       - name: Build (Simulator) and export .xcresult
         shell: bash
@@ -86,7 +105,7 @@ jobs:
           RESULT_JSON: ${{ runner.temp }}/MyOfflineLLMApp.xcresult.json
         run: |
           set -euo pipefail
-          DESTINATION="$destination"
+          DESTINATION="${{ steps.sim.outputs.destination }}"
           echo "Using destination: $DESTINATION"
 
           xcodebuild \
@@ -96,6 +115,7 @@ jobs:
             -sdk "$SDK" \
             -destination "$DESTINATION" \
             -resultBundlePath "$RESULT_BUNDLE" \
+            -showBuildTimingSummary \
             build | xcpretty || true
 
           /usr/bin/xcrun xcresulttool get \
