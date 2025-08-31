@@ -93,7 +93,6 @@ jobs:
           for r in "${WANT_RUNTIMES[@]}"; do
             if printf '%s' "$RUNTIMES_JSON" | jq -e --arg r "$r" '.runtimes[] | select(.identifier==$r and .isAvailable==true)' >/dev/null; then
               RUNTIME="$r"
-              # Turn identifier into human label like "iOS 18.6"
               RUNTIME_LABEL="$(printf '%s' "$RUNTIME" | sed -E 's/.*iOS-([0-9]+)-([0-9]+)$/iOS \1.\2/')"
               break
             fi
@@ -106,12 +105,10 @@ jobs:
           fi
           echo "Using runtime: $RUNTIME ($RUNTIME_LABEL)"
 
-          # Try to find an existing iPhone 16 Pro device on that runtime
           UDID="$(xcrun simctl list devices --json \
             | jq -r --arg RUNTIME "$RUNTIME" '.devices[$RUNTIME][]? | select(.isAvailable==true) | select(.name=="iPhone 16 Pro") | select(.state=="Shutdown" or .state=="Booted") | .udid' \
             | head -n1)"
 
-          # Create one if missing
           if [ -z "${UDID:-}" ]; then
             NAME="iPhone 16 Pro (${RUNTIME_LABEL})"
             echo "Creating simulator: $NAME"
@@ -169,51 +166,58 @@ jobs:
           name: MyOfflineLLMApp-xcresult.json
           path: ${{ runner.temp }}/MyOfflineLLMApp.xcresult.json
 
-      # === DEVICE BUILD + UNSIGNED IPA PACKAGING (fixed SDK) ===
-      - name: Build (Device, unsigned .app) — force SDKROOT
+      # === DEVICE ARCHIVE (unsigned) + IPA PACKAGING ===
+      - name: Archive for generic iOS device (no signing, force SDK)
+        id: archive
         shell: bash
         env:
           SCHEME: MyOfflineLLMApp
           WORKSPACE: ios/MyOfflineLLMApp.xcworkspace
           CONFIGURATION: Release
-          DERIVED: ${{ runner.temp }}/dd
+          ARCHIVE_PATH: ${{ runner.temp }}/MyOfflineLLMApp.xcarchive
         run: |
           set -euo pipefail
-          echo "Building device .app (no codesign), forcing SDKROOT=iphoneos…"
+          echo "Archiving for generic iOS device (no codesign)…"
           xcodebuild \
             -workspace "$WORKSPACE" \
             -scheme "$SCHEME" \
             -configuration "$CONFIGURATION" \
             -sdk iphoneos \
             SDKROOT=iphoneos \
+            SUPPORTED_PLATFORMS=iphoneos \
             CODE_SIGNING_ALLOWED=NO CODE_SIGNING_REQUIRED=NO CODE_SIGN_IDENTITY="" \
             ONLY_ACTIVE_ARCH=NO ARCHS=arm64 \
-            -derivedDataPath "$DERIVED" \
-            build | xcpretty || true
+            -destination "generic/platform=iOS" \
+            -archivePath "$ARCHIVE_PATH" \
+            archive | xcpretty || true
 
-          APP_PATH="$DERIVED/Build/Products/${CONFIGURATION}-iphoneos/${SCHEME}.app"
-          if [ ! -d "$APP_PATH" ]; then
-            echo "::error::Device .app not found at $APP_PATH"
-            echo "Available .app bundles under derived data:"
-            find "$DERIVED/Build/Products" -type d -name "*.app" -print || true
+          if [ ! -d "$ARCHIVE_PATH/Products/Applications" ]; then
+            echo "::error::Archive missing Applications folder: $ARCHIVE_PATH/Products/Applications"
+            xcodebuild -showdestinations -workspace "$WORKSPACE" -scheme "$SCHEME" -sdk iphoneos || true
+            exit 1
+          fi
+
+          APP_PATH="$(/usr/bin/find "$ARCHIVE_PATH/Products/Applications" -maxdepth 1 -type d -name '*.app' -print -quit)"
+          if [ -z "$APP_PATH" ]; then
+            echo "::error::No .app found inside archive Applications folder."
+            /usr/bin/find "$ARCHIVE_PATH" -name '*.app' -print || true
             exit 1
           fi
           echo "APP_PATH=$APP_PATH" >> "$GITHUB_ENV"
+          echo "ARCHIVE_PATH=$ARCHIVE_PATH" >> "$GITHUB_ENV"
 
-      - name: Create unsigned IPA
+      - name: Create unsigned IPA from archive
         shell: bash
         env:
-          SCHEME: MyOfflineLLMApp
           IPA_OUT: ${{ runner.temp }}/MyOfflineLLMApp-unsigned.ipa
         run: |
           set -euo pipefail
           : "${APP_PATH:?APP_PATH not set}"
 
-          # Strip any signing remnants just in case
+          # Strip any signing remnants (not required, but keeps it clean)
           rm -rf "$APP_PATH/_CodeSignature" || true
           rm -f "$APP_PATH/embedded.mobileprovision" || true
 
-          # Package Payload/*.app -> .ipa
           WORK_DIR="$(mktemp -d)"
           mkdir -p "$WORK_DIR/Payload"
           cp -R "$APP_PATH" "$WORK_DIR/Payload/"
