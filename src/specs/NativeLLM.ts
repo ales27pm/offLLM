@@ -18,10 +18,6 @@ export interface Spec extends TurboModule {
   adjustPerformanceMode(mode: string): Promise<boolean>;
 }
 
-// Runtime TurboModule lookup; optional to avoid forcing legacy fallback.
-const LLMModule: Spec | null =
-  (TurboModuleRegistry as any).getOptional?.('LLM') ?? null;
-
-// Runtime TurboModule lookup; falls back to legacy module if unavailable.
-export default LLMModule;
+// Expose the TurboModule; returns `null` when the native implementation is missing.
+export default TurboModuleRegistry.get<Spec>('LLM');
 
