@@ -14,9 +14,6 @@ export function useChat() {
   useEffect(() => {
     Tts.setDefaultRate(0.53);
     Tts.setDefaultPitch(1.0);
-    LLMService.loadDolphinModel().catch((e) =>
-      console.warn("Model preload failed", e)
-    );
   }, []);
 
   const send = async (text) => {
@@ -45,7 +42,7 @@ export function useChat() {
       Tts.stop();
       const speechText = reply.replace(
         /([.?!])\s+/g,
-        '$1 <break time="500ms"/> '
+        '$1 <break time="500ms"/> ',
       );
       Tts.speak(speechText, {
         androidParams: {
