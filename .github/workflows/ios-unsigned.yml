@@ -50,12 +50,17 @@ jobs:
           bundler-cache: true
           working-directory: ios
 
+      - name: Install XcodeGen (if needed)
+        working-directory: ios
+        run: brew install xcodegen || true
+
       - name: Generate Xcode project
         working-directory: ios
-        run: |
-          brew install xcodegen || true
-          xcodegen generate
-          bundle install
+        run: xcodegen generate
+
+      - name: Bundle install
+        working-directory: ios
+        run: bundle install
 
       - name: Run codegen (non-blocking)
         run: npm run codegen || echo 'Warning: Codegen failed, proceeding with build...'
@@ -65,27 +70,20 @@ jobs:
         run: bundle exec pod install --repo-update
 
       - name: Ensure jq is available
-        shell: bash
         run: |
-          set -euo pipefail
           if ! command -v jq >/dev/null 2>&1; then
             brew install jq || true
           fi
           jq --version || true
 
-      # Robust: prefer iOS 18.6 → 18.5 → 18.4; create iPhone 16 Pro if missing
+      # Prefer iOS 18.6 → 18.5 → 18.4; create iPhone 16 Pro if missing
       - name: Resolve/create & boot Simulator (iPhone 16 Pro; iOS 18.x highest available)
         id: boot
         shell: bash
         run: |
           set -euo pipefail
-
-          WANT_RUNTIMES=("com.apple.CoreSimulator.SimRuntime.iOS-18-6" \
-                         "com.apple.CoreSimulator.SimRuntime.iOS-18-5" \
-                         "com.apple.CoreSimulator.SimRuntime.iOS-18-4")
-
-          RUNTIME=""
-          RUNTIME_LABEL=""
+          WANT_RUNTIMES=("com.apple.CoreSimulator.SimRuntime.iOS-18-6" "com.apple.CoreSimulator.SimRuntime.iOS-18-5" "com.apple.CoreSimulator.SimRuntime.iOS-18-4")
+          RUNTIME=""; RUNTIME_LABEL=""
           RUNTIMES_JSON="$(xcrun simctl list runtimes --json)"
           for r in "${WANT_RUNTIMES[@]}"; do
             if printf '%s' "$RUNTIMES_JSON" | jq -e --arg r "$r" '.runtimes[] | select(.identifier==$r and .isAvailable==true)' >/dev/null; then
@@ -94,28 +92,21 @@ jobs:
               break
             fi
           done
-
           if [ -z "$RUNTIME" ]; then
-            echo "::error::No iOS 18.6 / 18.5 / 18.4 runtime found on this runner."
+            echo "::error::No iOS 18.6 / 18.5 / 18.4 runtime found."
             xcrun simctl list runtimes
             exit 1
           fi
           echo "Using runtime: $RUNTIME ($RUNTIME_LABEL)"
-
-          UDID="$(xcrun simctl list devices --json \
-            | jq -r --arg RUNTIME "$RUNTIME" '.devices[$RUNTIME][]? | select(.isAvailable==true) | select(.name=="iPhone 16 Pro") | select(.state=="Shutdown" or .state=="Booted") | .udid' \
-            | head -n1)"
-
+          UDID="$(xcrun simctl list devices --json | jq -r --arg RUNTIME "$RUNTIME" '.devices[$RUNTIME][]? | select(.isAvailable==true) | select(.name=="iPhone 16 Pro") | select(.state=="Shutdown" or .state=="Booted") | .udid' | head -n1)"
           if [ -z "${UDID:-}" ]; then
             NAME="iPhone 16 Pro (${RUNTIME_LABEL})"
             echo "Creating simulator: $NAME"
             UDID="$(xcrun simctl create "$NAME" "iPhone 16 Pro" "$RUNTIME")"
           fi
-
           echo "Using UDID: $UDID"
           xcrun simctl boot "$UDID" || true
           xcrun simctl bootstatus "$UDID" -b
-
           echo "dest=platform=iOS Simulator,id=$UDID" >> "$GITHUB_OUTPUT"
 
       - name: Build (unsigned, Simulator)
@@ -133,7 +124,6 @@ jobs:
             CODE_SIGNING_ALLOWED=NO CODE_SIGNING_REQUIRED=NO CODE_SIGN_IDENTITY="" \
             -derivedDataPath build \
             -resultBundlePath "$RESULT_BUNDLE" | tee xcodebuild.log
-
           APP_PATH="build/Build/Products/Release-iphonesimulator/${{ env.SCHEME }}.app"
           ditto -ck --sequesterRsrc --keepParent "$APP_PATH" "${{ env.SCHEME }}-Simulator.zip"
 
@@ -181,13 +171,21 @@ jobs:
           bundler-cache: true
           working-directory: ios
 
-      - name: Generate Xcode project and install pods
+      - name: Install XcodeGen (if needed)
         working-directory: ios
-        run: |
-          brew install xcodegen || true
-          xcodegen generate
-          bundle install
-          bundle exec pod install --repo-update
+        run: brew install xcodegen || true
+
+      - name: Generate Xcode project
+        working-directory: ios
+        run: xcodegen generate
+
+      - name: Bundle install
+        working-directory: ios
+        run: bundle install
+
+      - name: Install Pods
+        working-directory: ios
+        run: bundle exec pod install --repo-update
 
       - name: Archive (device, unsigned)
         id: archive
@@ -219,19 +217,15 @@ jobs:
         shell: bash
         run: |
           set -euo pipefail
-
           KEYCHAIN="$RUNNER_TEMP/build.keychain-db"
           security create-keychain -p "" "$KEYCHAIN"
           security set-keychain-settings "$KEYCHAIN"
           security unlock-keychain -p "" "$KEYCHAIN"
-
           echo "${{ secrets.IOS_SIGNING_CERT_P12 }}" | base64 --decode > cert.p12
           security import cert.p12 -k "$KEYCHAIN" -P "${{ secrets.IOS_P12_PASSWORD }}" -A
           security list-keychain -d user -s "$KEYCHAIN" login.keychain-db
-
           mkdir -p "$HOME/Library/MobileDevice/Provisioning Profiles"
           echo "${{ secrets.IOS_MOBILEPROVISION_B64 }}" | base64 --decode > "$HOME/Library/MobileDevice/Provisioning Profiles/${{ secrets.IOS_PROFILE_NAME }}.mobileprovision"
-
           cat > ExportOptions.plist <<PLIST
           <?xml version="1.0" encoding="UTF-8"?>
           <!DOCTYPE plist PUBLIC "-//Apple//DTD PLIST 1.0//EN" "http://www.apple.com/DTDs/PropertyList-1.0.dtd">
@@ -248,7 +242,6 @@ jobs:
           </dict>
           </plist>
           PLIST
-
           xcodebuild -exportArchive \
             -archivePath "${{ steps.archive.outputs.archive }}" \
             -exportOptionsPlist ExportOptions.plist \
