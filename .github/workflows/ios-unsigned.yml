@@ -280,11 +280,12 @@ jobs:
           IPA_OUT: ${{ runner.temp }}/MyOfflineLLMApp-unsigned.ipa
         run: |
           set -euo pipefail
-          : "${{ steps.archive.outputs.archive:?Archive path missing }}"
-          APP_PATH="$(/usr/bin/find "${{ steps.archive.outputs.archive }}/Products/Applications" -maxdepth 1 -type d -name '*.app' -print -quit)"
+          ARCHIVE="${{ steps.archive.outputs.archive }}"
+          : "${ARCHIVE:?Archive path missing}"
+          APP_PATH="$(/usr/bin/find "$ARCHIVE/Products/Applications" -maxdepth 1 -type d -name '*.app' -print -quit)"
           if [ -z "$APP_PATH" ]; then
             echo "::error::No .app found inside archive."
-            /usr/bin/find "${{ steps.archive.outputs.archive }}" -name '*.app' -print || true
+            /usr/bin/find "$ARCHIVE" -name '*.app' -print || true
             exit 1
           fi
           # strip any signing remnants
@@ -308,7 +309,7 @@ jobs:
 
       # (Optional) Signed export path remains available if you add secrets later
       - name: Prepare ExportOptions.plist
-        if: ${{ secrets.IOS_SIGNING_CERT_P12 && secrets.IOS_P12_PASSWORD && secrets.IOS_MOBILEPROVISION_B64 && secrets.IOS_PROFILE_NAME && secrets.IOS_BUNDLE_ID }}
+        if: ${{ secrets.IOS_SIGNING_CERT_P12 != '' && secrets.IOS_P12_PASSWORD != '' && secrets.IOS_MOBILEPROVISION_B64 != '' && secrets.IOS_PROFILE_NAME != '' && secrets.IOS_BUNDLE_ID != '' }}
         working-directory: ios
         shell: bash
         run: |
@@ -328,7 +329,7 @@ jobs:
           cat ExportOptions.plist
 
       - name: Install signing assets and export IPA
-        if: ${{ secrets.IOS_SIGNING_CERT_P12 && secrets.IOS_P12_PASSWORD && secrets.IOS_MOBILEPROVISION_B64 && secrets.IOS_PROFILE_NAME && secrets.IOS_BUNDLE_ID }}
+        if: ${{ secrets.IOS_SIGNING_CERT_P12 != '' && secrets.IOS_P12_PASSWORD != '' && secrets.IOS_MOBILEPROVISION_B64 != '' && secrets.IOS_PROFILE_NAME != '' && secrets.IOS_BUNDLE_ID != '' }}
         working-directory: ios
         shell: bash
         run: |
