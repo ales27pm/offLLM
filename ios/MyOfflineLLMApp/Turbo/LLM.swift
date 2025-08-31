@@ -1,6 +1,5 @@
 import Foundation
 import React
-import AppSpec // exposes LLMSpec
 
 @objc(LLM)
 class LLM: NSObject, LLMSpec {
