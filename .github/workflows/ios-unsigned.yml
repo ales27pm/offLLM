@@ -65,28 +65,36 @@ jobs:
             -sdk iphonesimulator -arch arm64 \
             CODE_SIGNING_ALLOWED=NO CODE_SIGNING_REQUIRED=NO CODE_SIGN_IDENTITY="" \
             -derivedDataPath build \
-            -resultBundlePath "$RESULT_BUNDLE" \
-            | tee xcodebuild.log
+            -resultBundlePath "$RESULT_BUNDLE" | tee xcodebuild.log
 
           APP_PATH="build/Build/Products/Release-iphonesimulator/MyOfflineLLMApp.app"
           ditto -ck --sequesterRsrc --keepParent "$APP_PATH" MyOfflineLLMApp-Simulator.zip
 
-          xcrun xcresulttool get --path "$RESULT_BUNDLE" --format json \
-            | jq '.issues.testFailureSummaries + .issues.warningSummaries | length'
-
-      - name: Print Xcode errors (if build failed)
-        if: failure()
+      - name: Print Xcode issues
+        if: always()
         working-directory: ios
         run: |
-          echo "===== last 400 lines of xcodebuild.log ====="
-          tail -n 400 xcodebuild.log || true
+          echo "===== last 2000 lines of xcodebuild.log ====="
+          tail -n 2000 xcodebuild.log || true
           if [ -d "MyOfflineLLMApp.xcresult" ]; then
-            echo "===== parsed issues from xcresult ====="
+            echo "===== error summaries ====="
             xcrun xcresulttool get --path MyOfflineLLMApp.xcresult --format json \
-              | jq -r '[.issues.errorSummaries[]? | { message: .message?.text, target: .target?.name, file: .documentLocationInCreatingWorkspace?.url }]' || true
+              | jq -r '.issues.errorSummaries[]? | .message.text'
+            echo "===== warning summaries ====="
+            xcrun xcresulttool get --path MyOfflineLLMApp.xcresult --format json \
+              | jq -r '.issues.warningSummaries[]? | .message.text'
           fi
 
       - uses: actions/upload-artifact@v4
+        if: success()
         with:
           name: MyOfflineLLMApp-Simulator
           path: ios/MyOfflineLLMApp-Simulator.zip
+
+      - uses: actions/upload-artifact@v4
+        if: always()
+        with:
+          name: xcode-logs-and-result
+          path: |
+            ios/xcodebuild.log
+            ios/MyOfflineLLMApp.xcresult

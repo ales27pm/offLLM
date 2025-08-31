@@ -65,6 +65,14 @@ target app_target do
         end
       end
     end
+    # Ensure ReactCommon turbomodules headers are discoverable
+    installer.pods_project.targets.each do |t|
+      next unless t.name == 'ReactCommon'
+      t.build_configurations.each do |cfg|
+        cfg.build_settings['HEADER_SEARCH_PATHS'] ||= '$(inherited)'
+        cfg.build_settings['HEADER_SEARCH_PATHS'] << ' $(PODS_ROOT)/Headers/Public/ReactCommon/ReactCommon/react/nativemodule/core'
+      end
+    end
     File.write('Pods/.ran_post_install', 'Post install executed successfully')
   end
 end
