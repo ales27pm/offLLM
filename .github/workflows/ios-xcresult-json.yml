@@ -168,3 +168,63 @@ jobs:
         with:
           name: MyOfflineLLMApp-xcresult.json
           path: ${{ runner.temp }}/MyOfflineLLMApp.xcresult.json
+
+      # === DEVICE BUILD + UNSIGNED IPA PACKAGING ===
+      - name: Build (Device, unsigned .app)
+        shell: bash
+        env:
+          SCHEME: MyOfflineLLMApp
+          WORKSPACE: ios/MyOfflineLLMApp.xcworkspace
+          CONFIGURATION: Release
+          SDK: iphoneos
+          DERIVED: ${{ runner.temp }}/dd
+        run: |
+          set -euo pipefail
+          echo "Building device .app (no codesign)…"
+          xcodebuild \
+            -workspace "$WORKSPACE" \
+            -scheme "$SCHEME" \
+            -configuration "$CONFIGURATION" \
+            -sdk "$SDK" \
+            -destination "generic/platform=iOS" \
+            CODE_SIGNING_ALLOWED=NO CODE_SIGNING_REQUIRED=NO CODE_SIGN_IDENTITY="" \
+            -derivedDataPath "$DERIVED" \
+            build | xcpretty || true
+
+          APP_PATH="$DERIVED/Build/Products/${CONFIGURATION}-iphoneos/${SCHEME}.app"
+          if [ ! -d "$APP_PATH" ]; then
+            echo "::error::Device .app not found at $APP_PATH"
+            find "$DERIVED/Build/Products" -maxdepth 3 -type d -name "*.app" -print || true
+            exit 1
+          fi
+          echo "APP_PATH=$APP_PATH" >> "$GITHUB_ENV"
+
+      - name: Create unsigned IPA
+        shell: bash
+        env:
+          SCHEME: MyOfflineLLMApp
+          IPA_OUT: ${{ runner.temp }}/MyOfflineLLMApp-unsigned.ipa
+        run: |
+          set -euo pipefail
+          : "${APP_PATH:?APP_PATH not set}"
+
+          # Clean any embedded signing remnants (optional)
+          rm -rf "$APP_PATH/_CodeSignature" || true
+          rm -f "$APP_PATH/embedded.mobileprovision" || true
+
+          # Package as Payload/*.app → .ipa (zip)
+          WORK_DIR="$(mktemp -d)"
+          mkdir -p "$WORK_DIR/Payload"
+          cp -R "$APP_PATH" "$WORK_DIR/Payload/"
+          (cd "$WORK_DIR" && zip -qry "$IPA_OUT" Payload)
+
+          mv "$IPA_OUT" .
+          echo "Unsigned IPA created: $(pwd)/$(basename "$IPA_OUT")"
+          echo "IPA_PATH=$(pwd)/$(basename "$IPA_OUT")" >> "$GITHUB_ENV"
+
+      - name: Upload unsigned IPA
+        uses: actions/upload-artifact@v4
+        with:
+          name: MyOfflineLLMApp-unsigned-ipa
+          path: ${{ env.IPA_PATH }}
+          if-no-files-found: error
