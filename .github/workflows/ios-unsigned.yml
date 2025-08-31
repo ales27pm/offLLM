@@ -63,11 +63,11 @@ jobs:
             rm -rf ios/build/generated/ios/build
           fi
 
-          echo "Listing AppSpec subdir AFTER normalization:"
-          ls -lah ios/build/generated/ios/AppSpec || true
+          echo "Listing iOS codegen dir (ios/build/generated/ios) AFTER normalization:"
+          ls -lah ios/build/generated/ios || true
 
-          test -f ios/build/generated/ios/AppSpec/AppSpec.podspec || {
-            echo "::error::Codegen did not produce ios/build/generated/ios/AppSpec/AppSpec.podspec"
+          test -f ios/build/generated/ios/AppSpec.podspec || {
+            echo "::error::Codegen did not produce ios/build/generated/ios/AppSpec.podspec"
             echo "Make sure src/specs/* exists and that codegen config (package.json: codegenConfig) matches 'AppSpec'."
             exit 1
           }
