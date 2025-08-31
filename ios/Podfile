@@ -55,6 +55,16 @@ target app_target do
       end
     end
     react_native_post_install(installer)
+    # Suppress non-modular include warnings for specific pods
+    installer.pods_project.targets.each do |t|
+      if ['react-native-slider','RNCAsyncStorage'].include? t.name
+        t.build_configurations.each do |cfg|
+          cfg.build_settings['CLANG_ALLOW_NON_MODULAR_INCLUDES_IN_FRAMEWORK_MODULES'] = 'YES'
+          cfg.build_settings['WARNING_CFLAGS'] ||= ['$(inherited)']
+          cfg.build_settings['WARNING_CFLAGS'] << '-Wno-non-modular-include-in-framework-module'
+        end
+      end
+    end
     File.write('Pods/.ran_post_install', 'Post install executed successfully')
   end
 end
