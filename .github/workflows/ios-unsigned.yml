@@ -64,18 +64,58 @@ jobs:
         working-directory: ios
         run: bundle exec pod install --repo-update
 
-      - name: Boot iPhone 16 Pro (iOS 18.x) simulator
+      - name: Ensure jq is available
+        shell: bash
+        run: |
+          set -euo pipefail
+          if ! command -v jq >/dev/null 2>&1; then
+            brew install jq || true
+          fi
+          jq --version || true
+
+      # Robust: prefer iOS 18.6 → 18.5 → 18.4; create iPhone 16 Pro if missing
+      - name: Resolve/create & boot Simulator (iPhone 16 Pro; iOS 18.x highest available)
         id: boot
         shell: bash
         run: |
-          set -e
-          UDID=$(xcrun simctl list devices | awk '/iPhone 16 Pro \(.+18\./ && /Shutdown/ {print $NF}' | tr -d '()' | head -n1)
-          if [[ -z "$UDID" ]]; then
-            echo "No iPhone 16 Pro iOS 18.x simulator found."
+          set -euo pipefail
+
+          WANT_RUNTIMES=("com.apple.CoreSimulator.SimRuntime.iOS-18-6" \
+                         "com.apple.CoreSimulator.SimRuntime.iOS-18-5" \
+                         "com.apple.CoreSimulator.SimRuntime.iOS-18-4")
+
+          RUNTIME=""
+          RUNTIME_LABEL=""
+          RUNTIMES_JSON="$(xcrun simctl list runtimes --json)"
+          for r in "${WANT_RUNTIMES[@]}"; do
+            if printf '%s' "$RUNTIMES_JSON" | jq -e --arg r "$r" '.runtimes[] | select(.identifier==$r and .isAvailable==true)' >/dev/null; then
+              RUNTIME="$r"
+              RUNTIME_LABEL="$(printf '%s' "$RUNTIME" | sed -E 's/.*iOS-([0-9]+)-([0-9]+)$/iOS \1.\2/')"
+              break
+            fi
+          done
+
+          if [ -z "$RUNTIME" ]; then
+            echo "::error::No iOS 18.6 / 18.5 / 18.4 runtime found on this runner."
+            xcrun simctl list runtimes
             exit 1
           fi
-          xcrun simctl boot "$UDID"
+          echo "Using runtime: $RUNTIME ($RUNTIME_LABEL)"
+
+          UDID="$(xcrun simctl list devices --json \
+            | jq -r --arg RUNTIME "$RUNTIME" '.devices[$RUNTIME][]? | select(.isAvailable==true) | select(.name=="iPhone 16 Pro") | select(.state=="Shutdown" or .state=="Booted") | .udid' \
+            | head -n1)"
+
+          if [ -z "${UDID:-}" ]; then
+            NAME="iPhone 16 Pro (${RUNTIME_LABEL})"
+            echo "Creating simulator: $NAME"
+            UDID="$(xcrun simctl create "$NAME" "iPhone 16 Pro" "$RUNTIME")"
+          fi
+
+          echo "Using UDID: $UDID"
+          xcrun simctl boot "$UDID" || true
           xcrun simctl bootstatus "$UDID" -b
+
           echo "dest=platform=iOS Simulator,id=$UDID" >> "$GITHUB_OUTPUT"
 
       - name: Build (unsigned, Simulator)
