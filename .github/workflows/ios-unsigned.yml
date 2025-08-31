@@ -131,7 +131,7 @@ jobs:
             -destination "$DESTINATION" \
             -resultBundlePath "$RESULT_BUNDLE" \
             -showBuildTimingSummary \
-            build | xcpretty || true
+            build | xcpretty
           /usr/bin/xcrun xcresulttool get --format json --legacy --path "$RESULT_BUNDLE" > "$RESULT_JSON"
           echo "Result bundle: $RESULT_BUNDLE"
           echo "Result JSON:   $RESULT_JSON"
@@ -198,7 +198,7 @@ jobs:
             ONLY_ACTIVE_ARCH=NO ARCHS=arm64 \
             -destination "generic/platform=iOS" \
             -archivePath "$ARCHIVE_PATH" \
-            archive | xcpretty || true
+            archive | xcpretty
           if [ ! -d "$ARCHIVE_PATH/Products/Applications" ]; then
             echo "::error::Archive missing Applications folder: $ARCHIVE_PATH/Products/Applications"
             xcodebuild -showdestinations -workspace "$WORKSPACE" -scheme "$SCHEME" -sdk iphoneos || true
@@ -217,7 +217,7 @@ jobs:
       - name: Create unsigned IPA from archive
         shell: bash
         env:
-          IPA_OUT: ${{ runner.temp }}/MyOfflineLLMApp-unsigned.ipa
+          IPA_OUT: ${{ runner.temp }}/offLLM-unsigned.ipa
         run: |
           set -euo pipefail
           : "${APP_PATH:?APP_PATH not set}"
@@ -234,7 +234,7 @@ jobs:
       - name: Upload unsigned IPA
         uses: actions/upload-artifact@v4
         with:
-          name: MyOfflineLLMApp-unsigned-ipa
+          name: offLLM-unsigned-ipa
           path: ${{ env.IPA_PATH }}
           if-no-files-found: error
 
