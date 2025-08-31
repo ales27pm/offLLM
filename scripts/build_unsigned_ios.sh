@@ -11,7 +11,7 @@ DERIVED="${IOS_DIR}/build"
 : "${WORKSPACE:?WORKSPACE env var required}"
 IOS_DESTINATION="${IOS_DESTINATION:-}"
 
-RESULT_BUNDLE="${IOS_DIR}/${SCHEME}.xcresult"
+RESULT_BUNDLE="${RESULT_BUNDLE:-${IOS_DIR}/${SCHEME}.xcresult}"
 LOG_FILE="${IOS_DIR}/xcodebuild.log"
 
 echo "▶️  Unsigned iOS build starting…"

@@ -162,29 +162,32 @@ jobs:
             IOS_SIM_DEVICE="${{ steps.boot.outputs.ios_sim_device }}"
             UDID="${{ steps.boot.outputs.udid }}"
             IOS_DESTINATION="platform=iOS Simulator,id=${UDID}"
-            export IOS_DESTINATION IOS_SIM_OS IOS_SIM_DEVICE
+            RESULT_BUNDLE="${RUNNER_TEMP}/SimBuild.xcresult"
+            echo "RESULT_BUNDLE=$RESULT_BUNDLE" >> "$GITHUB_ENV"
+            export IOS_DESTINATION IOS_SIM_OS IOS_SIM_DEVICE RESULT_BUNDLE
             ./scripts/build_unsigned_ios.sh
 
-      - name: Export xcresult to JSON (sim)
+      - name: Export xcresult as JSON
         if: always()
         run: |
           set -euo pipefail
-          LOGDIR="$HOME/Library/Logs/xcodebuild"
-          RESULT=$(ls -t "$LOGDIR"/*.xcresult 2>/dev/null | head -n1 || true)
-          if [ -z "$RESULT" ]; then
-            echo "No .xcresult found at $LOGDIR"
-            exit 0
+          BUNDLE="${RESULT_BUNDLE}"
+          if [ ! -d "$BUNDLE" ]; then
+            echo "No xcresult at $BUNDLE; searching..."
+            BUNDLE="$(find . -name '*.xcresult' -type d -print -quit)"
           fi
-          echo "Found xcresult: $RESULT"
-          /usr/bin/xcrun xcresulttool get --format json --legacy --path "$RESULT" > "${{ runner.temp }}/sim.xcresult.json" || true
+          echo "Using xcresult: $BUNDLE"
+          xcrun xcresulttool get --path "$BUNDLE" --format json > xcresult.json
 
-      - name: Upload xcresult JSON (sim)
+      - name: Upload xcresult bundle and JSON
         if: always()
         uses: actions/upload-artifact@v4
         with:
-          name: sim-xcresult.json
-          path: ${{ runner.temp }}/sim.xcresult.json
-          if-no-files-found: ignore
+          name: sim-xcresult
+          path: |
+            ${{ env.RESULT_BUNDLE }}
+            xcresult.json
+          if-no-files-found: warn
 
       - name: Upload Simulator app (zip)
         uses: actions/upload-artifact@v4
@@ -199,14 +202,6 @@ jobs:
         with:
           name: sim-xcodebuild-log
           path: ios/xcodebuild.log
-          if-no-files-found: ignore
-
-      - name: Upload xcresult
-        uses: actions/upload-artifact@v4
-        if: always()
-        with:
-          name: sim-xcresult
-          path: ios/${{ env.SCHEME }}.xcresult
           if-no-files-found: ignore
 
   device-archive:
