@@ -50,7 +50,12 @@ cd ..
 kill $BUNDLER_PID 2>/dev/null || true
 echo "🔨 Performing clean Xcode build..."
 cd ios
+if [ ! -d "MyOfflineLLMApp.xcworkspace" ]; then
+  echo "❌ Xcode workspace 'MyOfflineLLMApp.xcworkspace' not found."
+  exit 1
+fi
 xcodebuild clean -workspace MyOfflineLLMApp.xcworkspace -scheme MyOfflineLLMApp
+mkdir -p build
 xcodebuild \
   -workspace MyOfflineLLMApp.xcworkspace \
   -scheme MyOfflineLLMApp \
@@ -58,7 +63,8 @@ xcodebuild \
   -destination 'generic/platform=iOS' \
   -archivePath "build/MyOfflineLLMApp.xcarchive" \
   archive \
-  CODE_SIGNING_ALLOWED=NO
+  CODE_SIGNING_ALLOWED=NO \
+  CODE_SIGNING_REQUIRED=NO
 
 # Step 6: Export the unsigned IPA
 # Step 6: Export the unsigned IPA (manual packaging to avoid signing requirements)
