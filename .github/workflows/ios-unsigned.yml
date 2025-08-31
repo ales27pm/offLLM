@@ -17,6 +17,9 @@ env:
   SCHEME: "MyOfflineLLMApp"
   WORKSPACE: "ios/MyOfflineLLMApp.xcworkspace"
   ENABLE_SIGNED_EXPORT: "false"   # set to "true" if you want the optional signed export steps
+  IOS_SIM_DEVICE: "iPhone 16 Pro"
+  IOS_SIM_OS: "18.6"
+  IOS_DESTINATION: "platform=iOS Simulator,OS=18.6,name=iPhone 16 Pro"
 
 jobs:
   sim-build:
@@ -62,78 +65,103 @@ jobs:
       - name: Bundle install
         working-directory: ios
         run: bundle install
+      - name: Codegen env guard
+        run: |
+          set -euo pipefail
+          export CODEGEN_OUTPUT_DIR="${CODEGEN_OUTPUT_DIR:-$(pwd)/ios/build/generated}"
+          export TEMPLATE_SRC_DIR="${TEMPLATE_SRC_DIR:-$(pwd)/src/specs}"
+          npm run codegen
 
-      # Optional; Pod scripts will also run RN codegen. Keep non-blocking.
-      - name: Run codegen (non-blocking)
-        run: 'npm run codegen || echo "Warning: Codegen failed, proceeding with build..."'
+      - name: Show key build settings (Release)
+        run: |
+          xcodebuild -showBuildSettings \
+            -workspace "${{ env.WORKSPACE }}" \
+            -scheme "${{ env.SCHEME }}" \
+            -configuration Release | egrep 'SDKROOT|IPHONEOS_DEPLOYMENT_TARGET|SUPPORTED_PLATFORMS|TARGETED_DEVICE_FAMILY' || true
 
-      - name: Install Pods
+      - name: Install Pods (verbose, fail-fast)
         working-directory: ios
-        run: bundle exec pod install --repo-update
-
-      - name: Ensure jq is available
-        shell: bash
         run: |
           set -euo pipefail
-          if ! command -v jq >/dev/null 2>&1; then
-            brew install jq || true
-          fi
-          jq --version || true
+          bundle exec pod repo update
+          RCT_NEW_ARCH_ENABLED=1 bundle exec pod install --repo-update --verbose
 
-      # Prefer iOS 18.6 → 18.5 → 18.4; create iPhone 16 Pro if missing
-      - name: Resolve/create & boot Simulator (iPhone 16 Pro; iOS 18.x highest available)
-        id: boot
-        shell: bash
+      - name: Show Xcode & Runtimes
+        run: |
+          xcodebuild -version
+          xcrun simctl list runtimes
+
+      - name: Ensure iOS ${{ env.IOS_SIM_OS }} runtime exists (fail if missing)
         run: |
           set -euo pipefail
-          WANT_RUNTIMES=("com.apple.CoreSimulator.SimRuntime.iOS-18-6" "com.apple.CoreSimulator.SimRuntime.iOS-18-5" "com.apple.CoreSimulator.SimRuntime.iOS-18-4")
-          RUNTIME=""; RUNTIME_LABEL=""
-          RUNTIMES_JSON="$(xcrun simctl list runtimes --json)"
-          for r in "${WANT_RUNTIMES[@]}"; do
-            if printf '%s\n' "$RUNTIMES_JSON" | jq -e --arg r "$r" '.runtimes[] | select(.identifier==$r and .isAvailable==true)' >/dev/null; then
-              RUNTIME="$r"
-              RUNTIME_LABEL="$(printf '%s' "$RUNTIME" | sed -E 's/.*iOS-([0-9]+)-([0-9]+)$/iOS \1.\2/')"
-              break
-            fi
-          done
-          if [ -z "$RUNTIME" ]; then
-            echo "::error::No iOS 18.6 / 18.5 / 18.4 runtime found."
+          if ! xcrun simctl list runtimes | grep -q "iOS ${{ env.IOS_SIM_OS }}"; then
+            echo "::error::Required iOS Simulator runtime iOS ${{ env.IOS_SIM_OS }} not found on this runner."
             xcrun simctl list runtimes
             exit 1
           fi
-          echo "Using runtime: $RUNTIME ($RUNTIME_LABEL)"
 
-          UDID="$(xcrun simctl list devices --json \
-            | jq -r --arg RUNTIME "$RUNTIME" '.devices[$RUNTIME][]? | select(.isAvailable==true) | select(.name=="iPhone 16 Pro") | select(.state=="Shutdown" or .state=="Booted") | .udid' \
-            | head -n1)"
-          if [ -z "${UDID:-}" ]; then
-            NAME="iPhone 16 Pro (${RUNTIME_LABEL})"
-            echo "Creating simulator: $NAME"
-            UDID="$(xcrun simctl create "$NAME" "iPhone 16 Pro" "$RUNTIME")"
-          fi
-
-          echo "Using UDID: $UDID"
-          xcrun simctl boot "$UDID" || true
-          xcrun simctl bootstatus "$UDID" -b
-          echo "dest=platform=iOS Simulator,id=$UDID" >> "$GITHUB_OUTPUT"
-
-      - name: Build (unsigned, Simulator)
-        working-directory: ios
-        shell: bash
+      - name: Create/boot "${{ env.IOS_SIM_DEVICE }}" on iOS ${{ env.IOS_SIM_OS }}
         run: |
           set -euo pipefail
-          RESULT_BUNDLE="${{ env.SCHEME }}.xcresult"
-          xcodebuild \
-            -workspace "${{ env.WORKSPACE }}" \
-            -scheme "${{ env.SCHEME }}" \
-            -configuration Release \
-            -sdk iphonesimulator -arch arm64 \
-            -destination "${{ steps.boot.outputs.dest }}" \
-            CODE_SIGNING_ALLOWED=NO CODE_SIGNING_REQUIRED=NO CODE_SIGN_IDENTITY="" \
-            -derivedDataPath build \
-            -resultBundlePath "$RESULT_BUNDLE" | tee xcodebuild.log
-          APP_PATH="build/Build/Products/Release-iphonesimulator/${{ env.SCHEME }}.app"
-          ditto -ck --sequesterRsrc --keepParent "$APP_PATH" "${{ env.SCHEME }}-Simulator.zip"
+          RUNTIME_ID=$(xcrun simctl list runtimes -j | /usr/bin/python3 - <<'PY'
+import json,sys,os
+j=json.load(sys.stdin)
+target=os.environ["IOS_SIM_OS"]
+for r in j["runtimes"]:
+  if r.get("platform")=="iOS" and r.get("version")==target and r.get("isAvailable",True):
+    print(r["identifier"]); break
+PY
+)
+          if [ -z "${RUNTIME_ID}" ]; then
+            echo "::error::Cannot resolve runtime identifier for iOS ${{ env.IOS_SIM_OS }}"
+            exit 1
+          fi
+          UDID=$(xcrun simctl list devices -j | /usr/bin/python3 - <<'PY'
+import json,sys,os
+j=json.load(sys.stdin)["devices"]
+target=os.environ["IOS_SIM_OS"]
+name=os.environ["IOS_SIM_DEVICE"]
+for k,arr in j.items():
+  if k.endswith(target):
+    for d in arr:
+      if d["name"]==name and d.get("isAvailable",True):
+        print(d["udid"]); sys.exit(0)
+PY
+          )
+          if [ -z "$UDID" ]; then
+            UDID=$(xcrun simctl create "${IOS_SIM_DEVICE}" "com.apple.CoreSimulator.SimDeviceType.iPhone-16-Pro" "$RUNTIME_ID")
+          fi
+          xcrun simctl boot "$UDID" || true
+          xcrun simctl bootstatus "$UDID" -b
+          echo "Booted device $UDID (${IOS_SIM_DEVICE} / iOS ${IOS_SIM_OS})"
+
+      - name: Build (Simulator — iOS 18.6)
+        env:
+          IOS_DESTINATION: ${{ env.IOS_DESTINATION }}
+        run: |
+          set -euo pipefail
+          ./scripts/build_unsigned_ios.sh
+
+      - name: Export xcresult to JSON (sim)
+        if: always()
+        run: |
+          set -euo pipefail
+          LOGDIR="$HOME/Library/Logs/xcodebuild"
+          RESULT=$(ls -t "$LOGDIR"/*.xcresult 2>/dev/null | head -n1 || true)
+          if [ -z "$RESULT" ]; then
+            echo "No .xcresult found at $LOGDIR"
+            exit 0
+          fi
+          echo "Found xcresult: $RESULT"
+          /usr/bin/xcrun xcresulttool get --format json --legacy --path "$RESULT" > "${{ runner.temp }}/sim.xcresult.json" || true
+
+      - name: Upload xcresult JSON (sim)
+        if: always()
+        uses: actions/upload-artifact@v4
+        with:
+          name: sim-xcresult.json
+          path: ${{ runner.temp }}/sim.xcresult.json
+          if-no-files-found: ignore
 
       - name: Upload Simulator app (zip)
         uses: actions/upload-artifact@v4
