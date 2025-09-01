@@ -154,6 +154,7 @@ jobs:
             CODE_SIGNING_ALLOWED=NO CODE_SIGNING_REQUIRED=NO CODE_SIGN_IDENTITY="" \
             ONLY_ACTIVE_ARCH=NO ARCHS=arm64 \
             -archivePath "$ARCHIVE_PATH" \
+            -resultBundlePath "${RUNNER_TEMP}/archive.xcresult" \
             archive | tee xcodebuild-archive.log
 
           # Verify that archive contains an application
@@ -205,4 +206,17 @@ jobs:
           name: MyOfflineLLMApp-unsigned-ipa
           path: ${{ env.IPA_PATH }}
           if-no-files-found: error
+
+      - name: Print top issues from xcresult on failure
+        if: failure()
+        shell: bash
+        run: |
+          set -euo pipefail
+          RESULT_BUNDLE="${RUNNER_TEMP}/archive.xcresult"
+          if [ -d "$RESULT_BUNDLE" ]; then
+            echo "::group::xcresult: top issues"
+            /usr/bin/xcrun xcresulttool get --format json --path "$RESULT_BUNDLE" --legacy \
+            | /usr/bin/python3 scripts/xcresult_top_issues.py
+            echo "::endgroup::"
+          fi
 
