@@ -54,11 +54,11 @@ jobs:
           echo "DEVELOPER_DIR=${DEVELOPER_DIR:-$(xcode-select -p)}"
 
       - name: Setup Ruby
+        working-directory: ios
         uses: ruby/setup-ruby@v1
         with:
           ruby-version: ${{ env.RUBY_VERSION }}
           bundler-cache: true
-        working-directory: ios
 
       - name: Install XcodeGen (if needed)
         working-directory: ios
