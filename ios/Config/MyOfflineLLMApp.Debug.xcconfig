@@ -1,5 +1,6 @@
 // Keep Pod settings optional at generate-time; pick them up after `pod install`
 #include? "Pods/Target Support Files/Pods-offLLMApp/Pods-offLLMApp.debug.xcconfig"
+#include? "Pods/Target Support Files/Pods-MyOfflineLLMApp/Pods-MyOfflineLLMApp.debug.xcconfig"
 
 // Your project’s own overrides can live here, always include $(inherited)
 HEADER_SEARCH_PATHS = $(inherited)
