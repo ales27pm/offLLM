@@ -6,16 +6,16 @@ export interface LoadOptions { quantization?: string | null; contextLength?: num
 export interface PerfMetrics { memoryUsage?: number; cpuUsage?: number; }
 
 export interface Spec extends TurboModule {
-  loadModel(path: string, options?: LoadOptions | null): Promise<boolean>;
+  loadModel(_path: string, _options?: LoadOptions | null): Promise<boolean>;
   unloadModel(): Promise<boolean>;
-  generate(prompt: string, options?: GenerateOptions | null): Promise<string>;
-  embed(text: string): Promise<number[]>;
+  generate(_prompt: string, _options?: GenerateOptions | null): Promise<string>;
+  embed(_text: string): Promise<number[]>;
   getPerformanceMetrics(): Promise<PerfMetrics>;
   getKVCacheSize(): Promise<number>;
   getKVCacheMaxSize(): Promise<number>;
   clearKVCache(): Promise<void>;
   addMessageBoundary(): Promise<void>;
-  adjustPerformanceMode(mode: string): Promise<boolean>;
+  adjustPerformanceMode(_mode: string): Promise<boolean>;
 }
 
 // Probe for codegen so the spec is marked as used.

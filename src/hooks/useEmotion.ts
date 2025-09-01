@@ -23,7 +23,7 @@ export function useEmotion() {
     try {
       const { emotion, confidence } = await prosody.current.analyze(audio);
       return confidence > 0.5 ? emotion : null;
-    } catch (e) {
+    } catch {
       return null;
     }
   };

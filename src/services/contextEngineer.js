@@ -13,7 +13,7 @@ export class ContextEvaluator {
     this.useHierarchicalAttention = true;
     try {
       this.tokenizer = encoding_for_model("gpt-3.5-turbo");
-    } catch (e) {
+    } catch {
       this.tokenizer = null;
     }
   }
@@ -137,7 +137,7 @@ export class ContextEvaluator {
       } else {
         return NativeModules.DeviceInfo?.totalMemory?.() || 2000;
       }
-    } catch (error) {
+    } catch {
       return 2000;
     }
   }
@@ -159,7 +159,7 @@ export class ContextEvaluator {
             ? new Date(b.metadata.timestamp).getTime()
             : 0;
           return bTime - aTime;
-        } catch (e) {
+        } catch {
           return 0;
         }
       })
@@ -334,7 +334,7 @@ export class ContextEngineer {
     if (this.tokenizer) {
       try {
         return this.tokenizer.encode(text).length;
-      } catch (e) {
+      } catch {
         return Math.ceil(text.length / 4);
       }
     }
@@ -376,7 +376,7 @@ export class ContextEngineer {
       } else {
         return NativeModules.DeviceInfo?.totalMemory?.() || 2000;
       }
-    } catch (error) {
+    } catch {
       return 2000;
     }
   }
@@ -399,7 +399,7 @@ export class ContextEngineer {
         tier,
         totalMemory,
       };
-    } catch (error) {
+    } catch {
       return {
         tier: "low",
         totalMemory: 2000,

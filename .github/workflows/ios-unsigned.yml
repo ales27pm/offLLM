@@ -24,7 +24,6 @@ jobs:
     env:
       NODE_OPTIONS: --max_old_space_size=4096
       RCT_NEW_ARCH_ENABLED: 1
-      IPHONEOS_DEPLOYMENT_TARGET: "13.0"
       SWIFT_VERSION: "5.0"
     steps:
       - uses: actions/checkout@v4
@@ -39,6 +38,10 @@ jobs:
 
       - name: Run tests
         run: npm run test:ci
+
+      # Fail fast on any lint warning
+      - name: Run ESLint (no warnings allowed)
+        run: npm run lint:ci
 
       - name: Set up Xcode 16.4
         run: sudo xcode-select -s /Applications/Xcode_16.4.app/Contents/Developer

@@ -39,16 +39,11 @@ jobs:
           npm run codegen
         # README: codegen reads src/specs -> headers.
 
-      - name: Lint (if configured)
-        run: |
-          if [ -f eslint.config.js ] || [ -f .eslintrc ] || [ -f .eslintrc.js ]; then
-            npm run lint
-          else
-            echo "No ESLint config; skipping."
-          fi
-
       - name: Format check
         run: npm run format:check
 
       - name: Unit tests
         run: npm run test:ci
+
+      - name: Run ESLint (no warnings allowed)
+        run: npm run lint:ci

@@ -30,7 +30,7 @@ export default class ToolHandler {
         } else {
           args[match[1]] = value;
         }
-      } catch (e) {
+      } catch {
         throw new Error("Malformed argument string: " + argString);
       }
     }
@@ -49,8 +49,8 @@ export default class ToolHandler {
       try {
         const res = await tool.execute(args);
         results.push({ role: "tool", name, content: JSON.stringify(res) });
-      } catch (e) {
-        results.push({ role: "tool", name, content: `Error: ${e.message}` });
+      } catch (error) {
+        results.push({ role: "tool", name, content: `Error: ${error.message}` });
       }
     }
     return results;

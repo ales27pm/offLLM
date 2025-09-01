@@ -23,7 +23,7 @@ export function useMemory() {
       const emb = await LLMService.embed(q);
       const res = await mem.current.recall(emb, 3);
       return res.map((r) => r.content).join("\n\n");
-    } catch (e) {
+    } catch {
       return "";
     }
   };

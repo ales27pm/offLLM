@@ -28,7 +28,6 @@ function getKey() {
         "[VectorMemory] MEMORY_ENCRYPTION_KEY is required in production.",
       );
     }
-    // eslint-disable-next-line no-console
     console.warn(
       "[VectorMemory] MEMORY_ENCRYPTION_KEY missing; using ephemeral key for development.",
     );

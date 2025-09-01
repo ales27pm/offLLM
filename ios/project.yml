@@ -4,6 +4,11 @@ options:
   bundleIdPrefix: com.offllm
   createIntermediateGroups: true
   minimumXcodeGenVersion: 2.40.0
+  postGenCommand: bundle exec pod install
+
+configs:
+  Debug: debug
+  Release: release
 
 settings:
   base:
@@ -43,11 +48,17 @@ targets:
         CODE_SIGN_STYLE: Automatic
         DEVELOPMENT_TEAM: ""
         CLANG_ENABLE_MODULES: YES
+        # Expose React's Objective-C types to Swift without importing
+        # the React module directly.
+        SWIFT_OBJC_BRIDGING_HEADER: $(SRCROOT)/MyOfflineLLMApp/MyOfflineLLMApp-Bridging-Header.h
         HEADER_SEARCH_PATHS:
           - $(inherited)
           - $(SRCROOT)/build/generated/ios
         SWIFT_INCLUDE_PATHS:
           - $(SRCROOT)/build/generated/ios
+    configFiles:
+      Debug:   "Pods/Target Support Files/Pods-MyOfflineLLMApp/Pods-MyOfflineLLMApp.debug.xcconfig"
+      Release: "Pods/Target Support Files/Pods-MyOfflineLLMApp/Pods-MyOfflineLLMApp.release.xcconfig"
     dependencies:
       - package: MLX
         product: MLX
