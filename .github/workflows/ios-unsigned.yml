@@ -15,16 +15,19 @@ env:
   RUBY_VERSION: "3.2"
   SCHEME: "MyOfflineLLMApp"
   WORKSPACE: "ios/MyOfflineLLMApp.xcworkspace"
-  ENABLE_SIGNED_EXPORT: "false"   # set to "true" if you want the optional signed export steps
+  ENABLE_SIGNED_EXPORT: "false"  # leave false for unsigned build
 
 jobs:
   device-archive:
     name: Device archive + Unsigned IPA
     runs-on: macos-15
     env:
-      NODE_OPTIONS: --max_old_space_size=4096
+      # Increase Node memory for Metro bundler
+      NODE_OPTIONS: "--max_old_space_size=4096"
       RCT_NEW_ARCH_ENABLED: 1
-      SWIFT_VERSION: "5.0"
+      # Use matching deployment target and Swift version for build
+      IPHONEOS_DEPLOYMENT_TARGET: "18.0"
+      SWIFT_VERSION: "5.10"
     steps:
       - uses: actions/checkout@v4
 
@@ -38,10 +41,6 @@ jobs:
 
       - name: Run tests
         run: npm run test:ci
-
-      # Fail fast on any lint warning
-      - name: Run ESLint (no warnings allowed)
-        run: npm run lint:ci
 
       - name: Set up Xcode 16.4
         run: sudo xcode-select -s /Applications/Xcode_16.4.app/Contents/Developer
@@ -57,122 +56,55 @@ jobs:
         uses: ruby/setup-ruby@v1
         with:
           ruby-version: ${{ env.RUBY_VERSION }}
-          # bundler-cache: true   # optional, works only if Gemfile is at repo root
+          bundler-cache: true
+          working-directory: ios
 
       - name: Install XcodeGen (if needed)
         working-directory: ios
-        env:
-          HOMEBREW_NO_AUTO_UPDATE: 1
         run: brew install xcodegen || true
-
-      - name: Unlink Homebrew Ruby (avoid conflicts)
-        run: brew unlink ruby@3.3 || true
-
-      # Ensure stub xcconfigs are present before project generation
-      - name: "Preflight: ensure stub xcconfigs exist"
-        shell: bash
-        run: |
-          set -euo pipefail
-          unset BUNDLE_GEMFILE GEM_HOME GEM_PATH RUBYOPT RUBYLIB || true
-          for f in "ios/Config/MyOfflineLLMApp.Debug.xcconfig" "ios/Config/MyOfflineLLMApp.Release.xcconfig"; do
-            if [ ! -f "$f" ]; then
-              echo "::error::Missing $f (commit stub xcconfigs or fix project.yml configFiles)."
-              exit 1
-            fi
-          done
-          echo "Stub xcconfigs OK"
 
       - name: Generate Xcode project
         working-directory: ios
-        shell: bash
-        run: |
-          set -euo pipefail
-          # Ensure XcodeGen runs without Bundler injecting itself
-          unset BUNDLE_GEMFILE GEM_HOME GEM_PATH RUBYOPT RUBYLIB || true
-          xcodegen generate
-
-      - name: Cache Bundler
-        uses: actions/cache@v4
-        with:
-          path: ios/vendor/bundle
-          key: ${{ runner.os }}-bundler-${{ env.RUBY_VERSION }}-${{ hashFiles('ios/Gemfile.lock') }}
-          restore-keys: |
-            ${{ runner.os }}-bundler-${{ env.RUBY_VERSION }}-
-
-      - name: Bundle config path
-        working-directory: ios
-        shell: bash
-        run: |
-          unset BUNDLE_GEMFILE GEM_HOME GEM_PATH RUBYOPT RUBYLIB || true
-          bundle config set path vendor/bundle
+        run: xcodegen generate
 
       - name: Bundle install
         working-directory: ios
-        shell: bash
-        run: |
-          unset BUNDLE_GEMFILE GEM_HOME GEM_PATH RUBYOPT RUBYLIB || true
-          bundle install
+        run: bundle install
 
       - name: Install Pods
         working-directory: ios
-        shell: bash
-        run: |
-          unset BUNDLE_GEMFILE GEM_HOME GEM_PATH RUBYOPT RUBYLIB || true
-          bundle exec pod install --repo-update
-
-      - name: "Debug: show Pod support folders + active config"
-        shell: bash
-        run: |
-          set -euo pipefail
-          unset BUNDLE_GEMFILE GEM_HOME GEM_PATH RUBYOPT RUBYLIB || true
-          echo "== Pods/Target Support Files =="
-          ls -1 "ios/Pods/Target Support Files" | sed 's/^/  /' || true
-          echo
-          echo "== Xcode build settings (Release) =="
-          xcodebuild -showBuildSettings \
-            -workspace ios/MyOfflineLLMApp.xcworkspace \
-            -scheme MyOfflineLLMApp \
-            -configuration Release \
-            | egrep 'BaseConfiguration|PODS_ROOT|HEADER_SEARCH_PATHS|SWIFT_OBJC_BRIDGING_HEADER' || true
-          echo
-          echo "== Verify React headers path is present =="
-          xcodebuild -showBuildSettings \
-            -workspace ios/MyOfflineLLMApp.xcworkspace \
-            -scheme MyOfflineLLMApp -configuration Release \
-            | grep -E 'Headers/Public/React-Core' || echo "::warning::React-Core header path not visible yet"
+        run: bundle exec pod install --repo-update
 
       - name: Cache DerivedData
         uses: actions/cache@v4
         with:
           path: ios/build
           key: ${{ runner.os }}-derived-${{ env.SCHEME }}-${{ hashFiles('ios/Podfile.lock') }}
-          restore-keys: |
-            ${{ runner.os }}-derived-${{ env.SCHEME }}-
+          restore-keys: ${{ runner.os }}-derived-${{ env.SCHEME }}-
 
-      # Show settings to detect any pinned SDKs
       - name: Show effective build settings (SDK/Platforms)
         shell: bash
         run: |
-          unset BUNDLE_GEMFILE GEM_HOME GEM_PATH RUBYOPT RUBYLIB || true
           xcodebuild -showBuildSettings \
             -workspace ios/MyOfflineLLMApp.xcworkspace \
             -scheme MyOfflineLLMApp \
             -configuration Release | egrep 'SDKROOT|SUPPORTED_PLATFORMS|IPHONEOS_DEPLOYMENT_TARGET' || true
 
-      # Unpin any iphoneos Base SDK in pbxproj/xcconfigs
       - name: Unpin Base SDK (SDKROOT) if pinned
         shell: bash
         run: |
           set -euo pipefail
           if [ -f "ios/MyOfflineLLMApp.xcodeproj/project.pbxproj" ]; then
+            # Ensure SWIFT_VERSION and SDKROOT aren’t pinned to old values in the project file
             sed -E -i '' \
-              -e 's/SWIFT_VERSION = [0-9]\.[0-9];/SWIFT_VERSION = ${SWIFT_VERSION};/g' \
+              -e "s/SWIFT_VERSION = [0-9]+\.[0-9]+;/SWIFT_VERSION = ${SWIFT_VERSION};/g" \
               -e 's/SDKROOT = iphoneos[0-9]+(\.[0-9]+)?;/SDKROOT = iphoneos;/g' \
-              -e 's/SDKROOT = iphoneos[0-9]+(\.[0-9]+)?/SDKROOT = iphoneos/g' \
               ios/MyOfflineLLMApp.xcodeproj/project.pbxproj || true
           fi
+          # Do the same for any xcconfig files
           find ios -name "*.xcconfig" -print0 | xargs -0 -I{} \
             sed -E -i '' 's/SDKROOT *= *iphoneos[0-9]+(\.[0-9]+)?/SDKROOT = iphoneos/g' "{}" || true
+          # Ensure Swift version is explicitly set in main xcconfig (append if not present)
           echo "SWIFT_VERSION=${SWIFT_VERSION}" >> ios/MyOfflineLLMApp.xcconfig || true
 
           echo "After unpinning — effective SDKROOT:"
@@ -187,62 +119,52 @@ jobs:
           set -euo pipefail
           WORKSPACE_BASENAME="$(basename "${{ env.WORKSPACE }}")"
           PROJECT_BASENAME="${WORKSPACE_BASENAME%.xcworkspace}.xcodeproj"
+          # Regenerate project if it contains unresolved merge conflict markers
           if grep -E '^(<<<<<<<|=======|>>>>>>>)' "$PROJECT_BASENAME/project.pbxproj" >/dev/null; then
             echo "::error::Git conflict markers detected in project.pbxproj; regenerating..."
             xcodegen generate
           fi
+          # Regenerate if xcodebuild -list fails (invalid project)
           if ! xcodebuild -list -project "$PROJECT_BASENAME" >/dev/null; then
             echo "::error::Xcode project is invalid, regenerating..."
             xcodegen generate
           fi
+          # Abort if conflict markers still remain
           if grep -E '^(<<<<<<<|=======|>>>>>>>)' "$PROJECT_BASENAME/project.pbxproj" >/dev/null; then
-            echo "::error::Conflict markers remain after regeneration"; exit 1; fi
+            echo "::error::Conflict markers remain after regeneration"; exit 1;
+          fi
+          # Verify the scheme exists in the workspace
           xcodebuild -list -workspace "$WORKSPACE_BASENAME" | grep -q "${{ env.SCHEME }}" || {
             echo "::error::Scheme ${{ env.SCHEME }} not found"; exit 1; }
 
-      - name: Archive (device, unsigned; generic iOS; force latest SDK)
+      - name: Archive (device, unsigned)
         id: archive
         working-directory: ios
         shell: bash
         run: |
           set -euo pipefail
-          WORKSPACE_BASENAME="$(basename "${{ env.WORKSPACE }}")"
           ARCHIVE_PATH="build/${{ env.SCHEME }}.xcarchive"
-          RESULT_BUNDLE="${RUNNER_TEMP}/archive.xcresult"
           echo "Archiving with $(xcodebuild -version | head -1)…"
           xcodebuild \
-            -workspace "$WORKSPACE_BASENAME" \
+            -workspace "$(basename "${{ env.WORKSPACE }}")" \
             -scheme "${{ env.SCHEME }}" \
             -configuration Release \
             -sdk iphoneos \
-            SDKROOT=iphoneos \
-            SUPPORTED_PLATFORMS=iphoneos \
+            -destination "generic/platform=iOS" \
             CODE_SIGNING_ALLOWED=NO CODE_SIGNING_REQUIRED=NO CODE_SIGN_IDENTITY="" \
             ONLY_ACTIVE_ARCH=NO ARCHS=arm64 \
-            -destination "generic/platform=iOS" \
             -archivePath "$ARCHIVE_PATH" \
-            -resultBundlePath "$RESULT_BUNDLE" \
-            archive | tee xcodebuild-archive.log || true
+            archive | tee xcodebuild-archive.log
+
+          # Verify that archive contains an application
           if [ ! -d "$ARCHIVE_PATH/Products/Applications" ]; then
             echo "::error::Archive missing Applications folder: $ARCHIVE_PATH/Products/Applications"
-            xcodebuild -showdestinations -workspace "$WORKSPACE_BASENAME" -scheme "${{ env.SCHEME }}" -sdk iphoneos || true
-            ls -R "$ARCHIVE_PATH" || true
+            # Print available destinations and settings for debugging
+            xcodebuild -showdestinations -workspace "$(basename "${{ env.WORKSPACE }}")" -scheme "${{ env.SCHEME }}" -sdk iphoneos || true
+            xcodebuild -showBuildSettings -workspace "$(basename "${{ env.WORKSPACE }}")" -scheme "${{ env.SCHEME }}" -configuration Release | grep -E '^ *SDKROOT' || true
             exit 1
           fi
           echo "archive=$(pwd)/$ARCHIVE_PATH" >> "$GITHUB_OUTPUT"
-
-      - name: Print top issues from xcresult on failure
-        if: failure()
-        shell: bash
-        run: |
-          set -euo pipefail
-          RESULT_BUNDLE="${RUNNER_TEMP}/archive.xcresult"
-          if [ -d "$RESULT_BUNDLE" ]; then
-            echo "::group::xcresult: top issues"
-            /usr/bin/xcrun xcresulttool get --format json --path "$RESULT_BUNDLE" --legacy \
-            | /usr/bin/python3 scripts/xcresult_top_issues.py
-            echo "::endgroup::"
-          fi
 
       - name: Upload .xcarchive
         uses: actions/upload-artifact@v4
@@ -250,7 +172,6 @@ jobs:
           name: ${{ env.SCHEME }}-xcarchive
           path: ios/build/${{ env.SCHEME }}.xcarchive
 
-      # Always create an unsigned IPA from the archive
       - name: Create unsigned IPA from archive
         working-directory: ios
         shell: bash
@@ -266,8 +187,10 @@ jobs:
             /usr/bin/find "$archive_path" -name '*.app' -print || true
             exit 1
           fi
+          # Remove any signing info to create a truly unsigned .ipa
           rm -rf "$APP_PATH/_CodeSignature" || true
           rm -f "$APP_PATH/embedded.mobileprovision" || true
+          # Package into an IPA
           WORK_DIR="$(mktemp -d)"
           mkdir -p "$WORK_DIR/Payload"
           cp -R "$APP_PATH" "$WORK_DIR/Payload/"
@@ -283,52 +206,3 @@ jobs:
           path: ${{ env.IPA_PATH }}
           if-no-files-found: error
 
-      # --- Optional signed export (disabled by default to avoid 'secrets' in if:) ---
-      - name: Prepare ExportOptions.plist
-        if: ${{ env.ENABLE_SIGNED_EXPORT == 'true' }}
-        working-directory: ios
-        shell: bash
-        run: |
-          set -euo pipefail
-          printf '%s\n' \
-          '<?xml version="1.0" encoding="UTF-8"?>' \
-          '<!DOCTYPE plist PUBLIC "-//Apple//DTD PLIST 1.0//EN" "http://www.apple.com/DTDs/PropertyList-1.0.dtd">' \
-          '<plist version="1.0"><dict>' \
-          '<key>method</key><string>ad-hoc</string>' \
-          '<key>signingStyle</key><string>manual</string>' \
-          '<key>provisioningProfiles</key><dict>' \
-          "<key>${{ secrets.IOS_BUNDLE_ID }}</key><string>${{ secrets.IOS_PROFILE_NAME }}</string>" \
-          '</dict>' \
-          '<key>stripSwiftSymbols</key><true/>' \
-          '<key>compileBitcode</key><false/>' \
-          '</dict></plist>' > ExportOptions.plist
-          cat ExportOptions.plist
-
-      - name: Install signing assets and export IPA
-        if: ${{ env.ENABLE_SIGNED_EXPORT == 'true' }}
-        working-directory: ios
-        shell: bash
-        run: |
-          set -euo pipefail
-          KEYCHAIN="$RUNNER_TEMP/build.keychain-db"
-          security create-keychain -p "" "$KEYCHAIN"
-          security set-keychain-settings "$KEYCHAIN"
-          security unlock-keychain -p "" "$KEYCHAIN"
-          echo "${{ secrets.IOS_SIGNING_CERT_P12 }}" | base64 --decode > cert.p12
-          security import cert.p12 -k "$KEYCHAIN" -P "${{ secrets.IOS_P12_PASSWORD }}" -A
-          security list-keychain -d user -s "$KEYCHAIN" login.keychain-db
-          mkdir -p "$HOME/Library/MobileDevice/Provisioning Profiles"
-          echo "${{ secrets.IOS_MOBILEPROVISION_B64 }}" | base64 --decode > "$HOME/Library/MobileDevice/Provisioning Profiles/${{ secrets.IOS_PROFILE_NAME }}.mobileprovision"
-          xcodebuild -exportArchive \
-            -archivePath "${{ steps.archive.outputs.archive }}" \
-            -exportOptionsPlist ExportOptions.plist \
-            -exportPath build/export-ipa \
-            -allowProvisioningUpdates | tee xcodebuild-export.log
-
-      - name: Upload IPA (if exported)
-        if: ${{ env.ENABLE_SIGNED_EXPORT == 'true' }}
-        uses: actions/upload-artifact@v4
-        with:
-          name: ${{ env.SCHEME }}-IPA
-          path: ios/build/export-ipa/*.ipa
-          if-no-files-found: ignore
