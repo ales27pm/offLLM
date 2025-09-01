@@ -58,17 +58,15 @@ jobs:
         with:
           ruby-version: ${{ env.RUBY_VERSION }}
           bundler-cache: true
-          working-directory: ios
+        working-directory: ios
 
       - name: Install XcodeGen (if needed)
         working-directory: ios
+        env:
+          HOMEBREW_NO_AUTO_UPDATE: 1
         run: brew install xcodegen || true
 
-      - name: Generate Xcode project
-        working-directory: ios
-        run: xcodegen generate
-
-      # Ensure stub xcconfigs are present before XcodeGen/Pods are used by the build
+      # Ensure stub xcconfigs are present before project generation
       - name: Preflight: ensure stub xcconfigs exist
         shell: bash
         run: |
@@ -80,6 +78,10 @@ jobs:
             fi
           done
           echo "Stub xcconfigs OK"
+
+      - name: Generate Xcode project
+        working-directory: ios
+        run: xcodegen generate
 
       - name: Bundle install
         working-directory: ios
