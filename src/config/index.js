@@ -4,11 +4,11 @@ const isReactNative =
 if (isReactNative) {
   try {
     Config = require("react-native-config");
-  } catch (e) {
+  } catch (_e) {
     Config = {};
     console.warn(
       "[Config] Failed to load react-native-config. Falling back to empty config. This may indicate a misconfiguration.",
-      e
+      _e
     );
   }
 }
