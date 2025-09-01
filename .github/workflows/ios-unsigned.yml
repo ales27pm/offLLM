@@ -241,22 +241,22 @@ jobs:
             echo "::group::xcresult: top issues"
             /usr/bin/xcrun xcresulttool get --format json --path "$RESULT_BUNDLE" \
               | /usr/bin/python3 - <<'PY'
-import json,sys
-o=json.load(sys.stdin)
-issues=[]
-def walk(d):
-    if isinstance(d,dict):
-        for k,v in d.items():
-            if k.endswith("issues") and isinstance(v,dict):
-                for key in ("warningSummaries","errorSummaries"):
-                    if key in v and v[key]:
-                        issues.extend(v[key])
-            walk(v)
-    elif isinstance(d,list):
-        for x in d: walk(x)
-for it in issues[:20]:
-    print('-', it.get('message','').strip())
-PY
+              import json,sys
+              o=json.load(sys.stdin)
+              issues=[]
+              def walk(d):
+                if isinstance(d,dict):
+                  for k,v in d.items():
+                    if k.endswith("issues") and isinstance(v,dict):
+                      for key in ("warningSummaries","errorSummaries"):
+                        if key in v and v[key]:
+                          issues.extend(v[key])
+                    walk(v)
+                elif isinstance(d,list):
+                  for x in d: walk(x)
+              for it in issues[:20]:
+                print('-', it.get('message','').strip())
+              PY
             echo "::endgroup::"
           fi
 
