@@ -6,9 +6,10 @@ ios/vendor/
 ios/MyOfflineLLMApp.xcodeproj/
 ios/MyOfflineLLMApp.xcworkspace/
 ios/.bundle/
-build/
+/build/
 android/app/build/
 .env
-ios/build/
-ios/build/generated/ios/
+ios/build/*
+!ios/build/generated/
+!ios/build/generated/ios/**
 ios/MyOfflineLLMApp.xcresult

@@ -1,11 +1,5 @@
 import Foundation
 import Darwin
-// Import React to pick up `RCTBridgeModule` and promise block types.  The
-// original implementation relied on a bridging header for these types
-// which may not always be available when building outside of the
-// official React Native toolchain.  Pulling them in explicitly fixes
-// compiler errors like “cannot find type `RCTBridgeModule` in scope”.
-import React
 
 // Attempt to import the real MLX modules.  If they are not present at
 // build time (for example, when the MLX Swift packages have not been
