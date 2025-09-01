@@ -2,13 +2,12 @@ name: MyOfflineLLMApp
 
 options:
   bundleIdPrefix: com.offllm
+  # Ensure standard configs exist for XcodeGen
+  configs:
+    Debug: debug
+    Release: release
   createIntermediateGroups: true
   minimumXcodeGenVersion: 2.40.0
-  postGenCommand: bundle exec pod install
-
-configs:
-  Debug: debug
-  Release: release
 
 settings:
   base:
@@ -32,6 +31,12 @@ targets:
   MyOfflineLLMApp:
     type: application
     platform: iOS
+    # Make Xcode use our stub xcconfigs that include the Pods-generated ones
+    configFiles:
+      Debug: Config/MyOfflineLLMApp.Debug.xcconfig
+      Release: Config/MyOfflineLLMApp.Release.xcconfig
+      # (Optional) If you have other configs like Profile, add them here pointing
+      # to stubs that include the matching Pods .xcconfig
     # Match the project's deployment target to React Native's minimum (18.0)
     # so generated pods do not demand a higher iOS version.
     deploymentTarget: "18.0"
@@ -48,17 +53,13 @@ targets:
         CODE_SIGN_STYLE: Automatic
         DEVELOPMENT_TEAM: ""
         CLANG_ENABLE_MODULES: YES
-        # Expose React's Objective-C types to Swift without importing
-        # the React module directly.
+        # Swift <-> ObjC: keep bridging header path stable
         SWIFT_OBJC_BRIDGING_HEADER: $(SRCROOT)/MyOfflineLLMApp/MyOfflineLLMApp-Bridging-Header.h
         HEADER_SEARCH_PATHS:
           - $(inherited)
           - $(SRCROOT)/build/generated/ios
         SWIFT_INCLUDE_PATHS:
           - $(SRCROOT)/build/generated/ios
-    configFiles:
-      Debug:   "Pods/Target Support Files/Pods-MyOfflineLLMApp/Pods-MyOfflineLLMApp.debug.xcconfig"
-      Release: "Pods/Target Support Files/Pods-MyOfflineLLMApp/Pods-MyOfflineLLMApp.release.xcconfig"
     dependencies:
       - package: MLX
         product: MLX

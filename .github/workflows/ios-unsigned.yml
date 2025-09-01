@@ -57,24 +57,89 @@ jobs:
         uses: ruby/setup-ruby@v1
         with:
           ruby-version: ${{ env.RUBY_VERSION }}
-          bundler-cache: true
-          working-directory: ios
+          # bundler-cache: true   # optional, works only if Gemfile is at repo root
 
       - name: Install XcodeGen (if needed)
         working-directory: ios
+        env:
+          HOMEBREW_NO_AUTO_UPDATE: 1
         run: brew install xcodegen || true
+
+      - name: Unlink Homebrew Ruby (avoid conflicts)
+        run: brew unlink ruby@3.3 || true
+
+      # Ensure stub xcconfigs are present before project generation
+      - name: "Preflight: ensure stub xcconfigs exist"
+        shell: bash
+        run: |
+          set -euo pipefail
+          unset BUNDLE_GEMFILE GEM_HOME GEM_PATH RUBYOPT RUBYLIB || true
+          for f in "ios/Config/MyOfflineLLMApp.Debug.xcconfig" "ios/Config/MyOfflineLLMApp.Release.xcconfig"; do
+            if [ ! -f "$f" ]; then
+              echo "::error::Missing $f (commit stub xcconfigs or fix project.yml configFiles)."
+              exit 1
+            fi
+          done
+          echo "Stub xcconfigs OK"
 
       - name: Generate Xcode project
         working-directory: ios
-        run: xcodegen generate
+        shell: bash
+        run: |
+          set -euo pipefail
+          # Ensure XcodeGen runs without Bundler injecting itself
+          unset BUNDLE_GEMFILE GEM_HOME GEM_PATH RUBYOPT RUBYLIB || true
+          xcodegen generate
+
+      - name: Cache Bundler
+        uses: actions/cache@v4
+        with:
+          path: ios/vendor/bundle
+          key: ${{ runner.os }}-bundler-${{ env.RUBY_VERSION }}-${{ hashFiles('ios/Gemfile.lock') }}
+          restore-keys: |
+            ${{ runner.os }}-bundler-${{ env.RUBY_VERSION }}-
+
+      - name: Bundle config path
+        working-directory: ios
+        shell: bash
+        run: |
+          unset BUNDLE_GEMFILE GEM_HOME GEM_PATH RUBYOPT RUBYLIB || true
+          bundle config set path vendor/bundle
 
       - name: Bundle install
         working-directory: ios
-        run: bundle install
+        shell: bash
+        run: |
+          unset BUNDLE_GEMFILE GEM_HOME GEM_PATH RUBYOPT RUBYLIB || true
+          bundle install
 
       - name: Install Pods
         working-directory: ios
-        run: bundle exec pod install --repo-update
+        shell: bash
+        run: |
+          unset BUNDLE_GEMFILE GEM_HOME GEM_PATH RUBYOPT RUBYLIB || true
+          bundle exec pod install --repo-update
+
+      - name: "Debug: show Pod support folders + active config"
+        shell: bash
+        run: |
+          set -euo pipefail
+          unset BUNDLE_GEMFILE GEM_HOME GEM_PATH RUBYOPT RUBYLIB || true
+          echo "== Pods/Target Support Files =="
+          ls -1 "ios/Pods/Target Support Files" | sed 's/^/  /' || true
+          echo
+          echo "== Xcode build settings (Release) =="
+          xcodebuild -showBuildSettings \
+            -workspace ios/MyOfflineLLMApp.xcworkspace \
+            -scheme MyOfflineLLMApp \
+            -configuration Release \
+            | egrep 'BaseConfiguration|PODS_ROOT|HEADER_SEARCH_PATHS|SWIFT_OBJC_BRIDGING_HEADER' || true
+          echo
+          echo "== Verify React headers path is present =="
+          xcodebuild -showBuildSettings \
+            -workspace ios/MyOfflineLLMApp.xcworkspace \
+            -scheme MyOfflineLLMApp -configuration Release \
+            | grep -E 'Headers/Public/React-Core' || echo "::warning::React-Core header path not visible yet"
 
       - name: Cache DerivedData
         uses: actions/cache@v4
@@ -88,6 +153,7 @@ jobs:
       - name: Show effective build settings (SDK/Platforms)
         shell: bash
         run: |
+          unset BUNDLE_GEMFILE GEM_HOME GEM_PATH RUBYOPT RUBYLIB || true
           xcodebuild -showBuildSettings \
             -workspace ios/MyOfflineLLMApp.xcworkspace \
             -scheme MyOfflineLLMApp \
@@ -142,6 +208,7 @@ jobs:
           set -euo pipefail
           WORKSPACE_BASENAME="$(basename "${{ env.WORKSPACE }}")"
           ARCHIVE_PATH="build/${{ env.SCHEME }}.xcarchive"
+          RESULT_BUNDLE="${RUNNER_TEMP}/archive.xcresult"
           echo "Archiving with $(xcodebuild -version | head -1)…"
           xcodebuild \
             -workspace "$WORKSPACE_BASENAME" \
@@ -154,15 +221,28 @@ jobs:
             ONLY_ACTIVE_ARCH=NO ARCHS=arm64 \
             -destination "generic/platform=iOS" \
             -archivePath "$ARCHIVE_PATH" \
-            archive | tee xcodebuild-archive.log
-
+            -resultBundlePath "$RESULT_BUNDLE" \
+            archive | tee xcodebuild-archive.log || true
           if [ ! -d "$ARCHIVE_PATH/Products/Applications" ]; then
             echo "::error::Archive missing Applications folder: $ARCHIVE_PATH/Products/Applications"
             xcodebuild -showdestinations -workspace "$WORKSPACE_BASENAME" -scheme "${{ env.SCHEME }}" -sdk iphoneos || true
-            xcodebuild -showBuildSettings -workspace "$WORKSPACE_BASENAME" -scheme "${{ env.SCHEME }}" -configuration Release | grep -E '^ *SDKROOT' || true
+            ls -R "$ARCHIVE_PATH" || true
             exit 1
           fi
           echo "archive=$(pwd)/$ARCHIVE_PATH" >> "$GITHUB_OUTPUT"
+
+      - name: Print top issues from xcresult on failure
+        if: failure()
+        shell: bash
+        run: |
+          set -euo pipefail
+          RESULT_BUNDLE="${RUNNER_TEMP}/archive.xcresult"
+          if [ -d "$RESULT_BUNDLE" ]; then
+            echo "::group::xcresult: top issues"
+            /usr/bin/xcrun xcresulttool get --format json --path "$RESULT_BUNDLE" --legacy \
+            | /usr/bin/python3 scripts/xcresult_top_issues.py
+            echo "::endgroup::"
+          fi
 
       - name: Upload .xcarchive
         uses: actions/upload-artifact@v4
