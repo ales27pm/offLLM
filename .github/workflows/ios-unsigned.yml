@@ -239,7 +239,7 @@ jobs:
           RESULT_BUNDLE="${RUNNER_TEMP}/archive.xcresult"
           if [ -d "$RESULT_BUNDLE" ]; then
             echo "::group::xcresult: top issues"
-            /usr/bin/xcrun xcresulttool get --format json --path "$RESULT_BUNDLE" \
+            /usr/bin/xcrun xcresulttool get --format json --path "$RESULT_BUNDLE" --legacy \
             | /usr/bin/python3 scripts/xcresult_top_issues.py
             echo "::endgroup::"
           fi
