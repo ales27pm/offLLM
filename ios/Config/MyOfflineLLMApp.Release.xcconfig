@@ -1,4 +1,4 @@
-#include? "Pods/Target Support Files/Pods-MyOfflineLLMApp/Pods-MyOfflineLLMApp.release.xcconfig"
+#include? "Pods/Target Support Files/Pods-offLLMApp/Pods-offLLMApp.release.xcconfig"
 
 HEADER_SEARCH_PATHS = $(inherited)
 SWIFT_OBJC_BRIDGING_HEADER = $(SRCROOT)/MyOfflineLLMApp/MyOfflineLLMApp-Bridging-Header.h
