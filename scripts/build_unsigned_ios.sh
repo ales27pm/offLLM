@@ -11,7 +11,7 @@ DERIVED="${IOS_DIR}/build"
 : "${WORKSPACE:?WORKSPACE env var required}"
 IOS_DESTINATION="${IOS_DESTINATION:-}"
 
-RESULT_BUNDLE="${IOS_DIR}/${SCHEME}.xcresult"
+RESULT_BUNDLE="${RESULT_BUNDLE:-${IOS_DIR}/${SCHEME}.xcresult}"
 LOG_FILE="${IOS_DIR}/xcodebuild.log"
 
 echo "▶️  Unsigned iOS build starting…"
@@ -21,13 +21,15 @@ echo "  WORKSPACE=${WORKSPACE}"
 if [ -n "${IOS_DESTINATION}" ]; then
   echo "  IOS_DESTINATION=${IOS_DESTINATION}"
 fi
+if [ -n "${IOS_SIM_OS:-}" ]; then
+  echo "  IOS_SIM_OS=${IOS_SIM_OS}"
+fi
 echo
 
 XCODE_CMD=(xcodebuild
   -workspace "$WORKSPACE"
   -scheme "$SCHEME"
   -configuration Release
-  -sdk iphonesimulator
   CODE_SIGNING_ALLOWED=NO
   CODE_SIGNING_REQUIRED=NO
   CODE_SIGN_ENTITLEMENTS=
