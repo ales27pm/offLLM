@@ -57,9 +57,7 @@ jobs:
         uses: ruby/setup-ruby@v1
         with:
           ruby-version: ${{ env.RUBY_VERSION }}
-          # Don't use bundler-cache here since your Gemfile is under ios/
-          # (bundler-cache expects Gemfile at repo root)
-          # bundler-cache: true  # ❌ remove this for now
+          # bundler-cache: true   # optional, works only if Gemfile is at repo root
 
       - name: Install XcodeGen (if needed)
         working-directory: ios
