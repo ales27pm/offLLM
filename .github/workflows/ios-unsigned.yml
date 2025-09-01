@@ -64,6 +64,18 @@ jobs:
         working-directory: ios
         run: brew install xcodegen || true
 
+      # Verify the two stub xcconfigs are present in the repo
+      - name: Preflight: ensure stub xcconfigs exist
+        shell: bash
+        run: |
+          set -euo pipefail
+          for f in "ios/Config/MyOfflineLLMApp.Debug.xcconfig" "ios/Config/MyOfflineLLMApp.Release.xcconfig"; do
+            if [ ! -f "$f" ]; then
+              echo "::error::Missing $f (commit stub xcconfigs or fix project.yml configFiles)."
+              exit 1
+            fi
+          done
+
       - name: Generate Xcode project
         working-directory: ios
         run: xcodegen generate
@@ -75,6 +87,26 @@ jobs:
       - name: Install Pods
         working-directory: ios
         run: bundle exec pod install --repo-update
+
+      - name: Debug: show Pod support folders + active config
+        shell: bash
+        run: |
+          set -euo pipefail
+          echo "== Pods/Target Support Files contents =="
+          ls -1 "ios/Pods/Target Support Files" | sed 's/^/  /'
+          echo
+          echo "== Xcode build settings (Release) =="
+          xcodebuild -showBuildSettings \
+            -workspace ios/MyOfflineLLMApp.xcworkspace \
+            -scheme MyOfflineLLMApp \
+            -configuration Release \
+            | egrep 'BaseConfiguration|PODS_ROOT|HEADER_SEARCH_PATHS|SWIFT_OBJC_BRIDGING_HEADER' || true
+          echo
+          echo "== Verify React headers path is present =="
+          xcodebuild -showBuildSettings \
+            -workspace ios/MyOfflineLLMApp.xcworkspace \
+            -scheme MyOfflineLLMApp -configuration Release \
+            | grep -E 'Headers/Public/React-Core' || echo "::warning::React-Core header path not visible yet"
 
       - name: Cache DerivedData
         uses: actions/cache@v4
@@ -142,6 +174,7 @@ jobs:
           set -euo pipefail
           WORKSPACE_BASENAME="$(basename "${{ env.WORKSPACE }}")"
           ARCHIVE_PATH="build/${{ env.SCHEME }}.xcarchive"
+          RESULT_BUNDLE="${RUNNER_TEMP}/archive.xcresult"
           echo "Archiving with $(xcodebuild -version | head -1)…"
           xcodebuild \
             -workspace "$WORKSPACE_BASENAME" \
@@ -154,13 +187,36 @@ jobs:
             ONLY_ACTIVE_ARCH=NO ARCHS=arm64 \
             -destination "generic/platform=iOS" \
             -archivePath "$ARCHIVE_PATH" \
-            archive | tee xcodebuild-archive.log
+            -resultBundlePath "$RESULT_BUNDLE" \
+            archive | tee xcodebuild-archive.log || true
 
+          # If the build failed, print the top issues from the xcresult
           if [ ! -d "$ARCHIVE_PATH/Products/Applications" ]; then
-            echo "::error::Archive missing Applications folder: $ARCHIVE_PATH/Products/Applications"
-            xcodebuild -showdestinations -workspace "$WORKSPACE_BASENAME" -scheme "${{ env.SCHEME }}" -sdk iphoneos || true
-            xcodebuild -showBuildSettings -workspace "$WORKSPACE_BASENAME" -scheme "${{ env.SCHEME }}" -configuration Release | grep -E '^ *SDKROOT' || true
-            exit 1
+            echo "::group::xcresult: top issues"
+            /usr/bin/xcrun xcresulttool get --format json --path "$RESULT_BUNDLE" \
+              | /usr/bin/python3 - <<'PY'
+import json,sys
+o=json.load(sys.stdin)
+issues=[]
+def walk(d):
+  if isinstance(d,dict):
+    for k,v in d.items():
+      if k.endswith("issues") and isinstance(v,dict):
+        for key in ("warningSummaries","errorSummaries"):
+          if key in v:
+            issues.extend(v[key] or [])
+      walk(v)
+  elif isinstance(d,list):
+    for x in d: walk(x)
+walk(o)
+for it in issues[:20]:
+  msg = it.get("message","\").strip()
+  docurl = it.get("documentURL","")
+  print(f"- {msg} {docurl}")
+PY
+            echo "::endgroup::"
+            echo "::error::Archive failed; see errors above."
+            exit 65
           fi
           echo "archive=$(pwd)/$ARCHIVE_PATH" >> "$GITHUB_OUTPUT"
 
