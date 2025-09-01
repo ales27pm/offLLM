@@ -37,6 +37,10 @@ jobs:
       - name: Run tests
         run: npm run test:ci
 
+      # Fail fast on any lint warning
+      - name: Run ESLint (no warnings allowed)
+        run: npm run lint:ci
+
       - name: Setup Ruby & CocoaPods
         uses: ruby/setup-ruby@v1
         with:

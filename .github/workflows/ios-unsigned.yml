@@ -39,6 +39,10 @@ jobs:
       - name: Run tests
         run: npm run test:ci
 
+      # Fail fast on any lint warning
+      - name: Run ESLint (no warnings allowed)
+        run: npm run lint:ci
+
       - name: Set up Xcode 16.4
         run: sudo xcode-select -s /Applications/Xcode_16.4.app/Contents/Developer
 

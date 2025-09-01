@@ -43,9 +43,13 @@ targets:
         CODE_SIGN_STYLE: Automatic
         DEVELOPMENT_TEAM: ""
         CLANG_ENABLE_MODULES: YES
+        # Expose React's Objective-C types to Swift without importing
+        # the React module directly.
+        SWIFT_OBJC_BRIDGING_HEADER: $(SRCROOT)/MyOfflineLLMApp/MyOfflineLLMApp-Bridging-Header.h
         HEADER_SEARCH_PATHS:
           - $(inherited)
           - $(SRCROOT)/build/generated/ios
+          - $(PODS_ROOT)/Headers/Public
         SWIFT_INCLUDE_PATHS:
           - $(SRCROOT)/build/generated/ios
     dependencies:

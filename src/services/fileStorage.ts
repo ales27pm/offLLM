@@ -5,7 +5,7 @@ const isReactNative =
 if (isReactNative) {
   try {
     RNFS = require("react-native-fs");
-  } catch (e) {
+  } catch {
     RNFS = null;
   }
 } else {
@@ -28,7 +28,7 @@ export default class FileStorage {
       }
       const data = await nodeFs.readFile(this.filePath);
       return Buffer.from(data);
-    } catch (e) {
+    } catch {
       return null;
     }
   }

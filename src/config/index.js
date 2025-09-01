@@ -6,7 +6,6 @@ if (isReactNative) {
     Config = require("react-native-config");
   } catch (e) {
     Config = {};
-    // eslint-disable-next-line no-console
     console.warn(
       "[Config] Failed to load react-native-config. Falling back to empty config. This may indicate a misconfiguration.",
       e

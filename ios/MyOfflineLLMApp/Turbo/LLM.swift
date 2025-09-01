@@ -1,10 +1,7 @@
 import Foundation
 import Darwin
-// Import React so that the promise block types are available.  Without
-// importing this framework the compiler can’t find `RCTPromiseResolveBlock`
-// and friends.  This import also makes the `@objc` protocol we define
-// below usable by the React Native bridge.
-import React
+// React types are exposed via the bridging header; no Swift module import
+// is required here.
 
 /// A lightweight protocol that describes the surface area of our LLM
 /// TurboModule.  In the original project this protocol is generated

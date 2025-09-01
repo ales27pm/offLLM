@@ -1,11 +1,11 @@
 import { NativeModules } from "react-native";
 
 type MLXNative = {
-  loadModel(modelPath: string): Promise<boolean>;
+  loadModel(_modelPath: string): Promise<boolean>;
   generate(
-    prompt: string,
-    maxTokens: number,
-    temperature: number
+    _prompt: string,
+    _maxTokens: number,
+    _temperature: number
   ): Promise<string>;
 };
 
