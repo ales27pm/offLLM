@@ -1,5 +1,6 @@
 // Keep Pod settings optional at generate-time; pick them up after `pod install`
 #include? "../Pods/Target Support Files/Pods-MyOfflineLLMApp/Pods-MyOfflineLLMApp.debug.xcconfig"
+#include? "Config/Auto/MLXFlags.xcconfig"
 
 // Ensure React headers (and other public/private Pod headers) are discoverable
 HEADER_SEARCH_PATHS = $(inherited) \
@@ -9,3 +10,5 @@ HEADER_SEARCH_PATHS = $(inherited) \
   $(SRCROOT)/build/generated/ios \
   $(PODS_ROOT)/Headers/Public/React-Codegen
 SWIFT_OBJC_BRIDGING_HEADER = $(SRCROOT)/MyOfflineLLMApp/MyOfflineLLMApp-Bridging-Header.h
+OTHER_SWIFT_FLAGS = $(inherited)
+SWIFT_ACTIVE_COMPILATION_CONDITIONS = $(inherited)
