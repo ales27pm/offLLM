@@ -5,5 +5,7 @@
 HEADER_SEARCH_PATHS = $(inherited) \
   "$(PODS_ROOT)/Headers/Public" \
   "$(PODS_ROOT)/Headers/Public/React-Core" \
-  "$(PODS_ROOT)/Headers/Private"
+  "$(PODS_ROOT)/Headers/Private" \
+  $(SRCROOT)/build/generated/ios \
+  $(PODS_ROOT)/Headers/Public/React-Codegen
 SWIFT_OBJC_BRIDGING_HEADER = $(SRCROOT)/MyOfflineLLMApp/MyOfflineLLMApp-Bridging-Header.h
