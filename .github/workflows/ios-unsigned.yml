@@ -100,10 +100,12 @@ jobs:
               -e 's/SWIFT_VERSION = [0-9]\.[0-9];/SWIFT_VERSION = ${SWIFT_VERSION};/g' \
               -e 's/SDKROOT = iphoneos18\.[0-9]+;/SDKROOT = iphoneos;/g' \
               -e 's/SDKROOT = iphoneos18\.[0-9]+/SDKROOT = iphoneos/g' \
+              -e 's/<<.*>>//g' \
               ios/MyOfflineLLMApp.xcodeproj/project.pbxproj || true
           fi
           find ios -name "*.xcconfig" -print0 | xargs -0 -I{} \
             sed -E -i '' 's/SDKROOT *= *iphoneos18\.[0-9]+/SDKROOT = iphoneos/g' "{}" || true
+          sed -i '' -e 's/<<.*>>//g' ios/MyOfflineLLMApp.xcodeproj/project.pbxproj || true
           echo "SWIFT_VERSION=${SWIFT_VERSION}" >> ios/MyOfflineLLMApp.xcconfig || true
 
           echo "After unpinning — effective SDKROOT:"
@@ -111,6 +113,17 @@ jobs:
             -workspace ios/MyOfflineLLMApp.xcworkspace \
             -scheme MyOfflineLLMApp \
             -configuration Release | grep -E "^ *SDKROOT" || true
+
+      - name: Validate Xcode project
+        working-directory: ios
+        run: |
+          set -euo pipefail
+          if ! xcodebuild -list -project MyOfflineLLMApp.xcodeproj >/dev/null; then
+            echo "::error::Xcode project is invalid, regenerating..."
+            xcodegen generate
+          fi
+          xcodebuild -list -workspace MyOfflineLLMApp.xcworkspace | grep -q "${{ env.SCHEME }}" || {
+            echo "::error::Scheme ${{ env.SCHEME }} not found"; exit 1; }
 
       - name: Archive (device, unsigned; generic iOS; force latest SDK)
         id: archive
