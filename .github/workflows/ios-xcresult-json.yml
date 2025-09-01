@@ -13,10 +13,10 @@ jobs:
       - name: Checkout
         uses: actions/checkout@v4
 
-      - name: Select Xcode 16.2
+      - name: Select Xcode 16.4
         uses: maxim-lobanov/setup-xcode@v1
         with:
-          xcode-version: "16.2"
+          xcode-version: "16.4"
 
       - name: Verify Xcode
         shell: bash
@@ -50,14 +50,14 @@ jobs:
           gem install xcpretty -N
           pod --version
 
-      - name: Ensure iOS project exists (optional XcodeGen)
+      - name: Generate Xcode project from root /ios
         shell: bash
         run: |
           set -euo pipefail
-          if [ -f "ios/MyOfflineLLMApp/project.yml" ]; then
+          if [ -f "ios/project.yml" ]; then
             echo "Generating project with XcodeGen"
             brew install xcodegen || true
-            (cd ios/MyOfflineLLMApp && xcodegen generate)
+            (cd ios && xcodegen generate)
           fi
 
       - name: Install Pods

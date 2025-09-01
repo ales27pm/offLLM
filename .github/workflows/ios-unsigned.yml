@@ -24,7 +24,6 @@ jobs:
     env:
       NODE_OPTIONS: --max_old_space_size=4096
       RCT_NEW_ARCH_ENABLED: 1
-      IPHONEOS_DEPLOYMENT_TARGET: "13.0"
       SWIFT_VERSION: "5.0"
     steps:
       - uses: actions/checkout@v4
