@@ -31,6 +31,12 @@ targets:
   MyOfflineLLMApp:
     type: application
     platform: iOS
+    # Make Xcode use our stub xcconfigs that include the Pods-generated ones
+    configFiles:
+      Debug: Config/MyOfflineLLMApp.Debug.xcconfig
+      Release: Config/MyOfflineLLMApp.Release.xcconfig
+      # (Optional) If you have other configs like Profile, add them here pointing
+      # to stubs that include the matching Pods .xcconfig
     # Match the project's deployment target to React Native's minimum (18.0)
     # so generated pods do not demand a higher iOS version.
     deploymentTarget: "18.0"
@@ -54,9 +60,6 @@ targets:
           - $(SRCROOT)/build/generated/ios
         SWIFT_INCLUDE_PATHS:
           - $(SRCROOT)/build/generated/ios
-    configFiles:
-      Debug: "Config/MyOfflineLLMApp.Debug.xcconfig"
-      Release: "Config/MyOfflineLLMApp.Release.xcconfig"
     dependencies:
       - package: MLX
         product: MLX
