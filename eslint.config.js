@@ -6,16 +6,24 @@ import tsParser from "@typescript-eslint/parser";
 export default [
   {
     ignores: [
+      "coverage/",
+      "ios/build/",
+      "ios/Pods/",
+      "android/app/build/",
+      "android/.gradle/",
+      "android/.idea/",
       "node_modules/",
       "dist/",
       "build/",
-      "coverage/",
-      "ios/Pods/",
-      "android/.gradle/",
-      "android/build/",
     ],
+  },
+  js.configs.recommended,
+  {
+    files: ["**/*.{js,jsx,ts,tsx}"],
     languageOptions: {
+      parser: tsParser,
       ecmaVersion: 2023,
+      sourceType: "module",
       globals: {
         ...globals.node,
         ...globals.browser,
@@ -25,14 +33,6 @@ export default [
         setTimeout: "readonly",
         TextEncoder: "readonly",
       },
-    },
-  },
-  js.configs.recommended,
-  {
-    files: ["**/*.{js,jsx,ts,tsx}"],
-    languageOptions: {
-      parser: tsParser,
-      sourceType: "module",
     },
     plugins: {
       react: reactPlugin,
