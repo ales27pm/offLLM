@@ -65,6 +65,9 @@ jobs:
           HOMEBREW_NO_AUTO_UPDATE: 1
         run: brew install xcodegen || true
 
+      - name: Unlink Homebrew Ruby (avoid conflicts)
+        run: brew unlink ruby@3.3 || true
+
       # Ensure stub xcconfigs are present before project generation
       - name: "Preflight: ensure stub xcconfigs exist"
         shell: bash
@@ -80,7 +83,12 @@ jobs:
 
       - name: Generate Xcode project
         working-directory: ios
-        run: xcodegen generate
+        shell: bash
+        run: |
+          set -euo pipefail
+          # Ensure XcodeGen runs without Bundler injecting itself
+          unset BUNDLE_GEMFILE GEM_HOME GEM_PATH RUBYOPT RUBYLIB || true
+          xcodegen generate
 
       - name: Cache Bundler
         uses: actions/cache@v4
@@ -106,6 +114,7 @@ jobs:
         shell: bash
         run: |
           set -euo pipefail
+          unset BUNDLE_GEMFILE GEM_HOME GEM_PATH RUBYOPT RUBYLIB || true
           echo "== Pods/Target Support Files =="
           ls -1 "ios/Pods/Target Support Files" | sed 's/^/  /' || true
           echo
@@ -134,6 +143,7 @@ jobs:
       - name: Show effective build settings (SDK/Platforms)
         shell: bash
         run: |
+          unset BUNDLE_GEMFILE GEM_HOME GEM_PATH RUBYOPT RUBYLIB || true
           xcodebuild -showBuildSettings \
             -workspace ios/MyOfflineLLMApp.xcworkspace \
             -scheme MyOfflineLLMApp \
