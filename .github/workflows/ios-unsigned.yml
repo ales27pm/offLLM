@@ -64,7 +64,11 @@ jobs:
         working-directory: ios
         run: brew install xcodegen || true
 
-      # Verify the two stub xcconfigs are present in the repo
+      - name: Generate Xcode project
+        working-directory: ios
+        run: xcodegen generate
+
+      # Ensure stub xcconfigs are present before XcodeGen/Pods are used by the build
       - name: Preflight: ensure stub xcconfigs exist
         shell: bash
         run: |
@@ -75,10 +79,7 @@ jobs:
               exit 1
             fi
           done
-
-      - name: Generate Xcode project
-        working-directory: ios
-        run: xcodegen generate
+          echo "Stub xcconfigs OK"
 
       - name: Bundle install
         working-directory: ios
@@ -92,8 +93,8 @@ jobs:
         shell: bash
         run: |
           set -euo pipefail
-          echo "== Pods/Target Support Files contents =="
-          ls -1 "ios/Pods/Target Support Files" | sed 's/^/  /'
+          echo "== Pods/Target Support Files =="
+          ls -1 "ios/Pods/Target Support Files" | sed 's/^/  /' || true
           echo
           echo "== Xcode build settings (Release) =="
           xcodebuild -showBuildSettings \
@@ -189,12 +190,24 @@ jobs:
             -archivePath "$ARCHIVE_PATH" \
             -resultBundlePath "$RESULT_BUNDLE" \
             archive | tee xcodebuild-archive.log || true
-
-          # If the build failed, print the top issues from the xcresult
           if [ ! -d "$ARCHIVE_PATH/Products/Applications" ]; then
+            echo "::error::Archive missing Applications folder: $ARCHIVE_PATH/Products/Applications"
+            xcodebuild -showdestinations -workspace "$WORKSPACE_BASENAME" -scheme "${{ env.SCHEME }}" -sdk iphoneos || true
+            ls -R "$ARCHIVE_PATH" || true
+            exit 1
+          fi
+          echo "archive=$(pwd)/$ARCHIVE_PATH" >> "$GITHUB_OUTPUT"
+
+      - name: Print top issues from xcresult on failure
+        if: failure()
+        shell: bash
+        run: |
+          set -euo pipefail
+          RESULT_BUNDLE="${RUNNER_TEMP}/archive.xcresult"
+          if [ -d "$RESULT_BUNDLE" ]; then
             echo "::group::xcresult: top issues"
             /usr/bin/xcrun xcresulttool get --format json --path "$RESULT_BUNDLE" \
-              | /usr/bin/python3 - <<'PY'
+            | /usr/bin/python3 - <<'PY'
 import json,sys
 o=json.load(sys.stdin)
 issues=[]
@@ -203,22 +216,16 @@ def walk(d):
     for k,v in d.items():
       if k.endswith("issues") and isinstance(v,dict):
         for key in ("warningSummaries","errorSummaries"):
-          if key in v:
-            issues.extend(v[key] or [])
+          if key in v and v[key]:
+            issues.extend(v[key])
       walk(v)
   elif isinstance(d,list):
     for x in d: walk(x)
-walk(o)
 for it in issues[:20]:
-  msg = it.get("message","\").strip()
-  docurl = it.get("documentURL","")
-  print(f"- {msg} {docurl}")
+  print('-', it.get('message','').strip())
 PY
             echo "::endgroup::"
-            echo "::error::Archive failed; see errors above."
-            exit 65
           fi
-          echo "archive=$(pwd)/$ARCHIVE_PATH" >> "$GITHUB_OUTPUT"
 
       - name: Upload .xcarchive
         uses: actions/upload-artifact@v4
