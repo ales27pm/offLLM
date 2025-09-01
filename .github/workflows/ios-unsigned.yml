@@ -116,17 +116,19 @@ jobs:
         working-directory: ios
         run: |
           set -euo pipefail
-          if grep -E '^(<<<<<<<|=======|>>>>>>>)' MyOfflineLLMApp.xcodeproj/project.pbxproj >/dev/null; then
+          WORKSPACE_BASENAME="$(basename "${{ env.WORKSPACE }}")"
+          PROJECT_BASENAME="${WORKSPACE_BASENAME%.xcworkspace}.xcodeproj"
+          if grep -E '^(<<<<<<<|=======|>>>>>>>)' "$PROJECT_BASENAME/project.pbxproj" >/dev/null; then
             echo "::error::Git conflict markers detected in project.pbxproj; regenerating..."
             xcodegen generate
           fi
-          if ! xcodebuild -list -project MyOfflineLLMApp.xcodeproj >/dev/null; then
+          if ! xcodebuild -list -project "$PROJECT_BASENAME" >/dev/null; then
             echo "::error::Xcode project is invalid, regenerating..."
             xcodegen generate
           fi
-          if grep -E '^(<<<<<<<|=======|>>>>>>>)' MyOfflineLLMApp.xcodeproj/project.pbxproj >/dev/null; then
+          if grep -E '^(<<<<<<<|=======|>>>>>>>)' "$PROJECT_BASENAME/project.pbxproj" >/dev/null; then
             echo "::error::Conflict markers remain after regeneration"; exit 1; fi
-          xcodebuild -list -workspace MyOfflineLLMApp.xcworkspace | grep -q "${{ env.SCHEME }}" || {
+          xcodebuild -list -workspace "$WORKSPACE_BASENAME" | grep -q "${{ env.SCHEME }}" || {
             echo "::error::Scheme ${{ env.SCHEME }} not found"; exit 1; }
 
       - name: Archive (device, unsigned; generic iOS; force latest SDK)
