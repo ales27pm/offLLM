@@ -24,6 +24,8 @@ jobs:
     env:
       NODE_OPTIONS: --max_old_space_size=4096
       RCT_NEW_ARCH_ENABLED: 1
+      IPHONEOS_DEPLOYMENT_TARGET: "13.0"
+      SWIFT_VERSION: "5.0"
     steps:
       - uses: actions/checkout@v4
 
@@ -95,12 +97,14 @@ jobs:
           set -euo pipefail
           if [ -f "ios/MyOfflineLLMApp.xcodeproj/project.pbxproj" ]; then
             sed -E -i '' \
+              -e 's/SWIFT_VERSION = [0-9]\.[0-9];/SWIFT_VERSION = ${SWIFT_VERSION};/g' \
               -e 's/SDKROOT = iphoneos18\.[0-9]+;/SDKROOT = iphoneos;/g' \
               -e 's/SDKROOT = iphoneos18\.[0-9]+/SDKROOT = iphoneos/g' \
               ios/MyOfflineLLMApp.xcodeproj/project.pbxproj || true
           fi
           find ios -name "*.xcconfig" -print0 | xargs -0 -I{} \
             sed -E -i '' 's/SDKROOT *= *iphoneos18\.[0-9]+/SDKROOT = iphoneos/g' "{}" || true
+          echo "SWIFT_VERSION=${SWIFT_VERSION}" >> ios/MyOfflineLLMApp.xcconfig || true
 
           echo "After unpinning — effective SDKROOT:"
           xcodebuild -showBuildSettings \
@@ -127,7 +131,6 @@ jobs:
             CODE_SIGNING_ALLOWED=NO CODE_SIGNING_REQUIRED=NO CODE_SIGN_IDENTITY="" \
             ONLY_ACTIVE_ARCH=NO ARCHS=arm64 \
             -destination "generic/platform=iOS" \
-            -derivedDataPath build \
             -archivePath "$ARCHIVE_PATH" \
             archive | tee xcodebuild-archive.log
 

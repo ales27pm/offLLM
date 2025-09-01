@@ -72,6 +72,14 @@ target app_target do
       end
     end
 
+    # Ensure script phases declare outputs to avoid reruns
+    installer.pods_project.targets.each do |t|
+      t.build_phases.each do |phase|
+        next unless phase.respond_to?(:name) && phase.name == 'Create Symlinks to Header Folders'
+        phase.output_paths = ["$(BUILD_DIR)/symlinks/#{t.name}"]
+      end
+    end
+
     File.write('Pods/.ran_post_install', 'Post install executed successfully')
   end
 end
