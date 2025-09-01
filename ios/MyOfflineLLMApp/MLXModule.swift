@@ -1,60 +1,8 @@
 import Foundation
+import React
 import Darwin
-
-// Attempt to import the real MLX modules.  If they are not present at
-// build time (for example, when the MLX Swift packages have not been
-// downloaded or built) we fall back to lightweight stub
-// implementations that allow the app to compile.  The stubs mirror
-// the API shape used in this module so that the rest of the code
-// doesn’t need to change.
-#if canImport(MLXLLM)
-import MLX
 import MLXLLM
-#else
-// MARK: - Placeholder MLX types
-
-/// Options controlling text generation.  Mirrors the real
-/// `GenerationOptions` type from MLXLLM.  Additional fields can be
-/// added here as needed.
-public struct GenerationOptions {
-  public var maxTokens: Int
-  public var temperature: Float
-  public init(maxTokens: Int, temperature: Float) {
-    self.maxTokens = maxTokens
-    self.temperature = temperature
-  }
-}
-
-/// A loader that discovers a model and tokenizer on disk.  The real
-/// MLX implementation throws if the folder is invalid; our stub
-/// simply stores dummy values and never throws.
-public final class ChatModelLoader {
-  public let model: Any
-  public let tokenizer: Any
-  public init(modelFolder: URL) throws {
-    // In a stub implementation we don’t parse any files.  The
-    // properties are set to dummy objects that satisfy the API
-    // contract.
-    self.model = ""
-    self.tokenizer = ""
-  }
-}
-
-/// A session encapsulating stateful chat interactions.  The real
-/// implementation performs incremental generation; our stub returns a
-/// simple transformed version of the prompt.  This more robust
-/// implementation demonstrates how you might build additional logic
-/// without depending on external ML libraries.
-public final class ChatSession {
-  public init(model: Any, tokenizer: Any) {}
-  public func complete(prompt: String, options: GenerationOptions) async throws -> String {
-    // Reverse the prompt and prefix it to signal that this is a
-    // generated response.  A real model would use `options` to
-    // influence generation.
-    return "Echo: " + String(prompt.reversed())
-  }
-}
-#endif
+import MLXLMCommon
 
 /// The native module that exposes MLX-based functionality to the
 /// React Native bridge.  It manages an optional `ChatSession` instance
@@ -62,7 +10,7 @@ public final class ChatSession {
 /// methods dispatch back to the JS thread via promise blocks.
 @objc(MLXModule)
 public final class MLXModule: NSObject {
-  private var chat: ChatSession?
+  private var chat: MLXCompat.ChatSession?
   /// A simple cache for previously generated prompts.  Stores the
   /// prompt and its generated reply.  When the same prompt is
   /// requested again we return the cached result instead of
@@ -84,9 +32,10 @@ extension MLXModule: RCTBridgeModule {
                         rejecter reject: @escaping RCTPromiseRejectBlock) {
     do {
       let url = URL(fileURLWithPath: modelPath, isDirectory: true)
-      let loader = try ChatModelLoader(modelFolder: url)
-      // Create a session from the loader’s model and tokenizer
-      self.chat = try ChatSession(model: loader.model, tokenizer: loader.tokenizer)
+      let loader = try MLXCompat.ModelLoader(modelURL: url)
+      // Create a session from the loader so we can issue completions.
+      let options = MLXCompat.GenerationOptions(maxTokens: 0, temperature: 0)
+      self.chat = try MLXCompat.ChatSession(loader: loader, options: options)
       // Clear any cached results whenever a new model is loaded
       self.kvCache.removeAll()
       resolve(true)
@@ -117,8 +66,8 @@ extension MLXModule: RCTBridgeModule {
     }
     Task.detached {
       do {
-        let opts = GenerationOptions(maxTokens: maxTokens.intValue,
-                                     temperature: Float(truncating: temperature))
+        let opts = MLXCompat.GenerationOptions(maxTokens: maxTokens.intValue,
+                                               temperature: Float(truncating: temperature))
         let reply = try await chat.complete(prompt: prompt, options: opts)
         // Store in the cache for subsequent calls
         self.kvCache[prompt] = reply
