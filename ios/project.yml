@@ -8,7 +8,6 @@ options:
     Release: release
   createIntermediateGroups: true
   minimumXcodeGenVersion: 2.40.0
-  postGenCommand: bundle exec pod install
 
 settings:
   base:

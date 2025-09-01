@@ -73,6 +73,7 @@ jobs:
         shell: bash
         run: |
           set -euo pipefail
+          unset BUNDLE_GEMFILE GEM_HOME GEM_PATH RUBYOPT RUBYLIB || true
           for f in "ios/Config/MyOfflineLLMApp.Debug.xcconfig" "ios/Config/MyOfflineLLMApp.Release.xcconfig"; do
             if [ ! -f "$f" ]; then
               echo "::error::Missing $f (commit stub xcconfigs or fix project.yml configFiles)."
@@ -100,15 +101,24 @@ jobs:
 
       - name: Bundle config path
         working-directory: ios
-        run: bundle config set path vendor/bundle
+        shell: bash
+        run: |
+          unset BUNDLE_GEMFILE GEM_HOME GEM_PATH RUBYOPT RUBYLIB || true
+          bundle config set path vendor/bundle
 
       - name: Bundle install
         working-directory: ios
-        run: bundle install
+        shell: bash
+        run: |
+          unset BUNDLE_GEMFILE GEM_HOME GEM_PATH RUBYOPT RUBYLIB || true
+          bundle install
 
       - name: Install Pods
         working-directory: ios
-        run: bundle exec pod install --repo-update
+        shell: bash
+        run: |
+          unset BUNDLE_GEMFILE GEM_HOME GEM_PATH RUBYOPT RUBYLIB || true
+          bundle exec pod install --repo-update
 
       - name: "Debug: show Pod support folders + active config"
         shell: bash
