@@ -4,6 +4,7 @@ options:
   bundleIdPrefix: com.offllm
   createIntermediateGroups: true
   minimumXcodeGenVersion: 2.40.0
+  postGenCommand: bundle exec pod install
 
 configs:
   Debug: debug
@@ -55,11 +56,9 @@ targets:
           - $(SRCROOT)/build/generated/ios
         SWIFT_INCLUDE_PATHS:
           - $(SRCROOT)/build/generated/ios
-    configs:
-      Debug:
-        baseConfiguration: Pods/Target Support Files/Pods-MyOfflineLLMApp/Pods-MyOfflineLLMApp.debug.xcconfig
-      Release:
-        baseConfiguration: Pods/Target Support Files/Pods-MyOfflineLLMApp/Pods-MyOfflineLLMApp.release.xcconfig
+    configFiles:
+      Debug:   "Pods/Target Support Files/Pods-MyOfflineLLMApp/Pods-MyOfflineLLMApp.debug.xcconfig"
+      Release: "Pods/Target Support Files/Pods-MyOfflineLLMApp/Pods-MyOfflineLLMApp.release.xcconfig"
     dependencies:
       - package: MLX
         product: MLX
