@@ -57,8 +57,8 @@ targets:
         SWIFT_INCLUDE_PATHS:
           - $(SRCROOT)/build/generated/ios
     configFiles:
-      Debug:   "Pods/Target Support Files/Pods-MyOfflineLLMApp/Pods-MyOfflineLLMApp.debug.xcconfig"
-      Release: "Pods/Target Support Files/Pods-MyOfflineLLMApp/Pods-MyOfflineLLMApp.release.xcconfig"
+      Debug: "Config/MyOfflineLLMApp.Debug.xcconfig"
+      Release: "Config/MyOfflineLLMApp.Release.xcconfig"
     dependencies:
       - package: MLX
         product: MLX
