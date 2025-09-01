@@ -114,10 +114,11 @@ jobs:
         shell: bash
         run: |
           set -euo pipefail
+          WORKSPACE_BASENAME="$(basename "${{ env.WORKSPACE }}")"
           ARCHIVE_PATH="build/${{ env.SCHEME }}.xcarchive"
           echo "Archiving with $(xcodebuild -version | head -1)…"
           xcodebuild \
-            -workspace "${{ env.WORKSPACE }}" \
+            -workspace "$WORKSPACE_BASENAME" \
             -scheme "${{ env.SCHEME }}" \
             -configuration Release \
             -sdk iphoneos \
@@ -132,11 +133,11 @@ jobs:
 
           if [ ! -d "$ARCHIVE_PATH/Products/Applications" ]; then
             echo "::error::Archive missing Applications folder: $ARCHIVE_PATH/Products/Applications"
-            xcodebuild -showdestinations -workspace "${{ env.WORKSPACE }}" -scheme "${{ env.SCHEME }}" -sdk iphoneos || true
-            xcodebuild -showBuildSettings -workspace "${{ env.WORKSPACE }}" -scheme "${{ env.SCHEME }}" -configuration Release | grep -E '^ *SDKROOT' || true
+            xcodebuild -showdestinations -workspace "$WORKSPACE_BASENAME" -scheme "${{ env.SCHEME }}" -sdk iphoneos || true
+            xcodebuild -showBuildSettings -workspace "$WORKSPACE_BASENAME" -scheme "${{ env.SCHEME }}" -configuration Release | grep -E '^ *SDKROOT' || true
             exit 1
           fi
-          echo "archive=$ARCHIVE_PATH" >> "$GITHUB_OUTPUT"
+          echo "archive=$(pwd)/$ARCHIVE_PATH" >> "$GITHUB_OUTPUT"
 
       - name: Upload .xcarchive
         uses: actions/upload-artifact@v4
