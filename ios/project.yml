@@ -5,6 +5,10 @@ options:
   createIntermediateGroups: true
   minimumXcodeGenVersion: 2.40.0
 
+configs:
+  Debug: debug
+  Release: release
+
 settings:
   base:
     # React Native 0.81.x mandates iOS 18.0+. Keep this in sync with RN's
@@ -49,16 +53,13 @@ targets:
         HEADER_SEARCH_PATHS:
           - $(inherited)
           - $(SRCROOT)/build/generated/ios
-          - $(PODS_ROOT)/Headers/Public
         SWIFT_INCLUDE_PATHS:
           - $(SRCROOT)/build/generated/ios
     configs:
       Debug:
-        configFiles:
-          - Pods/Target Support Files/Pods-MyOfflineLLMApp/Pods-MyOfflineLLMApp.debug.xcconfig
+        baseConfiguration: Pods/Target Support Files/Pods-MyOfflineLLMApp/Pods-MyOfflineLLMApp.debug.xcconfig
       Release:
-        configFiles:
-          - Pods/Target Support Files/Pods-MyOfflineLLMApp/Pods-MyOfflineLLMApp.release.xcconfig
+        baseConfiguration: Pods/Target Support Files/Pods-MyOfflineLLMApp/Pods-MyOfflineLLMApp.release.xcconfig
     dependencies:
       - package: MLX
         product: MLX

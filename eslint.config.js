@@ -21,9 +21,11 @@ export default [
   {
     files: ["**/*.{js,jsx,ts,tsx}"],
     languageOptions: {
-      parser: tsParser,
       ecmaVersion: 2023,
       sourceType: "module",
+      parserOptions: {
+        ecmaFeatures: { jsx: true },
+      },
       globals: {
         ...globals.node,
         ...globals.browser,
@@ -42,11 +44,18 @@ export default [
         "error",
         { argsIgnorePattern: "^_", varsIgnorePattern: "^_" },
       ],
+      "react/jsx-uses-vars": "error",
       "react/react-in-jsx-scope": "off",
       "react/prop-types": "off",
     },
     settings: {
       react: { version: "detect" },
+    },
+  },
+  {
+    files: ["**/*.{ts,tsx}"],
+    languageOptions: {
+      parser: tsParser,
     },
   },
 ];
