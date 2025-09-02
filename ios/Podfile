@@ -10,9 +10,11 @@ install! 'cocoapods',
 # Include React Native's CocoaPods helpers
 require_relative '../node_modules/react-native/scripts/react_native_pods'
 
+# --- Robust project discovery (works with subfolders like ios/MyOfflineLLMApp/*.xcodeproj)
 project_candidates = Dir['*.xcodeproj'] + Dir['**/*.xcodeproj']
 project_path = project_candidates.first
 raise "No .xcodeproj found near Podfile (#{__dir__})" unless project_path
+puts "📁 Using Xcode project at: #{project_path}"
 
 # Map build configurations so CocoaPods knows which are debug vs release
 project project_path, 'Debug' => :debug, 'Release' => :release

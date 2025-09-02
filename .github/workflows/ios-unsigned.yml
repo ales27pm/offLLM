@@ -33,10 +33,19 @@ jobs:
       - name: Bundle install
         working-directory: ios
         run: bundle install
-      - name: Generate Xcode project (XcodeGen)
-        if: hashFiles('ios/MyOfflineLLMApp/project.yml') != ''
-        working-directory: ios/MyOfflineLLMApp
-        run: xcodegen generate
+      - name: Generate Xcode project (XcodeGen auto-discover)
+        shell: bash
+        run: |
+          set -euo pipefail
+          SPEC="$(/usr/bin/find ios -maxdepth 2 -name project.yml -print -quit || true)"
+          if [[ -n "${SPEC}" ]]; then
+            echo "🛠  Found XcodeGen spec at: ${SPEC}"
+            pushd "$(dirname "${SPEC}")"
+            xcodegen generate
+            popd
+          else
+            echo "ℹ️  No XcodeGen project.yml found; skipping"
+          fi
       - name: Clean CocoaPods sandbox if stale
         working-directory: ios
         run: |
@@ -89,10 +98,19 @@ jobs:
       - name: Bundle install
         working-directory: ios
         run: bundle install
-      - name: Generate Xcode project (XcodeGen)
-        if: hashFiles('ios/MyOfflineLLMApp/project.yml') != ''
-        working-directory: ios/MyOfflineLLMApp
-        run: xcodegen generate
+      - name: Generate Xcode project (XcodeGen auto-discover)
+        shell: bash
+        run: |
+          set -euo pipefail
+          SPEC="$(/usr/bin/find ios -maxdepth 2 -name project.yml -print -quit || true)"
+          if [[ -n "${SPEC}" ]]; then
+            echo "🛠  Found XcodeGen spec at: ${SPEC}"
+            pushd "$(dirname "${SPEC}")"
+            xcodegen generate
+            popd
+          else
+            echo "ℹ️  No XcodeGen project.yml found; skipping"
+          fi
       - name: Clean CocoaPods sandbox if stale
         working-directory: ios
         run: |

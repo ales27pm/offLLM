@@ -67,14 +67,18 @@ jobs:
         shell: bash
         run: gem install xcpretty -N
 
-      - name: Generate Xcode project from root /ios
+      - name: Generate Xcode project (XcodeGen auto-discover)
         shell: bash
         run: |
           set -euo pipefail
-          if [ -f "ios/project.yml" ]; then
-            echo "Generating project with XcodeGen"
-            brew install xcodegen || true
-            (cd ios && xcodegen generate)
+          SPEC="$(/usr/bin/find ios -maxdepth 2 -name project.yml -print -quit || true)"
+          if [[ -n "${SPEC}" ]]; then
+            echo "🛠  Found XcodeGen spec at: ${SPEC}"
+            pushd "$(dirname "${SPEC}")"
+            xcodegen generate
+            popd
+          else
+            echo "ℹ️  No XcodeGen project.yml found; skipping"
           fi
 
       - name: Clean CocoaPods sandbox if stale
