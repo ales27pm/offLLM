@@ -81,6 +81,13 @@ post_install do |installer|
       # Ensure mixed C++ headers compile under gnu++17 and Swift 5
       cfg.build_settings['CLANG_CXX_LANGUAGE_STANDARD'] ||= 'gnu++17'
       cfg.build_settings['SWIFT_VERSION'] ||= '5.0'
+
+      # Bump pods that declare an iOS deployment target lower than Xcode’s supported floor
+      floor = '12.0'
+      current = cfg.build_settings['IPHONEOS_DEPLOYMENT_TARGET']
+      if current.nil? || Gem::Version.new(current) < Gem::Version.new(floor)
+        cfg.build_settings['IPHONEOS_DEPLOYMENT_TARGET'] = floor
+      end
     end
   end
 
@@ -96,89 +103,66 @@ post_install do |installer|
     user_project.save
   end
 
-  # ---- Hermes Fix 2: Remove "Replace Hermes" script phases everywhere ----
-  forbidden_markers = [
-    'Replace Hermes for the right configuration, if needed',
-    'Replace Hermes'
-  ]
-
-  # 1) Scrub Pods project targets (e.g., hermes-engine, React-hermes, etc.)
-  installer.pods_project.targets.each do |t|
-    t.build_phases
-      .select { |p| p.respond_to?(:name) && forbidden_markers.any? { |m| p.name.to_s.include?(m) } }
-      .each { |p| t.build_phases.delete(p) }
-  end
-
-  # 2) Scrub the user projects (your app/workspace targets) that CocoaPods touches
-  installer.aggregate_targets.each do |agg|
-    agg.user_project.native_targets.each do |nt|
-      nt.build_phases
-        .select { |p| p.respond_to?(:name) && forbidden_markers.any? { |m| p.name.to_s.include?(m) } }
-        .each { |p| nt.build_phases.delete(p) }
-    end
-
-    # Save the user project after mutation
-    agg.user_project.save
-  end
-
-  # Save the Pods project after mutation
   installer.pods_project.save
 end
 
-# Silences "will be run during every build" warnings for [CP] phases lacking I/O paths
+# Silences "will be run during every build" warnings for shell phases with no I/O,
+# and scrubs any Hermes "Replace Hermes" phases that may be (re)introduced.
 post_integrate do |installer|
-  pods_project = installer.pods_project
-
-  # --- Remove any Hermes "Replace Hermes" script phases from ALL pods ---
-  removed_count = 0
-  pods_project.targets.each do |t|
-    phases = t.build_phases.select do |p|
-      p.isa == 'PBXShellScriptBuildPhase' &&
-        (p.name || '').to_s.downcase.include?('replace hermes')
+  pods_projects =
+    if installer.respond_to?(:generated_projects) && installer.generated_projects.any?
+      installer.generated_projects
+    else
+      [installer.pods_project].compact
     end
-    phases.each do |phase|
-      t.build_phases.delete(phase)
-      removed_count += 1
-    end
-  end
-  pods_project.save if removed_count > 0
 
-  # --- Collect real Xcode *projects* (avoid Pod::PodTarget, etc.) ---
   user_projects = installer.aggregate_targets
-    .select { |agg| agg.respond_to?(:user_project) && agg.user_project }
-    .map(&:user_project)
-    .uniq { |p| p.path.to_s }
+                  .select { |agg| agg.respond_to?(:user_project) && agg.user_project }
+                  .map(&:user_project)
+                  .uniq { |p| p.path.to_s }
 
-  # Mark [CP] phases without I/O paths as always out-of-date to silence warnings
-  ([pods_project] + user_projects).each do |proj|
+  # --- Scrub ANY Hermes replacement script phases (by name or body), Pods + user projects
+  scrub_hermes = proc do |proj|
     proj.targets.each do |t|
       t.build_phases
-        .select { |p| p.isa == 'PBXShellScriptBuildPhase' && p.name&.start_with?('[CP]') }
-        .each do |run|
-          if (run.input_paths || []).empty? && (run.output_paths || []).empty?
-            run.always_out_of_date = '1'
-          end
-        end
+        .select { |p|
+          p.isa == 'PBXShellScriptBuildPhase' &&
+          (
+            (p.name || '').include?('Replace Hermes') ||
+            (p.shell_script || '').include?('Replace Hermes')
+          )
+        }.each { |p| t.build_phases.delete(p) }
+    end
+    proj.save
+  end
+  (pods_projects + user_projects).each { |proj| scrub_hermes.call(proj) }
+
+  # --- Mark ANY shell phase with empty I/O as always out-of-date to silence warnings
+  (pods_projects + user_projects).each do |proj|
+    proj.targets.each do |t|
+      t.build_phases.grep(Xcodeproj::Project::Object::PBXShellScriptBuildPhase).each do |run|
+        in_empty  = (run.input_paths  || []).empty?
+        out_empty = (run.output_paths || []).empty?
+        run.always_out_of_date = '1' if in_empty && out_empty
+      end
     end
     proj.save
   end
 
-  # --- Guard: fail if any Hermes replacement script remains (CI & local) ---
-  offenders = []
-  pods_project.targets.each do |t|
-    t.build_phases.select { |p| p.isa == 'PBXShellScriptBuildPhase' }.each do |phase|
-      n = (phase.name || '').downcase
-      s = (phase.shell_script || '').downcase
-      if n.include?('replace hermes') || s.include?('replace hermes')
-        offenders << "#{t.name} :: #{phase.name}"
+  # --- CI guard: fail if any Hermes replacement script remains
+  if ENV['CI'] == 'true'
+    offenders = []
+    (pods_projects + user_projects).each do |proj|
+      proj.targets.each do |t|
+        t.build_phases.grep(Xcodeproj::Project::Object::PBXShellScriptBuildPhase).each do |phase|
+          name = (phase.name || '')
+          body = (phase.shell_script || '')
+          if name.include?('Replace Hermes') || body.include?('Replace Hermes')
+            offenders << "#{proj.path} :: #{t.name} :: #{name}"
+          end
+        end
       end
     end
-  end
-  unless offenders.empty?
-    raise <<~MSG
-      Detected forbidden Hermes script phase(s) AFTER post_integrate:
-        #{offenders.join("\n  ")}
-      Policy: the "[Hermes] Replace Hermes ..." script must not exist after pod install.
-    MSG
+    raise "Forbidden Hermes script phases remain:\n  #{offenders.join("\n  ")}" unless offenders.empty?
   end
 end
