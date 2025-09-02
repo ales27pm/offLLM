@@ -42,6 +42,9 @@ jobs:
         working-directory: ios
         run: bundle install
 
+      - name: Install XcodeGen
+        run: brew install xcodegen
+
       # ---- XcodeGen BEFORE pods (auto-discover) ----
       - name: Generate Xcode project (XcodeGen auto-discover)
         shell: bash
@@ -140,6 +143,9 @@ jobs:
       - name: Bundle install
         working-directory: ios
         run: bundle install
+
+      - name: Install XcodeGen
+        run: brew install xcodegen
 
       # ---- XcodeGen BEFORE pods (auto-discover) ----
       - name: Generate Xcode project (XcodeGen auto-discover)

@@ -63,6 +63,9 @@ jobs:
         shell: bash
         run: bundle install
 
+      - name: Install XcodeGen
+        run: brew install xcodegen
+
       - name: Install xcpretty
         shell: bash
         run: gem install xcpretty -N
