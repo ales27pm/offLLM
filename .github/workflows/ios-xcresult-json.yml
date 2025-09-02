@@ -85,6 +85,9 @@ jobs:
         shell: bash
         run: ls -R ios | grep -m1 '\.xcodeproj$' || (echo '❌ No .xcodeproj generated!' && exit 1)
 
+      - name: Debug Xcode projects
+        run: find ios -maxdepth 3 -name "*.xcodeproj" -print
+
       - name: Clean CocoaPods sandbox if stale
         working-directory: ios
         shell: bash

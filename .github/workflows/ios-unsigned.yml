@@ -1,10 +1,9 @@
-name: iOS (unsigned)
+name: iOS (Simulator + Unsigned IPA)
 
 on:
   push:
-    branches: [ main ]
+    branches: [ main, master ]
   pull_request:
-    branches: [ main ]
 
 jobs:
   sim-build:
@@ -13,26 +12,37 @@ jobs:
     env:
       NODE_OPTIONS: --max_old_space_size=4096
       RCT_NEW_ARCH_ENABLED: 1
+      SCHEME: MyOfflineLLMApp
+      CONFIGURATION: Debug
+      SIM_DEVICE: iPhone 16 Pro
     steps:
       - uses: actions/checkout@v4
+
       - uses: actions/setup-node@v4
         with:
-          node-version: ${{ env.NODE_VERSION || '20' }}
-          cache: 'npm'
+          node-version: 20
+          cache: npm
+
       - name: Install Node deps
         run: npm ci
+
+      # ---- Bundler for CocoaPods (deterministic) ----
       - name: Cache Bundler
         uses: actions/cache@v4
         with:
           path: ios/vendor/bundle
           key: ${{ runner.os }}-bundler-${{ hashFiles('ios/Gemfile.lock') }}
           restore-keys: ${{ runner.os }}-bundler-
+
       - name: Bundle config path
         working-directory: ios
         run: bundle config set path vendor/bundle
+
       - name: Bundle install
         working-directory: ios
         run: bundle install
+
+      # ---- XcodeGen BEFORE pods (auto-discover) ----
       - name: Generate Xcode project (XcodeGen auto-discover)
         shell: bash
         run: |
@@ -46,28 +56,50 @@ jobs:
           else
             echo "ℹ️  No XcodeGen project.yml found; skipping"
           fi
+
       - name: Verify generated project
         shell: bash
-        run: ls -R ios | grep -m1 '\.xcodeproj$' || (echo '❌ No .xcodeproj generated!' && exit 1)
+        run: |
+          set -euo pipefail
+          FOUND="$(/usr/bin/find ios -maxdepth 3 -name '*.xcodeproj' -print -quit || true)"
+          if [[ -z "${FOUND}" ]]; then
+            echo "❌ No .xcodeproj generated!"
+            exit 1
+          fi
+          echo "📁 Using project: ${FOUND}"
+
+      - name: Debug Xcode projects
+        run: find ios -maxdepth 3 -name "*.xcodeproj" -print
+
+      # ---- CocoaPods (clean + install via Bundler) ----
       - name: Clean CocoaPods sandbox if stale
         working-directory: ios
         run: |
           set -euo pipefail
           rm -f Pods/Manifest.lock
           rm -rf Pods/Headers || true
+
       - name: Install Pods (bundler)
         working-directory: ios
         run: bundle exec pod install --repo-update
+
+      # (Optional) sanity: show workspace & schemes
+      - name: List workspaces & schemes
+        run: |
+          set -euo pipefail
+          /usr/bin/find ios -maxdepth 3 -name "*.xcworkspace" -print || true
+          xcodebuild -list -workspace ios/*.xcworkspace || true
+
+      # ---- Build Simulator (no signing required) ----
       - name: Build (Simulator)
-        shell: bash
         run: |
           set -euo pipefail
           xcodebuild \
-            -workspace ios/MyOfflineLLMApp.xcworkspace \
-            -scheme MyOfflineLLMApp \
-            -configuration Debug \
+            -workspace ios/*.xcworkspace \
+            -scheme "${SCHEME}" \
+            -configuration "${CONFIGURATION}" \
             -sdk iphonesimulator \
-            -destination 'platform=iOS Simulator,name=iPhone 16 Pro' \
+            -destination "platform=iOS Simulator,name=${SIM_DEVICE}" \
             clean build | xcpretty
 
   unsigned-ipa:
@@ -77,30 +109,36 @@ jobs:
       NODE_OPTIONS: --max_old_space_size=4096
       RCT_NEW_ARCH_ENABLED: 1
       SCHEME: MyOfflineLLMApp
-      WORKSPACE: ios/MyOfflineLLMApp.xcworkspace
       CONFIGURATION: Release
       BUILD_DIR: build
     steps:
       - uses: actions/checkout@v4
-      # Node / Ruby / Bundler steps same as sim-build (keep them in sync)
+
       - uses: actions/setup-node@v4
         with:
-          node-version: ${{ env.NODE_VERSION || '20' }}
-          cache: 'npm'
+          node-version: 20
+          cache: npm
+
       - name: Install Node deps
         run: npm ci
+
+      # ---- Bundler for CocoaPods ----
       - name: Cache Bundler
         uses: actions/cache@v4
         with:
           path: ios/vendor/bundle
           key: ${{ runner.os }}-bundler-${{ hashFiles('ios/Gemfile.lock') }}
           restore-keys: ${{ runner.os }}-bundler-
+
       - name: Bundle config path
         working-directory: ios
         run: bundle config set path vendor/bundle
+
       - name: Bundle install
         working-directory: ios
         run: bundle install
+
+      # ---- XcodeGen BEFORE pods (auto-discover) ----
       - name: Generate Xcode project (XcodeGen auto-discover)
         shell: bash
         run: |
@@ -114,25 +152,39 @@ jobs:
           else
             echo "ℹ️  No XcodeGen project.yml found; skipping"
           fi
+
       - name: Verify generated project
         shell: bash
-        run: ls -R ios | grep -m1 '\.xcodeproj$' || (echo '❌ No .xcodeproj generated!' && exit 1)
+        run: |
+          set -euo pipefail
+          FOUND="$(/usr/bin/find ios -maxdepth 3 -name '*.xcodeproj' -print -quit || true)"
+          if [[ -z "${FOUND}" ]]; then
+            echo "❌ No .xcodeproj generated!"
+            exit 1
+          fi
+          echo "📁 Using project: ${FOUND}"
+
+      - name: Debug Xcode projects
+        run: find ios -maxdepth 3 -name "*.xcodeproj" -print
+
+      # ---- CocoaPods (clean + install via Bundler) ----
       - name: Clean CocoaPods sandbox if stale
         working-directory: ios
         run: |
           set -euo pipefail
           rm -f Pods/Manifest.lock
           rm -rf Pods/Headers || true
+
       - name: Install Pods (bundler)
         working-directory: ios
         run: bundle exec pod install --repo-update
+
+      # ---- Build device .app (no code signing) ----
       - name: Build device .app (no code signing)
-        shell: bash
         run: |
           set -euo pipefail
-          # Build a Release-iphoneos device app without code signing
           xcodebuild \
-            -workspace "${WORKSPACE}" \
+            -workspace ios/*.xcworkspace \
             -scheme "${SCHEME}" \
             -configuration "${CONFIGURATION}" \
             -sdk iphoneos \
@@ -143,9 +195,9 @@ jobs:
             clean build \
             BUILD_DIR="${BUILD_DIR}" \
             | xcpretty
+
       - name: Locate built .app and dSYMs
         id: locate
-        shell: bash
         run: |
           set -euo pipefail
           APP_PATH="$(/usr/bin/find "${BUILD_DIR}/Build/Products/${CONFIGURATION}-iphoneos" -maxdepth 1 -name '*.app' -print -quit)"
@@ -155,17 +207,20 @@ jobs:
             exit 1
           fi
           echo "app_path=${APP_PATH}" >> "$GITHUB_OUTPUT"
+          echo "✅ Found app: ${APP_PATH}"
 
           DSYM_DIR="${BUILD_DIR}/Build/Products/${CONFIGURATION}-iphoneos"
           DSYM_ZIP="${BUILD_DIR}/MyOfflineLLMApp.dSYMs.zip"
           if compgen -G "${DSYM_DIR}/*.dSYM" > /dev/null; then
             /usr/bin/zip -qry "${DSYM_ZIP}" "${DSYM_DIR}"/*.dSYM
             echo "dsym_zip=${DSYM_ZIP}" >> "$GITHUB_OUTPUT"
+            echo "✅ dSYMs zipped: ${DSYM_ZIP}"
           else
             echo "dsym_zip=" >> "$GITHUB_OUTPUT"
+            echo "ℹ️ No dSYMs found to zip"
           fi
+
       - name: Create unsigned IPA
-        shell: bash
         run: |
           set -euo pipefail
           APP_PATH="${{ steps.locate.outputs.app_path }}"
@@ -174,14 +229,15 @@ jobs:
           mkdir -p "${PAYLOAD_DIR}"
           /bin/cp -R "${APP_PATH}" "${PAYLOAD_DIR}/"
           (cd "${IPA_DIR}" && /usr/bin/zip -qry "MyOfflineLLMApp-unsigned.ipa" "Payload")
-          echo "IPA=${IPA_DIR}/MyOfflineLLMApp-unsigned.ipa"
           ls -la "${IPA_DIR}"
+
       - name: Upload unsigned IPA
         uses: actions/upload-artifact@v4
         with:
           name: MyOfflineLLMApp-unsigned-ipa
           path: build/ipa/MyOfflineLLMApp-unsigned.ipa
           if-no-files-found: error
+
       - name: Upload dSYMs (if any)
         if: ${{ steps.locate.outputs.dsym_zip != '' }}
         uses: actions/upload-artifact@v4
