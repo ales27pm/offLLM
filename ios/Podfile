@@ -49,51 +49,6 @@ end
 post_install do |installer|
   react_native_post_install(installer) if defined?(react_native_post_install)
 
-  # CI hardening: delete any Hermes "Replace Hermes" script phases on CI runners
-  if ENV['CI'] == 'true'
-    begin
-      pods_project = installer.pods_project
-      pods_project.targets.each do |t|
-        next unless t.name == 'hermes-engine'
-        t.shell_script_build_phases.each do |phase|
-          if phase.name&.include?('Replace Hermes for the right configuration')
-            puts "🧹 Removing Hermes script phase from target: #{t.name}"
-            t.build_phases.delete(phase)
-          end
-        end
-      end
-      pods_project.save
-    rescue => e
-      puts "[warn] Unable to delete Hermes script phase: #{e}"
-    end
-  end
-
-  # --- Guardrail: fail fast if any Hermes "Replace Hermes" script phase remains
-  begin
-    offending = []
-    installer.pods_project.targets.each do |t|
-      next unless t.name == 'hermes-engine'
-      t.shell_script_build_phases.each do |phase|
-        name = (phase.name || '').downcase
-        body = (phase.shell_script || '').downcase
-        if name.include?('replace hermes') || body.include?('replace hermes')
-          offending << "#{t.name} :: #{phase.name}"
-        end
-      end
-    end
-    unless offending.empty?
-      raise <<~MSG
-        Detected forbidden Hermes script phase(s):
-          #{offending.join("\n  ")}
-        CI policy: the "[Hermes] Replace Hermes" script must not exist.
-        The phase was expected to be deleted in post_install. Investigate Pod integration.
-      MSG
-    end
-  rescue => e
-    UI.puts "❌ Post-install guard triggered:\n#{e}\n"
-    raise
-  end
-
   # --- Safety: with static Pods, scrub any input/output file lists CocoaPods might add
   # This prevents Xcode from expecting *.xcfilelist even if some scripts re-introduce them.
   # Applies to both the Pods project and the user app project.
@@ -144,7 +99,21 @@ end
 
 # Silences "will be run during every build" warnings for [CP] phases lacking I/O paths
 post_integrate do |installer|
-  [installer.pods_project, installer.aggregate_targets.first.user_project].each do |proj|
+  pods_project = installer.pods_project
+
+  if ENV['CI'] == 'true'
+    pods_project.targets.each do |t|
+      next unless t.name == 'hermes-engine'
+      t.shell_script_build_phases.each do |phase|
+        if phase.name&.include?('Replace Hermes for the right configuration')
+          UI.puts "🧹 Removing Hermes script phase from #{t.name}"
+          t.build_phases.delete(phase)
+        end
+      end
+    end
+  end
+
+  [pods_project, installer.aggregate_targets.first.user_project].each do |proj|
     proj.targets.each do |t|
       t.build_phases.select { |p| p.isa == 'PBXShellScriptBuildPhase' && p.name&.start_with?('[CP]') }.each do |run|
         if (run.input_paths || []).empty? && (run.output_paths || []).empty?
@@ -153,5 +122,26 @@ post_integrate do |installer|
       end
     end
     proj.save
+  end
+
+  # Fail fast if any Hermes "Replace Hermes" script phase remains after removal
+  if ENV['CI'] == 'true'
+    offending = []
+    pods_project.targets.each do |t|
+      next unless t.name == 'hermes-engine'
+      t.shell_script_build_phases.each do |phase|
+        name = (phase.name || '').downcase
+        body = (phase.shell_script || '').downcase
+        offending << "#{t.name} :: #{phase.name}" if name.include?('replace hermes') || body.include?('replace hermes')
+      end
+    end
+    unless offending.empty?
+      raise <<~MSG
+        Detected forbidden Hermes script phase(s):
+          #{offending.join("\n  ")}
+        CI policy: the "[Hermes] Replace Hermes" script must not exist.
+        The phase was expected to be deleted in post_integrate. Investigate Pod integration.
+      MSG
+    end
   end
 end
