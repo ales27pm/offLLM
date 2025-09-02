@@ -111,7 +111,7 @@ end
 post_integrate do |installer|
   pods_projects =
     if installer.respond_to?(:generated_projects) && installer.generated_projects.any?
-      installer.generated_projects
+      installer.generated_projects.select { |p| p.is_a?(Xcodeproj::Project) }
     else
       [installer.pods_project].compact
     end
