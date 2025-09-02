@@ -67,12 +67,35 @@ jobs:
         working-directory: ios
         run: bundle exec pod install --repo-update
 
+      - name: Scrub Hermes script phases
+        run: |
+          ruby scripts/strip_hermes_phase.rb ios/Pods/Pods.xcodeproj ios/MyOfflineLLMApp.xcodeproj
+
+      - name: Assert Hermes phase is gone
+        run: |
+          set -euo pipefail
+          if /usr/bin/grep -R --line-number -E "Replace Hermes|\\[Hermes\\]" ios/Pods/Pods.xcodeproj/project.pbxproj ios/MyOfflineLLMApp.xcodeproj/project.pbxproj; then
+            echo "::error::Forbidden Hermes 'Replace Hermes' script phase still present after scrubbing."
+            exit 1
+          fi
+          echo "✅ Hermes phase not found."
+
+      - name: Upload Xcode project files (debug)
+        if: always()
+        uses: actions/upload-artifact@v4
+        with:
+          name: xcode-projects-after-scrub
+          path: |
+            ios/Pods/Pods.xcodeproj/project.pbxproj
+            ios/MyOfflineLLMApp.xcodeproj/project.pbxproj
+
       - name: Resolve Swift package dependencies
         run: xcodebuild -resolvePackageDependencies -workspace ios/MyOfflineLLMApp.xcworkspace -scheme MyOfflineLLMApp -UseModernBuildSystem=YES
 
       - name: Archive (no codesign)
         run: |
           set -euo pipefail
+          mkdir -p "${BUILD_DIR}"
           xcodebuild clean archive \
             -workspace ios/MyOfflineLLMApp.xcworkspace \
             -scheme "${SCHEME}" \
