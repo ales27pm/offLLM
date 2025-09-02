@@ -90,6 +90,18 @@ jobs:
         shell: bash
         run: bundle exec pod install --repo-update
 
+      # Optional: verify sandbox is in sync (auto-heal if needed)
+      - name: Verify Pods sandbox in sync
+        working-directory: ios
+        shell: bash
+        run: |
+          set -euo pipefail
+          if ! bundle exec pod check >/dev/null 2>&1; then
+            echo "::warning::Pods sandbox not in sync; reinstalling…"
+            rm -f Pods/Manifest.lock
+            bundle exec pod install --repo-update
+          fi
+
       - name: Find workspace
         shell: bash
         run: find ios -maxdepth 3 -name "*.xcworkspace" -print

@@ -56,20 +56,33 @@ jobs:
         uses: ruby/setup-ruby@v1
         with:
           ruby-version: ${{ env.RUBY_VERSION }}
-          bundler-cache: true
-          working-directory: ios
 
-      - name: Install XcodeGen (if needed)
-        working-directory: ios
-        run: brew install xcodegen || true
+      # --- Bundler cache for CocoaPods
+      - name: Cache Bundler
+        uses: actions/cache@v4
+        with:
+          path: ios/vendor/bundle
+          key: ${{ runner.os }}-bundler-${{ hashFiles('ios/Gemfile.lock') }}
+          restore-keys: ${{ runner.os }}-bundler-
 
-      - name: Generate Xcode project
+      - name: Bundle config path
         working-directory: ios
-        run: xcodegen generate
+        shell: bash
+        run: bundle config set path vendor/bundle
 
       - name: Bundle install
         working-directory: ios
+        shell: bash
         run: bundle install
+
+      - name: Install XcodeGen (if needed)
+        run: brew install xcodegen || true
+
+      - name: Generate Xcode project (XcodeGen)
+        if: hashFiles('ios/MyOfflineLLMApp/project.yml') != ''
+        working-directory: ios/MyOfflineLLMApp
+        shell: bash
+        run: xcodegen generate
 
       - name: Clean CocoaPods sandbox if stale
         working-directory: ios
@@ -79,8 +92,9 @@ jobs:
           rm -f Pods/Manifest.lock
           rm -rf Pods/Headers || true
 
-      - name: Install Pods
+      - name: Install Pods (bundler)
         working-directory: ios
+        shell: bash
         run: bundle exec pod install --repo-update
 
       - name: Cache DerivedData

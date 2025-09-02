@@ -1,7 +1,11 @@
 # Ensure the platform is set to iOS 18.0
 platform :ios, '18.0'
 ENV['RCT_NEW_ARCH_ENABLED'] = "1" # Enable Fabric/TurboModules
-install! 'cocoapods', :disable_input_output_paths => true
+# --- Build hygiene (CI-friendly) ---
+install! 'cocoapods',
+  :generate_multiple_pod_projects => true,
+  :disable_input_output_paths => false,
+  :warn_for_multiple_pod_sources => true
 
 # Include React Native's CocoaPods helpers
 require_relative '../node_modules/react-native/scripts/react_native_pods'
@@ -38,6 +42,9 @@ target app_target do
   end
 
   post_install do |installer|
+    # Keep the React Native post-install if present
+    react_native_post_install(installer) if defined?(react_native_post_install)
+
     # Normalize the deployment target and disable optimization in Debug for SwiftUI previews
     installer.pods_project.build_configurations.each do |c|
       c.build_settings['IPHONEOS_DEPLOYMENT_TARGET'] = '18.0'
@@ -50,6 +57,7 @@ target app_target do
         c.build_settings['SWIFT_OPTIMIZATION_LEVEL'] ||= '-O'
       end
     end
+
     installer.pods_project.targets.each do |t|
       t.build_configurations.each do |c|
         c.build_settings['IPHONEOS_DEPLOYMENT_TARGET'] = '18.0'
@@ -64,9 +72,10 @@ target app_target do
         end
         # Default to gnu++17 to satisfy mixed C++ headers in RN deps
         c.build_settings['CLANG_CXX_LANGUAGE_STANDARD'] ||= 'gnu++17'
+        # RN pods still expect Swift 5 on Xcode 16+
+        c.build_settings['SWIFT_VERSION'] ||= '5.0'
       end
     end
-    react_native_post_install(installer) if defined?(react_native_post_install)
 
     # Tidy warnings for a couple of pods
     installer.pods_project.targets.each do |t|
