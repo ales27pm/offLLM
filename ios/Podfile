@@ -46,6 +46,8 @@ target app_target do
       # Force -Onone for Debug builds so previews work
       if c.name.include?('Debug')
         c.build_settings['SWIFT_OPTIMIZATION_LEVEL'] = '-Onone'
+      else
+        c.build_settings['SWIFT_OPTIMIZATION_LEVEL'] ||= '-O'
       end
     end
     installer.pods_project.targets.each do |t|
@@ -56,10 +58,15 @@ target app_target do
         # Force -Onone for Debug builds so previews work
         if c.name.include?('Debug')
           c.build_settings['SWIFT_OPTIMIZATION_LEVEL'] = '-Onone'
+          c.build_settings['SWIFT_COMPILATION_MODE'] = 'singlefile'
+        else
+          c.build_settings['SWIFT_OPTIMIZATION_LEVEL'] ||= '-O'
         end
+        # Default to gnu++17 to satisfy mixed C++ headers in RN deps
+        c.build_settings['CLANG_CXX_LANGUAGE_STANDARD'] ||= 'gnu++17'
       end
     end
-    react_native_post_install(installer)
+    react_native_post_install(installer) if defined?(react_native_post_install)
 
     # Tidy warnings for a couple of pods
     installer.pods_project.targets.each do |t|

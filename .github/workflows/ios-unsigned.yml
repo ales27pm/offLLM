@@ -71,6 +71,14 @@ jobs:
         working-directory: ios
         run: bundle install
 
+      - name: Clean CocoaPods sandbox if stale
+        working-directory: ios
+        shell: bash
+        run: |
+          set -euo pipefail
+          rm -f Pods/Manifest.lock
+          rm -rf Pods/Headers || true
+
       - name: Install Pods
         working-directory: ios
         run: bundle exec pod install --repo-update

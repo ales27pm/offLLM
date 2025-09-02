@@ -41,18 +41,31 @@ jobs:
       - name: Run ESLint (no warnings allowed)
         run: npm run lint:ci
 
-      - name: Setup Ruby & CocoaPods
+      - name: Setup Ruby
         uses: ruby/setup-ruby@v1
         with:
           ruby-version: "3.2"
 
-      - name: Install CocoaPods & xcpretty
+      - name: Cache Bundler
+        uses: actions/cache@v4
+        with:
+          path: ios/vendor/bundle
+          key: ${{ runner.os }}-bundler-${{ hashFiles('ios/Gemfile.lock') }}
+          restore-keys: ${{ runner.os }}-bundler-
+
+      - name: Bundle config path
+        working-directory: ios
         shell: bash
-        run: |
-          set -euo pipefail
-          gem install cocoapods -N
-          gem install xcpretty -N
-          pod --version
+        run: bundle config set path vendor/bundle
+
+      - name: Bundle install
+        working-directory: ios
+        shell: bash
+        run: bundle install
+
+      - name: Install xcpretty
+        shell: bash
+        run: gem install xcpretty -N
 
       - name: Generate Xcode project from root /ios
         shell: bash
@@ -64,15 +77,22 @@ jobs:
             (cd ios && xcodegen generate)
           fi
 
-      - name: Install Pods
+      - name: Clean CocoaPods sandbox if stale
+        working-directory: ios
         shell: bash
         run: |
           set -euo pipefail
-          cd ios
-          pod repo update
-          pod install --repo-update
-          cd -
-          find ios -maxdepth 3 -name "*.xcworkspace" -print
+          rm -f Pods/Manifest.lock
+          rm -rf Pods/Headers || true
+
+      - name: Install Pods (bundler)
+        working-directory: ios
+        shell: bash
+        run: bundle exec pod install --repo-update
+
+      - name: Find workspace
+        shell: bash
+        run: find ios -maxdepth 3 -name "*.xcworkspace" -print
 
       - name: Ensure jq is available
         shell: bash
