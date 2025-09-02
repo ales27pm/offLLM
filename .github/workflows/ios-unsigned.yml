@@ -88,14 +88,17 @@ jobs:
         run: |
           set -euo pipefail
           /usr/bin/find ios -maxdepth 3 -name "*.xcworkspace" -print || true
-          xcodebuild -list -workspace ios/*.xcworkspace || true
+          WS="$(ls ios/*.xcworkspace | head -1)"
+          echo "Using workspace: $WS"
+          xcodebuild -list -workspace "$WS" || true
 
       # ---- Build Simulator (no signing required) ----
       - name: Build (Simulator)
         run: |
           set -euo pipefail
+          WS="$(ls ios/*.xcworkspace | head -1)"
           xcodebuild \
-            -workspace ios/*.xcworkspace \
+            -workspace "$WS" \
             -scheme "${SCHEME}" \
             -configuration "${CONFIGURATION}" \
             -sdk iphonesimulator \
@@ -183,8 +186,9 @@ jobs:
       - name: Build device .app (no code signing)
         run: |
           set -euo pipefail
+          WS="$(ls ios/*.xcworkspace | head -1)"
           xcodebuild \
-            -workspace ios/*.xcworkspace \
+            -workspace "$WS" \
             -scheme "${SCHEME}" \
             -configuration "${CONFIGURATION}" \
             -sdk iphoneos \
