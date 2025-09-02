@@ -38,14 +38,15 @@ target app_target do
     use_flipper!({ 'Flipper' => '0.203.0' })
   end
 
-  post_install do |installer|
-    react_native_post_install(installer) if defined?(react_native_post_install)
+end
 
-    installer.pods_project.targets.each do |target|
-      target.build_configurations.each do |config|
-        if config.name.include?("Debug")
-          config.build_settings['SWIFT_OPTIMIZATION_LEVEL'] = '-Onone'
-        end
+post_install do |installer|
+  react_native_post_install(installer) if defined?(react_native_post_install)
+
+  installer.pods_project.targets.each do |target|
+    target.build_configurations.each do |config|
+      if config.name.include?("Debug")
+        config.build_settings['SWIFT_OPTIMIZATION_LEVEL'] = '-Onone'
       end
     end
   end
