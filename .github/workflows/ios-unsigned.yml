@@ -68,13 +68,15 @@ jobs:
         run: bundle exec pod install --repo-update
 
       - name: Scrub Hermes script phases
+        working-directory: ios
         run: |
-          ruby scripts/strip_hermes_phase.rb ios/Pods/Pods.xcodeproj ios/MyOfflineLLMApp.xcodeproj
+          bundle exec ruby ../scripts/strip_hermes_phase.rb Pods/Pods.xcodeproj ../ios/MyOfflineLLMApp.xcodeproj
 
       - name: Assert Hermes phase is gone
         run: |
           set -euo pipefail
-          if /usr/bin/grep -R --line-number -E "Replace Hermes|\\[Hermes\\]" ios/Pods/Pods.xcodeproj/project.pbxproj ios/MyOfflineLLMApp.xcodeproj/project.pbxproj; then
+          if /usr/bin/grep -R --line-number -E "Replace Hermes|\\[Hermes\\]" \
+               ios/Pods/Pods.xcodeproj/project.pbxproj ios/MyOfflineLLMApp.xcodeproj/project.pbxproj; then
             echo "::error::Forbidden Hermes 'Replace Hermes' script phase still present after scrubbing."
             exit 1
           fi
@@ -86,6 +88,7 @@ jobs:
         with:
           name: xcode-projects-after-scrub
           path: |
+            ios/Podfile.lock
             ios/Pods/Pods.xcodeproj/project.pbxproj
             ios/MyOfflineLLMApp.xcodeproj/project.pbxproj
 
