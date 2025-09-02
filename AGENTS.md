@@ -42,7 +42,7 @@
 - Build with Xcode 16.x (command line tools installed).
 - Deployment target stays **18.0** in [`ios/project.yml`](ios/project.yml), [`ios/MyOfflineLLMApp/project.yml`](ios/MyOfflineLLMApp/project.yml), and `Podfile` post_install.
 - When editing these files, update comments and re-run `bundle exec pod install --repo-update`.
-- **Do not enable CocoaPods input/output file lists** with static pods (`:disable_input_output_paths => true` stays). Also keep the Hermes "Replace Hermes..." user script neutralized in `post_install` for CI stability.
+- **Do not enable CocoaPods input/output file lists** with static pods (`:disable_input_output_paths => true` stays). Keep the Hermes "Replace Hermes..." user script neutralized and `ENABLE_USER_SCRIPT_SANDBOXING` set to `NO` in `post_install` for CI stability.
 
 ## Testing & Quality Gates
 

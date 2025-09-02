@@ -50,7 +50,8 @@ post_install do |installer|
   react_native_post_install(installer) if defined?(react_native_post_install)
 
   # CI hardening: Hermes user script sometimes exits non-zero on runners.
-  # Make the "[CP-User] [Hermes] Replace Hermes..." phase a no-op.
+  # Make the "[CP-User] [Hermes] Replace Hermes..." phase a no-op and disable
+  # user script sandboxing so it's never blocked.
   begin
     installer.pods_project.targets.each do |t|
       next unless t.name == 'hermes-engine'
@@ -62,6 +63,9 @@ post_install do |installer|
           }
           phase.show_env_vars_in_log = '0'
         end
+      end
+      t.build_configurations.each do |cfg|
+        cfg.build_settings['ENABLE_USER_SCRIPT_SANDBOXING'] = 'NO'
       end
     end
   rescue => e

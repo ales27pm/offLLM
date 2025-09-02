@@ -6,6 +6,7 @@ ios/vendor/
 ios/MyOfflineLLMApp.xcodeproj/
 ios/MyOfflineLLMApp.xcworkspace/
 ios/.bundle/
+ios/.xcode.env.local
 /build/
 android/app/build/
 .env
