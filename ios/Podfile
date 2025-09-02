@@ -63,7 +63,7 @@ post_install do |installer|
       end
       phases_to_remove.each do |phase|
         puts "🧹 Removing Hermes script phase: #{phase.name}"
-        t.build_phases.delete(phase)
+        phase.remove_from_project
       end
       t.build_configurations.each do |cfg|
         cfg.build_settings['ENABLE_USER_SCRIPT_SANDBOXING'] = 'NO'

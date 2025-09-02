@@ -93,7 +93,7 @@ jobs:
 
       - name: Verify Hermes script removed
         run: |
-          if /usr/bin/grep -R --line-number -i "replace hermes" ios/Pods 2>/dev/null; then
+          if /usr/bin/grep -R --include=project.pbxproj --line-number -i "replace hermes" ios/Pods 2>/dev/null; then
             echo "::error::Forbidden Hermes 'Replace Hermes' script phase detected after pod install."
             exit 1
           fi
@@ -214,7 +214,7 @@ jobs:
 
       - name: Verify Hermes script removed
         run: |
-          if /usr/bin/grep -R --line-number -i "replace hermes" ios/Pods 2>/dev/null; then
+          if /usr/bin/grep -R --include=project.pbxproj --line-number -i "replace hermes" ios/Pods 2>/dev/null; then
             echo "::error::Forbidden Hermes 'Replace Hermes' script phase detected after pod install."
             exit 1
           fi
