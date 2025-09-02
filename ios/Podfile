@@ -8,7 +8,8 @@ require_relative '../node_modules/react-native/scripts/react_native_pods'
 # --- Build hygiene for CI ---
 install! 'cocoapods',
   :generate_multiple_pod_projects => true,
-  :disable_input_output_paths => false,
+  # Disable file lists since we statically link pods, avoiding missing .xcfilelist errors on CI
+  :disable_input_output_paths => true,
   :warn_for_multiple_pod_sources => true
 # --- Robust project discovery (handles subfolders like ios/MyOfflineLLMApp/*.xcodeproj)
 project_candidates = Dir['*.xcodeproj'] + Dir['**/*.xcodeproj']
@@ -48,7 +49,25 @@ end
 post_install do |installer|
   react_native_post_install(installer) if defined?(react_native_post_install)
 
+  # --- Safety: with static Pods, scrub any input/output file lists CocoaPods might add
+  # This prevents Xcode from expecting *.xcfilelist even if some scripts re-introduce them.
+  # Applies to both the Pods project and the user app project.
+  def scrub_cp_filelists_from_target(target)
+    target.build_phases.each do |phase|
+      next unless phase.respond_to?(:name)
+      next unless phase.name&.include?('[CP]')
+      begin
+        phase.input_paths = [] if phase.respond_to?(:input_paths=)
+        phase.output_paths = [] if phase.respond_to?(:output_paths=)
+      rescue => e
+        puts "⚠️  Skipping scrub for phase #{phase.name}: #{e}"
+      end
+    end
+  end
+
+  # Pods project
   installer.pods_project.targets.each do |t|
+    scrub_cp_filelists_from_target(t)
     t.build_configurations.each do |cfg|
       if cfg.name.include?('Debug')
         # SwiftUI previews expect no optimization in debug builds
@@ -62,5 +81,12 @@ post_install do |installer|
       cfg.build_settings['CLANG_CXX_LANGUAGE_STANDARD'] ||= 'gnu++17'
       cfg.build_settings['SWIFT_VERSION'] ||= '5.0'
     end
+  end
+
+  # User (app) project(s)
+  installer.aggregate_targets.each do |agg|
+    user_project = agg.user_project
+    user_project.targets.each { |t| scrub_cp_filelists_from_target(t) }
+    user_project.save
   end
 end
