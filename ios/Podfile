@@ -8,7 +8,7 @@ require_relative '../node_modules/react-native/scripts/react_native_pods'
 # --- Build hygiene for CI ---
 install! 'cocoapods',
   :generate_multiple_pod_projects => true,
-  # Disable file lists since we statically link pods, avoiding missing .xcfilelist errors on CI
+  # Disable file lists since we statically link pods; avoids missing .xcfilelist lookups on CI
   :disable_input_output_paths => true,
   :warn_for_multiple_pod_sources => true
 # --- Robust project discovery (handles subfolders like ios/MyOfflineLLMApp/*.xcodeproj)
@@ -48,6 +48,25 @@ end
 
 post_install do |installer|
   react_native_post_install(installer) if defined?(react_native_post_install)
+
+  # CI hardening: Hermes user script sometimes exits non-zero on runners.
+  # Make the "[CP-User] [Hermes] Replace Hermes..." phase a no-op.
+  begin
+    installer.pods_project.targets.each do |t|
+      next unless t.name == 'hermes-engine'
+      t.shell_script_build_phases.each do |phase|
+        if phase.name&.include?('[Hermes] Replace Hermes')
+          phase.shell_script = %q{
+            echo "[CI] Skipping Hermes replacement script (using prebuilt XCFrameworks)."
+            exit 0
+          }
+          phase.show_env_vars_in_log = '0'
+        end
+      end
+    end
+  rescue => e
+    puts "[warn] Unable to adjust Hermes script phase: #{e}"
+  end
 
   # --- Safety: with static Pods, scrub any input/output file lists CocoaPods might add
   # This prevents Xcode from expecting *.xcfilelist even if some scripts re-introduce them.
