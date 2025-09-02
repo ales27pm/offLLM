@@ -81,6 +81,10 @@ jobs:
             echo "ℹ️  No XcodeGen project.yml found; skipping"
           fi
 
+      - name: Verify generated project
+        shell: bash
+        run: ls -R ios | grep -m1 '\.xcodeproj$' || (echo '❌ No .xcodeproj generated!' && exit 1)
+
       - name: Clean CocoaPods sandbox if stale
         working-directory: ios
         shell: bash
