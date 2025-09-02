@@ -129,55 +129,56 @@ end
 post_integrate do |installer|
   pods_project = installer.pods_project
 
-  # --- Remove the forbidden Hermes script (only from Pods project)
-  if ENV['CI'] == 'true'
-    pods_project.targets.each do |t|
-      next unless t.name == 'hermes-engine'
-      t.shell_script_build_phases.each do |phase|
-        if phase.name&.include?('Replace Hermes for the right configuration')
-          UI.puts "🧹 Removing Hermes script phase from #{t.name}"
-          t.build_phases.delete(phase)
-        end
-      end
+  # --- Remove any Hermes "Replace Hermes" script phases from ALL pods ---
+  removed_count = 0
+  pods_project.targets.each do |t|
+    phases = t.build_phases.select do |p|
+      p.isa == 'PBXShellScriptBuildPhase' &&
+        (p.name || '').to_s.downcase.include?('replace hermes')
     end
-    pods_project.save
+    phases.each do |phase|
+      t.build_phases.delete(phase)
+      removed_count += 1
+    end
   end
+  pods_project.save if removed_count > 0
 
-  # --- Collect real Xcode *projects* only (avoid Pod::PodTarget, etc.)
+  # --- Collect real Xcode *projects* (avoid Pod::PodTarget, etc.) ---
   user_projects = installer.aggregate_targets
     .select { |agg| agg.respond_to?(:user_project) && agg.user_project }
     .map(&:user_project)
     .uniq { |p| p.path.to_s }
 
-  # Mark [CP] phases without I/O as always out-of-date to silence Xcode warnings
+  # Mark [CP] phases without I/O paths as always out-of-date to silence warnings
   ([pods_project] + user_projects).each do |proj|
     proj.targets.each do |t|
       t.build_phases
         .select { |p| p.isa == 'PBXShellScriptBuildPhase' && p.name&.start_with?('[CP]') }
         .each do |run|
-          run.always_out_of_date = '1' if (run.input_paths || []).empty? && (run.output_paths || []).empty?
+          if (run.input_paths || []).empty? && (run.output_paths || []).empty?
+            run.always_out_of_date = '1'
+          end
         end
     end
     proj.save
   end
 
-  # --- Guard: fail if any Hermes replacement script remains
-  if ENV['CI'] == 'true'
-    offending = []
-    pods_project.targets.each do |t|
-      next unless t.name == 'hermes-engine'
-      t.shell_script_build_phases.each do |phase|
-        name = (phase.name || '').downcase
-        body = (phase.shell_script || '').downcase
-        offending << "#{t.name} :: #{phase.name}" if name.include?('replace hermes') || body.include?('replace hermes')
+  # --- Guard: fail if any Hermes replacement script remains (CI & local) ---
+  offenders = []
+  pods_project.targets.each do |t|
+    t.build_phases.select { |p| p.isa == 'PBXShellScriptBuildPhase' }.each do |phase|
+      n = (phase.name || '').downcase
+      s = (phase.shell_script || '').downcase
+      if n.include?('replace hermes') || s.include?('replace hermes')
+        offenders << "#{t.name} :: #{phase.name}"
       end
     end
-    unless offending.empty?
-      raise <<~MSG
-        Detected forbidden Hermes script phase(s):
-          #{offending.join("\n  ")}
-        CI policy: the "[Hermes] Replace Hermes" script must not exist after pod install.
-      MSG
-    end
+  end
+  unless offenders.empty?
+    raise <<~MSG
+      Detected forbidden Hermes script phase(s) AFTER post_integrate:
+        #{offenders.join("\n  ")}
+      Policy: the "[Hermes] Replace Hermes ..." script must not exist after pod install.
+    MSG
   end
 end

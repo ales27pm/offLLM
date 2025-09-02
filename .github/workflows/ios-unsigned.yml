@@ -70,27 +70,53 @@ jobs:
       - name: Scrub Hermes script phases
         working-directory: ios
         run: |
-          bundle exec ruby ../scripts/strip_hermes_phase.rb Pods/Pods.xcodeproj ../ios/MyOfflineLLMApp.xcodeproj
+          bundle exec ruby ../scripts/strip_hermes_phase.rb Pods/Pods.xcodeproj MyOfflineLLMApp.xcodeproj
 
       - name: Assert Hermes phase is gone
         run: |
           set -euo pipefail
-          if /usr/bin/grep -R --line-number -E "Replace Hermes|\\[Hermes\\]" \
-               ios/Pods/Pods.xcodeproj/project.pbxproj ios/MyOfflineLLMApp.xcodeproj/project.pbxproj; then
-            echo "::error::Forbidden Hermes 'Replace Hermes' script phase still present after scrubbing."
-            exit 1
-          fi
+          ruby -e '
+            require "xcodeproj";
+            p = Xcodeproj::Project.open("ios/Pods/Pods.xcodeproj");
+            offenders = [];
+            p.targets.each do |t|
+              t.build_phases.select{ |bp| bp.isa=="PBXShellScriptBuildPhase" }.each do |bp|
+                name = (bp.name || "").downcase;
+                body = (bp.shell_script || "").downcase;
+                offenders << "#{t.name} :: #{bp.name}" if name.include?("replace hermes") || body.include?("replace hermes");
+              end;
+            end;
+            if offenders.any?
+              warn "Remaining Hermes phases:\n  #{offenders.join("\n  ")}";
+              exit 1;
+            end;
+          '
           echo "✅ Hermes phase not found."
 
-      - name: Upload Xcode project files (debug)
+      - name: Snapshot Pods shell script phases (forensics)
         if: always()
+        run: |
+          mkdir -p build
+          ruby - <<'RUBY' > build/pods_shell_scripts.txt
+            require 'xcodeproj'
+            p = Xcodeproj::Project.open('ios/Pods/Pods.xcodeproj')
+            p.targets.each do |t|
+              t.build_phases
+               .select { |bp| bp.isa == 'PBXShellScriptBuildPhase' }
+               .each { |bp| puts "#{t.name} :: #{bp.name}" }
+            end
+          RUBY
+
+      - name: Upload Pods/Xcode projects on failure
+        if: failure()
         uses: actions/upload-artifact@v4
         with:
-          name: xcode-projects-after-scrub
+          name: ios-forensics-${{ github.job }}
           path: |
             ios/Podfile.lock
             ios/Pods/Pods.xcodeproj/project.pbxproj
             ios/MyOfflineLLMApp.xcodeproj/project.pbxproj
+            build/pods_shell_scripts.txt
 
       - name: Resolve Swift package dependencies
         run: xcodebuild -resolvePackageDependencies -workspace ios/MyOfflineLLMApp.xcworkspace -scheme MyOfflineLLMApp -UseModernBuildSystem=YES
