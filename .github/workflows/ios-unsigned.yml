@@ -91,6 +91,11 @@ jobs:
         working-directory: ios
         run: bundle exec pod install --repo-update
 
+      - name: Resolve Swift package dependencies
+        run: |
+          WS="$(/usr/bin/find ios -maxdepth 1 -name '*.xcworkspace' -print -quit || true)"
+          xcodebuild -resolvePackageDependencies -workspace "$WS" -scheme "${SCHEME}"
+
       - name: Verify Hermes script removed
         run: |
           if /usr/bin/grep -R --include=project.pbxproj --line-number -i "replace hermes" ios/Pods 2>/dev/null; then
@@ -211,6 +216,11 @@ jobs:
       - name: Install Pods (bundler)
         working-directory: ios
         run: bundle exec pod install --repo-update
+
+      - name: Resolve Swift package dependencies
+        run: |
+          WS="$(/usr/bin/find ios -maxdepth 1 -name '*.xcworkspace' -print -quit || true)"
+          xcodebuild -resolvePackageDependencies -workspace "$WS" -scheme "${SCHEME}"
 
       - name: Verify Hermes script removed
         run: |

@@ -49,28 +49,23 @@ end
 post_install do |installer|
   react_native_post_install(installer) if defined?(react_native_post_install)
 
-  # CI hardening: delete any Hermes "Replace Hermes" script phases outright
-  # and disable user script sandboxing to avoid fragile runner behavior.
-  begin
-    installer.pods_project.targets.each do |t|
-      next unless t.name == 'hermes-engine'
-      phases_to_remove = []
-      t.shell_script_build_phases.each do |phase|
-        name_hit = phase.name&.downcase&.include?('replace hermes')
-        body = (phase.shell_script || '').downcase
-        body_hit = body.include?('replace hermes')
-        phases_to_remove << phase if name_hit || body_hit
+  # CI hardening: delete any Hermes "Replace Hermes" script phases on CI runners
+  if ENV['CI'] == 'true'
+    begin
+      pods_project = installer.pods_project
+      pods_project.targets.each do |t|
+        next unless t.name == 'hermes-engine'
+        t.shell_script_build_phases.each do |phase|
+          if phase.name&.include?('Replace Hermes for the right configuration')
+            puts "🧹 Removing Hermes script phase from target: #{t.name}"
+            t.build_phases.delete(phase)
+          end
+        end
       end
-      phases_to_remove.each do |phase|
-        puts "🧹 Removing Hermes script phase: #{phase.name}"
-        phase.remove_from_project
-      end
-      t.build_configurations.each do |cfg|
-        cfg.build_settings['ENABLE_USER_SCRIPT_SANDBOXING'] = 'NO'
-      end
+      pods_project.save
+    rescue => e
+      puts "[warn] Unable to delete Hermes script phase: #{e}"
     end
-  rescue => e
-    puts "[warn] Unable to delete Hermes script phase: #{e}"
   end
 
   # --- Guardrail: fail fast if any Hermes "Replace Hermes" script phase remains
@@ -119,6 +114,7 @@ post_install do |installer|
   installer.pods_project.targets.each do |t|
     scrub_cp_filelists_from_target(t)
     t.build_configurations.each do |cfg|
+      cfg.build_settings['ENABLE_USER_SCRIPT_SANDBOXING'] = 'NO'
       if cfg.name.include?('Debug')
         # SwiftUI previews expect no optimization in debug builds
         cfg.build_settings['SWIFT_OPTIMIZATION_LEVEL'] = '-Onone'
@@ -136,7 +132,26 @@ post_install do |installer|
   # User (app) project(s)
   installer.aggregate_targets.each do |agg|
     user_project = agg.user_project
-    user_project.targets.each { |t| scrub_cp_filelists_from_target(t) }
+    user_project.targets.each do |t|
+      scrub_cp_filelists_from_target(t)
+      t.build_configurations.each do |cfg|
+        cfg.build_settings['ENABLE_USER_SCRIPT_SANDBOXING'] = 'NO'
+      end
+    end
     user_project.save
+  end
+end
+
+# Silences "will be run during every build" warnings for [CP] phases lacking I/O paths
+post_integrate do |installer|
+  [installer.pods_project, installer.aggregate_targets.first.user_project].each do |proj|
+    proj.targets.each do |t|
+      t.build_phases.select { |p| p.isa == 'PBXShellScriptBuildPhase' && p.name&.start_with?('[CP]') }.each do |run|
+        if (run.input_paths || []).empty? && (run.output_paths || []).empty?
+          run.always_out_of_date = '1'
+        end
+      end
+    end
+    proj.save
   end
 end
