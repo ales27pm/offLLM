@@ -48,7 +48,6 @@ post_install do |installer|
       if config.name.include?("Debug")
         # SwiftUI previews expect no optimization in debug builds
         config.build_settings['SWIFT_OPTIMIZATION_LEVEL'] = '-Onone'
-        config.build_settings['SWIFT_COMPILATION_MODE'] = 'singlefile'
       end
     end
   end
