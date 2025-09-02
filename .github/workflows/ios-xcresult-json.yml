@@ -116,9 +116,16 @@ jobs:
             bundle exec pod install --repo-update
           fi
 
-      - name: Find workspace
+      - name: Verify generated workspace
         shell: bash
-        run: find ios -maxdepth 3 -name "*.xcworkspace" -print
+        run: |
+          set -euo pipefail
+          WS="$(/usr/bin/find ios -maxdepth 1 -name '*.xcworkspace' -print -quit || true)"
+          if [[ -z "$WS" ]]; then
+            echo "❌ No .xcworkspace found after pod install!"
+            exit 1
+          fi
+          echo "📁 Using workspace: $WS"
 
       - name: Ensure jq is available
         shell: bash
@@ -177,7 +184,6 @@ jobs:
         shell: bash
         env:
           SCHEME: MyOfflineLLMApp
-          WORKSPACE: ios/MyOfflineLLMApp.xcworkspace
           CONFIGURATION: Debug
           SDK: iphonesimulator
           RESULT_BUNDLE: ${{ runner.temp }}/MyOfflineLLMApp.xcresult
@@ -187,8 +193,14 @@ jobs:
           DESTINATION="${{ steps.sim.outputs.destination }}"
           echo "Building with destination: $DESTINATION"
 
+          WS="$(/usr/bin/find ios -maxdepth 1 -name '*.xcworkspace' -print -quit || true)"
+          if [[ -z "$WS" ]]; then
+            echo "::error::No .xcworkspace found for simulator build"
+            exit 1
+          fi
+
           xcodebuild \
-            -workspace "$WORKSPACE" \
+            -workspace "$WS" \
             -scheme "$SCHEME" \
             -configuration "$CONFIGURATION" \
             -sdk "$SDK" \
@@ -224,14 +236,20 @@ jobs:
         shell: bash
         env:
           SCHEME: MyOfflineLLMApp
-          WORKSPACE: ios/MyOfflineLLMApp.xcworkspace
           CONFIGURATION: Release
           ARCHIVE_PATH: ${{ runner.temp }}/MyOfflineLLMApp.xcarchive
         run: |
           set -euo pipefail
           echo "Archiving for generic iOS device (no codesign)…"
+
+          WS="$(/usr/bin/find ios -maxdepth 1 -name '*.xcworkspace' -print -quit || true)"
+          if [[ -z "$WS" ]]; then
+            echo "::error::No .xcworkspace found for archive"
+            exit 1
+          fi
+
           xcodebuild \
-            -workspace "$WORKSPACE" \
+            -workspace "$WS" \
             -scheme "$SCHEME" \
             -configuration "$CONFIGURATION" \
             -sdk iphoneos \
@@ -245,7 +263,7 @@ jobs:
 
           if [ ! -d "$ARCHIVE_PATH/Products/Applications" ]; then
             echo "::error::Archive missing Applications folder: $ARCHIVE_PATH/Products/Applications"
-            xcodebuild -showdestinations -workspace "$WORKSPACE" -scheme "$SCHEME" -sdk iphoneos || true
+            xcodebuild -showdestinations -workspace "$WS" -scheme "$SCHEME" -sdk iphoneos || true
             exit 1
           fi
 
