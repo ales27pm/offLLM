@@ -1,4 +1,4 @@
-#include? "../Pods/Target Support Files/Pods-offLLMApp/Pods-offLLMApp.release.xcconfig"
+#include? "../Pods/Target Support Files/Pods-MyOfflineLLMApp/Pods-MyOfflineLLMApp.release.xcconfig"
 #include? "Auto/MLXFlags.xcconfig"
 
 // Ensure React headers (and other public/private Pod headers) are discoverable

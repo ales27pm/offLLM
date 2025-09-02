@@ -82,9 +82,26 @@ jobs:
           rm -f Pods/Manifest.lock
           rm -rf Pods/Headers || true
 
+      - name: Set NODE_BINARY for Xcode scripts
+        run: |
+          rm -f ios/.xcode.env.local
+          printf 'export NODE_BINARY="%s"\n' "$(command -v node)" > ios/.xcode.env
+
       - name: Install Pods (bundler)
         working-directory: ios
         run: bundle exec pod install --repo-update
+
+      - name: Resolve Swift package dependencies
+        run: |
+          WS="$(/usr/bin/find ios -maxdepth 1 -name '*.xcworkspace' -print -quit || true)"
+          xcodebuild -resolvePackageDependencies -workspace "$WS" -scheme "${SCHEME}"
+
+      - name: Verify Hermes script removed
+        run: |
+          if /usr/bin/grep -R --include=project.pbxproj --line-number -i "replace hermes" ios/Pods 2>/dev/null; then
+            echo "::error::Forbidden Hermes 'Replace Hermes' script phase detected after pod install."
+            exit 1
+          fi
 
       # (Optional) sanity: show workspace & schemes
       - name: List workspaces & schemes
@@ -191,9 +208,26 @@ jobs:
           rm -f Pods/Manifest.lock
           rm -rf Pods/Headers || true
 
+      - name: Set NODE_BINARY for Xcode scripts
+        run: |
+          rm -f ios/.xcode.env.local
+          printf 'export NODE_BINARY="%s"\n' "$(command -v node)" > ios/.xcode.env
+
       - name: Install Pods (bundler)
         working-directory: ios
         run: bundle exec pod install --repo-update
+
+      - name: Resolve Swift package dependencies
+        run: |
+          WS="$(/usr/bin/find ios -maxdepth 1 -name '*.xcworkspace' -print -quit || true)"
+          xcodebuild -resolvePackageDependencies -workspace "$WS" -scheme "${SCHEME}"
+
+      - name: Verify Hermes script removed
+        run: |
+          if /usr/bin/grep -R --include=project.pbxproj --line-number -i "replace hermes" ios/Pods 2>/dev/null; then
+            echo "::error::Forbidden Hermes 'Replace Hermes' script phase detected after pod install."
+            exit 1
+          fi
 
       # ---- Build device .app (no code signing) ----
       - name: Build device .app (no code signing)

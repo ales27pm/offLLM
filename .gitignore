@@ -6,10 +6,13 @@ ios/vendor/
 ios/MyOfflineLLMApp.xcodeproj/
 ios/MyOfflineLLMApp.xcworkspace/
 ios/.bundle/
+ios/.xcode.env.local
 /build/
 android/app/build/
 .env
-ios/build/*
+*.xcfilelist
+ios/build/
+ios/MyOfflineLLMApp/*.xcodeproj/project.xcworkspace/xcshareddata/WorkspaceSettings.xcsettings
 !ios/build/generated/
 !ios/build/generated/ios/**
 ios/MyOfflineLLMApp.xcresult

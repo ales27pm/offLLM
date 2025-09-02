@@ -8,7 +8,8 @@ require_relative '../node_modules/react-native/scripts/react_native_pods'
 # --- Build hygiene for CI ---
 install! 'cocoapods',
   :generate_multiple_pod_projects => true,
-  :disable_input_output_paths => false,
+  # Disable file lists since we statically link pods; avoids missing .xcfilelist lookups on CI
+  :disable_input_output_paths => true,
   :warn_for_multiple_pod_sources => true
 # --- Robust project discovery (handles subfolders like ios/MyOfflineLLMApp/*.xcodeproj)
 project_candidates = Dir['*.xcodeproj'] + Dir['**/*.xcodeproj']
@@ -48,8 +49,27 @@ end
 post_install do |installer|
   react_native_post_install(installer) if defined?(react_native_post_install)
 
+  # --- Safety: with static Pods, scrub any input/output file lists CocoaPods might add
+  # This prevents Xcode from expecting *.xcfilelist even if some scripts re-introduce them.
+  # Applies to both the Pods project and the user app project.
+  def scrub_cp_filelists_from_target(target)
+    target.build_phases.each do |phase|
+      next unless phase.respond_to?(:name)
+      next unless phase.name&.include?('[CP]')
+      begin
+        phase.input_paths = [] if phase.respond_to?(:input_paths=)
+        phase.output_paths = [] if phase.respond_to?(:output_paths=)
+      rescue => e
+        puts "⚠️  Skipping scrub for phase #{phase.name}: #{e}"
+      end
+    end
+  end
+
+  # Pods project
   installer.pods_project.targets.each do |t|
+    scrub_cp_filelists_from_target(t)
     t.build_configurations.each do |cfg|
+      cfg.build_settings['ENABLE_USER_SCRIPT_SANDBOXING'] = 'NO'
       if cfg.name.include?('Debug')
         # SwiftUI previews expect no optimization in debug builds
         cfg.build_settings['SWIFT_OPTIMIZATION_LEVEL'] = '-Onone'
@@ -61,6 +81,89 @@ post_install do |installer|
       # Ensure mixed C++ headers compile under gnu++17 and Swift 5
       cfg.build_settings['CLANG_CXX_LANGUAGE_STANDARD'] ||= 'gnu++17'
       cfg.build_settings['SWIFT_VERSION'] ||= '5.0'
+    end
+  end
+
+  # User (app) project(s)
+  installer.aggregate_targets.each do |agg|
+    user_project = agg.user_project
+    user_project.targets.each do |t|
+      scrub_cp_filelists_from_target(t)
+      t.build_configurations.each do |cfg|
+        cfg.build_settings['ENABLE_USER_SCRIPT_SANDBOXING'] = 'NO'
+      end
+    end
+    user_project.save
+  end
+end
+
+# Silences warnings for [CP] phases w/o I/O lists AND removes Hermes script on CI
+post_integrate do |installer|
+  # All Pods *.xcodeproj projects CocoaPods generated
+  pods_projects =
+    if installer.respond_to?(:generated_projects) && installer.generated_projects.any?
+      installer.generated_projects
+    else
+      [installer.pods_project].compact  # fallback for older CocoaPods
+    end
+
+  # All user *.xcodeproj projects CocoaPods integrated
+  user_projects = (installer.respond_to?(:generated_aggregate_targets) ?
+                    installer.generated_aggregate_targets :
+                    installer.aggregate_targets
+                  ).map(&:user_project).compact.uniq
+
+  projects = (pods_projects + user_projects).uniq
+
+  # CI: remove the Hermes "Replace Hermes..." script phase if present
+  if ENV['CI'] == 'true'
+    pods_projects.each do |proj|
+      proj.targets.each do |t|
+        next unless t.name == 'hermes-engine'
+        t.shell_script_build_phases.each do |phase|
+          if phase.name&.include?('Replace Hermes for the right configuration')
+            UI.puts "🧹 Removing Hermes script phase from #{t.name} in #{proj.path.basename}"
+            t.build_phases.delete(phase)
+          end
+        end
+      end
+      proj.save
+    end
+  end
+
+  # Mark empty [CP] phases as always out of date (silences Xcode warnings)
+  projects.each do |proj|
+    proj.targets.each do |t|
+      t.build_phases
+        .select { |p| p.isa == 'PBXShellScriptBuildPhase' && p.name&.start_with?('[CP]') }
+        .each do |run|
+          if (run.input_paths || []).empty? && (run.output_paths || []).empty?
+            run.always_out_of_date = '1'
+          end
+        end
+    end
+    proj.save
+  end
+
+  # CI guard: fail fast if any Hermes script remains
+  if ENV['CI'] == 'true'
+    offenders = []
+    pods_projects.each do |proj|
+      proj.targets.each do |t|
+        next unless t.name == 'hermes-engine'
+        t.shell_script_build_phases.each do |phase|
+          name = (phase.name || '').downcase
+          body = (phase.shell_script || '').downcase
+          offenders << "#{proj.path.basename} • #{t.name} • #{phase.name}" if name.include?('replace hermes') || body.include?('replace hermes')
+        end
+      end
+    end
+    unless offenders.empty?
+      raise <<~MSG
+        Forbidden Hermes script phase(s) still present:
+          #{offenders.join("\n  ")}
+        They must be removed during post_integrate on CI.
+      MSG
     end
   end
 end
