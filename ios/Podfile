@@ -1,11 +1,6 @@
 # Ensure the platform is set to iOS 18.0
 platform :ios, '18.0'
 ENV['RCT_NEW_ARCH_ENABLED'] = "1" # Enable Fabric/TurboModules
-# --- Build hygiene (CI-friendly) ---
-install! 'cocoapods',
-  :generate_multiple_pod_projects => true,
-  :disable_input_output_paths => false,
-  :warn_for_multiple_pod_sources => true
 
 # Include React Native's CocoaPods helpers
 require_relative '../node_modules/react-native/scripts/react_native_pods'
@@ -44,69 +39,14 @@ target app_target do
   end
 
   post_install do |installer|
-    # Keep the React Native post-install if present
     react_native_post_install(installer) if defined?(react_native_post_install)
 
-    # Normalize the deployment target and disable optimization in Debug for SwiftUI previews
-    installer.pods_project.build_configurations.each do |c|
-      c.build_settings['IPHONEOS_DEPLOYMENT_TARGET'] = '18.0'
-      # Build Simulator for arm64 on Apple Silicon runners
-      c.build_settings['EXCLUDED_ARCHS[sdk=iphonesimulator*]'] = 'x86_64'
-      # Force -Onone for Debug builds so previews work
-      if c.name.include?('Debug')
-        c.build_settings['SWIFT_OPTIMIZATION_LEVEL'] = '-Onone'
-      else
-        c.build_settings['SWIFT_OPTIMIZATION_LEVEL'] ||= '-O'
-      end
-    end
-
-    installer.pods_project.targets.each do |t|
-      t.build_configurations.each do |c|
-        c.build_settings['IPHONEOS_DEPLOYMENT_TARGET'] = '18.0'
-        c.build_settings['ALWAYS_EMBED_SWIFT_STANDARD_LIBRARIES'] = 'NO'
-        c.build_settings['EXCLUDED_ARCHS[sdk=iphonesimulator*]'] = 'x86_64'
-        # Force -Onone for Debug builds so previews work
-        if c.name.include?('Debug')
-          c.build_settings['SWIFT_OPTIMIZATION_LEVEL'] = '-Onone'
-          c.build_settings['SWIFT_COMPILATION_MODE'] = 'singlefile'
-        else
-          c.build_settings['SWIFT_OPTIMIZATION_LEVEL'] ||= '-O'
-        end
-        # Default to gnu++17 to satisfy mixed C++ headers in RN deps
-        c.build_settings['CLANG_CXX_LANGUAGE_STANDARD'] ||= 'gnu++17'
-        # RN pods still expect Swift 5 on Xcode 16+
-        c.build_settings['SWIFT_VERSION'] ||= '5.0'
-      end
-    end
-
-    # Tidy warnings for a couple of pods
-    installer.pods_project.targets.each do |t|
-      if ['react-native-slider','RNCAsyncStorage'].include? t.name
-        t.build_configurations.each do |cfg|
-          cfg.build_settings['CLANG_ALLOW_NON_MODULAR_INCLUDES_IN_FRAMEWORK_MODULES'] = 'YES'
-          cfg.build_settings['WARNING_CFLAGS'] ||= ['$(inherited)']
-          cfg.build_settings['WARNING_CFLAGS'] << '-Wno-non-modular-include-in-framework-module'
+    installer.pods_project.targets.each do |target|
+      target.build_configurations.each do |config|
+        if config.name.include?("Debug")
+          config.build_settings['SWIFT_OPTIMIZATION_LEVEL'] = '-Onone'
         end
       end
     end
-
-    # Make sure ReactCommon turbomodules headers are discoverable
-    installer.pods_project.targets.each do |t|
-      next unless t.name == 'ReactCommon'
-      t.build_configurations.each do |cfg|
-        cfg.build_settings['HEADER_SEARCH_PATHS'] ||= '$(inherited)'
-        cfg.build_settings['HEADER_SEARCH_PATHS'] << ' $(PODS_ROOT)/Headers/Public/ReactCommon/ReactCommon/react/nativemodule/core'
-      end
-    end
-
-    # Ensure script phases declare outputs to avoid reruns
-    installer.pods_project.targets.each do |t|
-      t.build_phases.each do |phase|
-        next unless phase.respond_to?(:name) && phase.name == 'Create Symlinks to Header Folders'
-        phase.output_paths = ["$(BUILD_DIR)/symlinks/#{t.name}"]
-      end
-    end
-
-    File.write('Pods/.ran_post_install', 'Post install executed successfully')
   end
 end
