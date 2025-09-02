@@ -8,7 +8,7 @@ if (isReactNative) {
     Config = {};
     console.warn(
       "[Config] Failed to load react-native-config. Falling back to empty config. This may indicate a misconfiguration.",
-      _e
+      _e,
     );
   }
 }

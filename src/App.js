@@ -52,7 +52,7 @@ function App() {
   const { send } = useChat();
   const { messages } = useLLMStore();
   const { isRecording, start } = useSpeechRecognition(send, (err) =>
-    console.warn("Speech recognition error", err)
+    console.warn("Speech recognition error", err),
   );
 
   useEffect(() => {

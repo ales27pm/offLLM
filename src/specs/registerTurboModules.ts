@@ -1,1 +1,1 @@
-import '../registerTurboModules';
+import "../registerTurboModules";

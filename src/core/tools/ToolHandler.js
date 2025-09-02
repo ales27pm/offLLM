@@ -50,7 +50,11 @@ export default class ToolHandler {
         const res = await tool.execute(args);
         results.push({ role: "tool", name, content: JSON.stringify(res) });
       } catch (error) {
-        results.push({ role: "tool", name, content: `Error: ${error.message}` });
+        results.push({
+          role: "tool",
+          name,
+          content: `Error: ${error.message}`,
+        });
       }
     }
     return results;

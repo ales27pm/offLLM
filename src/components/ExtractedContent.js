@@ -21,7 +21,7 @@ const ExtractedContent = ({ content, onLinkPress }) => {
         onLinkPress(href);
       } else {
         Linking.openURL(href).catch((err) =>
-          console.error("Failed to open URL:", err)
+          console.error("Failed to open URL:", err),
         );
       }
     } catch (e) {

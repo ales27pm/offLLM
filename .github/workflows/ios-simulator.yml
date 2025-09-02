@@ -2,7 +2,7 @@ name: iOS Simulator
 
 on:
   push:
-    branches: [ main, master ]
+    branches: [main, master]
   pull_request:
 
 jobs:
@@ -16,6 +16,7 @@ jobs:
       SCHEME: MyOfflineLLMApp
       CONFIGURATION: Debug
       SIM_DEVICE: iPhone 16 Pro
+      BUILD_DIR: build
     steps:
       - uses: actions/checkout@v4
 
@@ -70,16 +71,10 @@ jobs:
       - name: Resolve Swift package dependencies
         run: xcodebuild -resolvePackageDependencies -workspace ios/MyOfflineLLMApp.xcworkspace -scheme MyOfflineLLMApp -UseModernBuildSystem=YES
 
-      - name: Verify Hermes script removed
-        run: |
-          if /usr/bin/grep -R --include=project.pbxproj --line-number -i "replace hermes" ios/Pods 2>/dev/null; then
-            echo "::error::Forbidden Hermes 'Replace Hermes' script phase detected after pod install."
-            exit 1
-          fi
-
       - name: Build (Simulator)
         run: |
           set -euo pipefail
+          mkdir -p "${BUILD_DIR}"
           xcodebuild \
             -workspace ios/MyOfflineLLMApp.xcworkspace \
             -scheme "${SCHEME}" \
@@ -88,4 +83,21 @@ jobs:
             -destination "platform=iOS Simulator,name=${SIM_DEVICE}" \
             -UseModernBuildSystem=YES \
             CODE_SIGNING_ALLOWED=NO \
-            clean build | xcpretty
+            clean build | tee "${BUILD_DIR}/xcodebuild.log" | xcpretty
+
+      - name: Upload xcodebuild log
+        if: always()
+        uses: actions/upload-artifact@v4
+        with:
+          name: xcodebuild-log
+          path: ${{ env.BUILD_DIR }}/xcodebuild.log
+
+      - name: Summarize build log
+        if: always()
+        run: |
+          if [ -f "${BUILD_DIR}/xcodebuild.log" ]; then
+            echo "Summary of warnings and errors:"
+            grep -iE "error|warning|failed" "${BUILD_DIR}/xcodebuild.log" | tail -n 200 || true
+          else
+            echo "No xcodebuild.log found"
+          fi

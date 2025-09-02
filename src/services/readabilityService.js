@@ -64,7 +64,7 @@ class ReadabilityService {
 
       if (!response.ok) {
         throw new Error(
-          `HTTP error ${response.status}: ${response.statusText}`
+          `HTTP error ${response.status}: ${response.statusText}`,
         );
       }
 

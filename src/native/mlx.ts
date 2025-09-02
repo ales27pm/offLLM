@@ -5,7 +5,7 @@ type MLXNative = {
   generate(
     _prompt: string,
     _maxTokens: number,
-    _temperature: number
+    _temperature: number,
   ): Promise<string>;
 };
 

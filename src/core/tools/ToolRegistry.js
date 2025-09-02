@@ -1,13 +1,13 @@
-import * as iosTools from '../../tools/iosTools';
-import * as androidTools from '../../tools/androidTools';
-import { Platform } from 'react-native';
+import * as iosTools from "../../tools/iosTools";
+import * as androidTools from "../../tools/androidTools";
+import { Platform } from "react-native";
 
 const createToolRegistry = () => {
   const tools = new Map();
 
   return {
     register(name, tool) {
-      if (!tool || typeof tool.execute !== 'function') {
+      if (!tool || typeof tool.execute !== "function") {
         throw new Error(`Invalid tool ${name}: missing execute()`);
       }
       tools.set(name, tool);
@@ -23,7 +23,7 @@ const createToolRegistry = () => {
     },
     autoRegister(module) {
       Object.values(module).forEach((tool) => {
-        if (tool && typeof tool.execute === 'function') {
+        if (tool && typeof tool.execute === "function") {
           this.register(tool.name, tool);
         }
       });
@@ -33,7 +33,7 @@ const createToolRegistry = () => {
 
 export const toolRegistry = createToolRegistry();
 
-const moduleToUse = Platform.OS === 'android' ? androidTools : iosTools;
+const moduleToUse = Platform.OS === "android" ? androidTools : iosTools;
 toolRegistry.autoRegister(moduleToUse);
 
 export default toolRegistry;

@@ -44,7 +44,7 @@ export class TreeOfThoughtReasoner {
     // Generate candidate thoughts
     const candidateThoughts = await this.generateCandidateThoughts(
       node.thought,
-      maxBranches
+      maxBranches,
     );
 
     // Evaluate each candidate
@@ -67,7 +67,7 @@ export class TreeOfThoughtReasoner {
           childNode,
           maxBranches,
           maxDepth,
-          evaluationThreshold
+          evaluationThreshold,
         );
       }
     }
@@ -172,7 +172,7 @@ Provide only the numerical rating:`;
         this.solveComplexProblem(problem, {
           maxBranches: Math.floor(this.maxBranches / numTrees),
           maxDepth: this.maxDepth,
-        })
+        }),
       );
     }
 

@@ -6,7 +6,7 @@ on:
       - "v*"
 
 permissions:
-  contents: write  # to create a Release
+  contents: write # to create a Release
 
 jobs:
   build-ios:

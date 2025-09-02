@@ -3,7 +3,7 @@ import { cosineSimilarity, dotProduct } from "./vectorUtils";
 export function applySparseAttention(
   queryVector,
   contextVectors,
-  options = {}
+  options = {},
 ) {
   const { topK = 5, threshold = 0.5, useCosine = true } = options;
 
@@ -36,7 +36,7 @@ export function applySparseAttention(
 export function applyBlockSparseAttention(
   queryVector,
   contextVectors,
-  blockSize = 64
+  blockSize = 64,
 ) {
   if (!contextVectors || contextVectors.length === 0) {
     return [];
@@ -75,7 +75,7 @@ export function applyBlockSparseAttention(
 export function applyHierarchicalSparseAttention(
   queryVector,
   contextVectors,
-  options = {}
+  options = {},
 ) {
   const { numClusters = 3, topKPerCluster = 2 } = options;
 
@@ -99,7 +99,7 @@ export function applyHierarchicalSparseAttention(
 
     // Add top K vectors from this cluster
     selectedIndices.push(
-      ...clusterScores.slice(0, topKPerCluster).map((item) => item.index)
+      ...clusterScores.slice(0, topKPerCluster).map((item) => item.index),
     );
   }
 
@@ -125,7 +125,7 @@ function clusterVectors(vectors, numClusters) {
       for (const centroid of centroids) {
         const dist = vector.reduce(
           (sum, val, idx) => sum + Math.pow(val - centroid[idx], 2),
-          0
+          0,
         );
         if (dist < minDist) minDist = dist;
       }
@@ -178,7 +178,7 @@ function clusterVectors(vectors, numClusters) {
     for (let j = 0; j < numClusters; j++) {
       if (clusters[j].indices.length > 0) {
         const newCentroid = averageVectors(
-          clusters[j].indices.map((index) => vectors[index])
+          clusters[j].indices.map((index) => vectors[index]),
         );
 
         if (euclideanDistance(newCentroid, centroids[j]) > 0.001) {
@@ -221,6 +221,6 @@ function euclideanDistance(vecA, vecB) {
   }
 
   return Math.sqrt(
-    vecA.reduce((sum, a, i) => sum + Math.pow(a - vecB[i], 2), 0)
+    vecA.reduce((sum, a, i) => sum + Math.pow(a - vecB[i], 2), 0),
   );
 }

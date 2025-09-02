@@ -18,7 +18,7 @@ export function rateLimiter(provider, fn, delay = 1000) {
   const last = lastRequestTimes.get(provider) || 0;
   const remaining = delay - (now - last);
   if (remaining > 0) {
-    return new Promise(resolve => {
+    return new Promise((resolve) => {
       setTimeout(async () => {
         lastRequestTimes.set(provider, Date.now());
         resolve(await fn());
