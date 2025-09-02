@@ -1,4 +1,4 @@
-name: iOS (Simulator + Unsigned IPA)
+name: iOS Unsigned IPA
 
 on:
   push:
@@ -6,138 +6,13 @@ on:
   pull_request:
 
 jobs:
-  sim-build:
-    name: Simulator build (iPhone 16 Pro / iOS 18)
-    runs-on: macos-15
-    env:
-      NODE_OPTIONS: --max_old_space_size=4096
-      RCT_NEW_ARCH_ENABLED: 1
-      SCHEME: MyOfflineLLMApp
-      CONFIGURATION: Debug
-      SIM_DEVICE: iPhone 16 Pro
-    steps:
-      - uses: actions/checkout@v4
-
-      - uses: actions/setup-node@v4
-        with:
-          node-version: 20
-          cache: npm
-
-      - name: Install Node deps
-        run: npm ci
-
-      # ---- Bundler for CocoaPods (deterministic) ----
-      - name: Cache Bundler
-        uses: actions/cache@v4
-        with:
-          path: ios/vendor/bundle
-          key: ${{ runner.os }}-bundler-${{ hashFiles('ios/Gemfile.lock') }}
-          restore-keys: ${{ runner.os }}-bundler-
-
-      - name: Bundle config path
-        working-directory: ios
-        run: bundle config set path vendor/bundle
-
-      - name: Bundle install
-        working-directory: ios
-        run: bundle install
-
-      - name: Install XcodeGen
-        run: brew install xcodegen
-
-      # ---- XcodeGen BEFORE pods (auto-discover) ----
-      - name: Generate Xcode project (XcodeGen auto-discover)
-        shell: bash
-        run: |
-          set -euo pipefail
-          SPEC="$(/usr/bin/find ios -maxdepth 2 -name project.yml -print -quit || true)"
-          if [[ -n "${SPEC}" ]]; then
-            echo "🛠  Found XcodeGen spec at: ${SPEC}"
-            pushd "$(dirname "${SPEC}")"
-            xcodegen generate
-            popd
-          else
-            echo "ℹ️  No XcodeGen project.yml found; skipping"
-          fi
-
-      - name: Verify generated project
-        shell: bash
-        run: |
-          set -euo pipefail
-          FOUND="$(/usr/bin/find ios -maxdepth 3 -name '*.xcodeproj' -print -quit || true)"
-          if [[ -z "${FOUND}" ]]; then
-            echo "❌ No .xcodeproj generated!"
-            exit 1
-          fi
-          echo "📁 Using project: ${FOUND}"
-
-      - name: Debug Xcode projects
-        run: find ios -maxdepth 3 -name "*.xcodeproj" -print
-
-      # ---- CocoaPods (clean + install via Bundler) ----
-      - name: Clean CocoaPods sandbox if stale
-        working-directory: ios
-        run: |
-          set -euo pipefail
-          rm -f Pods/Manifest.lock
-          rm -rf Pods/Headers || true
-
-      - name: Set NODE_BINARY for Xcode scripts
-        run: |
-          rm -f ios/.xcode.env.local
-          printf 'export NODE_BINARY="%s"\n' "$(command -v node)" > ios/.xcode.env
-
-      - name: Install Pods (bundler)
-        working-directory: ios
-        run: bundle exec pod install --repo-update
-
-      - name: Resolve Swift package dependencies
-        run: |
-          WS="$(/usr/bin/find ios -maxdepth 1 -name '*.xcworkspace' -print -quit || true)"
-          xcodebuild -resolvePackageDependencies -workspace "$WS" -scheme "${SCHEME}"
-
-      - name: Verify Hermes script removed
-        run: |
-          if /usr/bin/grep -R --include=project.pbxproj --line-number -i "replace hermes" ios/Pods 2>/dev/null; then
-            echo "::error::Forbidden Hermes 'Replace Hermes' script phase detected after pod install."
-            exit 1
-          fi
-
-      # (Optional) sanity: show workspace & schemes
-      - name: List workspaces & schemes
-        run: |
-          set -euo pipefail
-          WS="$(/usr/bin/find ios -maxdepth 1 -name '*.xcworkspace' -print -quit || true)"
-          if [[ -z "$WS" ]]; then
-            echo "::error::No .xcworkspace found after pod install"
-            exit 1
-          fi
-          echo "Using workspace: $WS"
-          xcodebuild -list -workspace "$WS" || true
-
-      # ---- Build Simulator (no signing required) ----
-      - name: Build (Simulator)
-        run: |
-          set -euo pipefail
-          WS="$(/usr/bin/find ios -maxdepth 1 -name '*.xcworkspace' -print -quit || true)"
-          if [[ -z "$WS" ]]; then
-            echo "::error::No .xcworkspace found for simulator build"
-            exit 1
-          fi
-          xcodebuild \
-            -workspace "$WS" \
-            -scheme "${SCHEME}" \
-            -configuration "${CONFIGURATION}" \
-            -sdk iphonesimulator \
-            -destination "platform=iOS Simulator,name=${SIM_DEVICE}" \
-            clean build | xcpretty
-
   unsigned-ipa:
     name: Unsigned device IPA (Release, no codesign)
     runs-on: macos-15
     env:
       NODE_OPTIONS: --max_old_space_size=4096
       RCT_NEW_ARCH_ENABLED: 1
+      USE_HERMES: true
       SCHEME: MyOfflineLLMApp
       CONFIGURATION: Release
       BUILD_DIR: build
@@ -152,7 +27,6 @@ jobs:
       - name: Install Node deps
         run: npm ci
 
-      # ---- Bundler for CocoaPods ----
       - name: Cache Bundler
         uses: actions/cache@v4
         with:
@@ -171,36 +45,12 @@ jobs:
       - name: Install XcodeGen
         run: brew install xcodegen
 
-      # ---- XcodeGen BEFORE pods (auto-discover) ----
-      - name: Generate Xcode project (XcodeGen auto-discover)
-        shell: bash
-        run: |
-          set -euo pipefail
-          SPEC="$(/usr/bin/find ios -maxdepth 2 -name project.yml -print -quit || true)"
-          if [[ -n "${SPEC}" ]]; then
-            echo "🛠  Found XcodeGen spec at: ${SPEC}"
-            pushd "$(dirname "${SPEC}")"
-            xcodegen generate
-            popd
-          else
-            echo "ℹ️  No XcodeGen project.yml found; skipping"
-          fi
+      - name: Clean DerivedData
+        run: rm -rf ~/Library/Developer/Xcode/DerivedData/*
 
-      - name: Verify generated project
-        shell: bash
-        run: |
-          set -euo pipefail
-          FOUND="$(/usr/bin/find ios -maxdepth 3 -name '*.xcodeproj' -print -quit || true)"
-          if [[ -z "${FOUND}" ]]; then
-            echo "❌ No .xcodeproj generated!"
-            exit 1
-          fi
-          echo "📁 Using project: ${FOUND}"
+      - name: Generate Xcode project
+        run: xcodegen generate --spec ios/project.yml
 
-      - name: Debug Xcode projects
-        run: find ios -maxdepth 3 -name "*.xcodeproj" -print
-
-      # ---- CocoaPods (clean + install via Bundler) ----
       - name: Clean CocoaPods sandbox if stale
         working-directory: ios
         run: |
@@ -218,9 +68,7 @@ jobs:
         run: bundle exec pod install --repo-update
 
       - name: Resolve Swift package dependencies
-        run: |
-          WS="$(/usr/bin/find ios -maxdepth 1 -name '*.xcworkspace' -print -quit || true)"
-          xcodebuild -resolvePackageDependencies -workspace "$WS" -scheme "${SCHEME}"
+        run: xcodebuild -resolvePackageDependencies -workspace ios/MyOfflineLLMApp.xcworkspace -scheme MyOfflineLLMApp -UseModernBuildSystem=YES
 
       - name: Verify Hermes script removed
         run: |
@@ -229,16 +77,18 @@ jobs:
             exit 1
           fi
 
-      # ---- Archive (no codesign) ----
       - name: Archive (no codesign)
         run: |
           set -euo pipefail
-          WS="$(/usr/bin/find ios -maxdepth 1 -name '*.xcworkspace' -print -quit || true)"
-          if [[ -z "$WS" ]]; then
-            echo "::error::No .xcworkspace found for device archive"
-            exit 1
-          fi
-          xcodebuild clean archive -workspace "$WS" -scheme "${SCHEME}" -configuration "${CONFIGURATION}" -destination 'generic/platform=iOS' -archivePath "${BUILD_DIR}/MyOfflineLLMApp.xcarchive" -resultBundlePath "${BUILD_DIR}/MyOfflineLLMApp.xcresult" CODE_SIGN_IDENTITY="" CODE_SIGNING_REQUIRED=NO CODE_SIGNING_ALLOWED=NO | tee "${BUILD_DIR}/xcodebuild.log"
+          xcodebuild clean archive \
+            -workspace ios/MyOfflineLLMApp.xcworkspace \
+            -scheme "${SCHEME}" \
+            -configuration "${CONFIGURATION}" \
+            -destination 'generic/platform=iOS' \
+            -archivePath "${BUILD_DIR}/MyOfflineLLMApp.xcarchive" \
+            -resultBundlePath "${BUILD_DIR}/MyOfflineLLMApp.xcresult" \
+            -UseModernBuildSystem=YES \
+            CODE_SIGN_IDENTITY="" CODE_SIGNING_REQUIRED=NO CODE_SIGNING_ALLOWED=NO | tee "${BUILD_DIR}/xcodebuild.log"
 
       - name: Upload xcodebuild logs
         uses: actions/upload-artifact@v4

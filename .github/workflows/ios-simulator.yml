@@ -1,0 +1,91 @@
+name: iOS Simulator
+
+on:
+  push:
+    branches: [ main, master ]
+  pull_request:
+
+jobs:
+  build:
+    name: Simulator build (iPhone 16 Pro / iOS 18)
+    runs-on: macos-15
+    env:
+      NODE_OPTIONS: --max_old_space_size=4096
+      RCT_NEW_ARCH_ENABLED: 1
+      USE_HERMES: true
+      SCHEME: MyOfflineLLMApp
+      CONFIGURATION: Debug
+      SIM_DEVICE: iPhone 16 Pro
+    steps:
+      - uses: actions/checkout@v4
+
+      - uses: actions/setup-node@v4
+        with:
+          node-version: 20
+          cache: npm
+
+      - name: Install Node deps
+        run: npm ci
+
+      - name: Cache Bundler
+        uses: actions/cache@v4
+        with:
+          path: ios/vendor/bundle
+          key: ${{ runner.os }}-bundler-${{ hashFiles('ios/Gemfile.lock') }}
+          restore-keys: ${{ runner.os }}-bundler-
+
+      - name: Bundle config path
+        working-directory: ios
+        run: bundle config set path vendor/bundle
+
+      - name: Bundle install
+        working-directory: ios
+        run: bundle install
+
+      - name: Install XcodeGen
+        run: brew install xcodegen
+
+      - name: Clean DerivedData
+        run: rm -rf ~/Library/Developer/Xcode/DerivedData/*
+
+      - name: Generate Xcode project
+        run: xcodegen generate --spec ios/project.yml
+
+      - name: Clean CocoaPods sandbox if stale
+        working-directory: ios
+        run: |
+          set -euo pipefail
+          rm -f Pods/Manifest.lock
+          rm -rf Pods/Headers || true
+
+      - name: Set NODE_BINARY for Xcode scripts
+        run: |
+          rm -f ios/.xcode.env.local
+          printf 'export NODE_BINARY="%s"\n' "$(command -v node)" > ios/.xcode.env
+
+      - name: Install Pods (bundler)
+        working-directory: ios
+        run: bundle exec pod install --repo-update
+
+      - name: Resolve Swift package dependencies
+        run: xcodebuild -resolvePackageDependencies -workspace ios/MyOfflineLLMApp.xcworkspace -scheme MyOfflineLLMApp -UseModernBuildSystem=YES
+
+      - name: Verify Hermes script removed
+        run: |
+          if /usr/bin/grep -R --include=project.pbxproj --line-number -i "replace hermes" ios/Pods 2>/dev/null; then
+            echo "::error::Forbidden Hermes 'Replace Hermes' script phase detected after pod install."
+            exit 1
+          fi
+
+      - name: Build (Simulator)
+        run: |
+          set -euo pipefail
+          xcodebuild \
+            -workspace ios/MyOfflineLLMApp.xcworkspace \
+            -scheme "${SCHEME}" \
+            -configuration "${CONFIGURATION}" \
+            -sdk iphonesimulator \
+            -destination "platform=iOS Simulator,name=${SIM_DEVICE}" \
+            -UseModernBuildSystem=YES \
+            CODE_SIGNING_ALLOWED=NO \
+            clean build | xcpretty
