@@ -1,222 +1,268 @@
-name: iOS (unsigned) - Device archive
+name: iOS (Simulator + Unsigned IPA)
 
 on:
   push:
-    branches: [ main ]
+    branches: [ main, master ]
   pull_request:
-    branches: [ main ]
-
-concurrency:
-  group: ios-unsigned-${{ github.ref }}
-  cancel-in-progress: true
-
-env:
-  NODE_VERSION: "20"
-  RUBY_VERSION: "3.2"
-  SCHEME: "MyOfflineLLMApp"
-  WORKSPACE: "ios/MyOfflineLLMApp.xcworkspace"
-  ENABLE_SIGNED_EXPORT: "false"  # leave false for unsigned build
 
 jobs:
-  device-archive:
-    name: Device archive + Unsigned IPA
+  sim-build:
+    name: Simulator build (iPhone 16 Pro / iOS 18)
     runs-on: macos-15
     env:
-      # Increase Node memory for Metro bundler
-      NODE_OPTIONS: "--max_old_space_size=4096"
+      NODE_OPTIONS: --max_old_space_size=4096
       RCT_NEW_ARCH_ENABLED: 1
-      # Use matching deployment target and Swift version for build
-      IPHONEOS_DEPLOYMENT_TARGET: "18.0"
-      SWIFT_VERSION: "5.10"
+      SCHEME: MyOfflineLLMApp
+      CONFIGURATION: Debug
+      SIM_DEVICE: iPhone 16 Pro
     steps:
       - uses: actions/checkout@v4
 
       - uses: actions/setup-node@v4
         with:
-          node-version: ${{ env.NODE_VERSION }}
+          node-version: 20
           cache: npm
 
-      - name: Install JS deps
-        run: npm run ci:install
+      - name: Install Node deps
+        run: npm ci
 
-      - name: Run tests
-        run: npm run test:ci
-
-      - name: Set up Xcode 16.4
-        run: sudo xcode-select -s /Applications/Xcode_16.4.app/Contents/Developer
-
-      - name: Verify active Xcode
-        shell: bash
-        run: |
-          set -euo pipefail
-          xcodebuild -version
-          echo "DEVELOPER_DIR=${DEVELOPER_DIR:-$(xcode-select -p)}"
-
-      - name: Setup Ruby
-        uses: ruby/setup-ruby@v1
+      # ---- Bundler for CocoaPods (deterministic) ----
+      - name: Cache Bundler
+        uses: actions/cache@v4
         with:
-          ruby-version: ${{ env.RUBY_VERSION }}
-          bundler-cache: true
-          working-directory: ios
+          path: ios/vendor/bundle
+          key: ${{ runner.os }}-bundler-${{ hashFiles('ios/Gemfile.lock') }}
+          restore-keys: ${{ runner.os }}-bundler-
 
-      - name: Install XcodeGen (if needed)
+      - name: Bundle config path
         working-directory: ios
-        run: brew install xcodegen || true
-
-      - name: Generate Xcode project
-        working-directory: ios
-        run: xcodegen generate
+        run: bundle config set path vendor/bundle
 
       - name: Bundle install
         working-directory: ios
         run: bundle install
 
-      - name: Install Pods
+      - name: Install XcodeGen
+        run: brew install xcodegen
+
+      # ---- XcodeGen BEFORE pods (auto-discover) ----
+      - name: Generate Xcode project (XcodeGen auto-discover)
+        shell: bash
+        run: |
+          set -euo pipefail
+          SPEC="$(/usr/bin/find ios -maxdepth 2 -name project.yml -print -quit || true)"
+          if [[ -n "${SPEC}" ]]; then
+            echo "🛠  Found XcodeGen spec at: ${SPEC}"
+            pushd "$(dirname "${SPEC}")"
+            xcodegen generate
+            popd
+          else
+            echo "ℹ️  No XcodeGen project.yml found; skipping"
+          fi
+
+      - name: Verify generated project
+        shell: bash
+        run: |
+          set -euo pipefail
+          FOUND="$(/usr/bin/find ios -maxdepth 3 -name '*.xcodeproj' -print -quit || true)"
+          if [[ -z "${FOUND}" ]]; then
+            echo "❌ No .xcodeproj generated!"
+            exit 1
+          fi
+          echo "📁 Using project: ${FOUND}"
+
+      - name: Debug Xcode projects
+        run: find ios -maxdepth 3 -name "*.xcodeproj" -print
+
+      # ---- CocoaPods (clean + install via Bundler) ----
+      - name: Clean CocoaPods sandbox if stale
+        working-directory: ios
+        run: |
+          set -euo pipefail
+          rm -f Pods/Manifest.lock
+          rm -rf Pods/Headers || true
+
+      - name: Install Pods (bundler)
         working-directory: ios
         run: bundle exec pod install --repo-update
 
-      - name: Cache DerivedData
+      # (Optional) sanity: show workspace & schemes
+      - name: List workspaces & schemes
+        run: |
+          set -euo pipefail
+          WS="$(/usr/bin/find ios -maxdepth 1 -name '*.xcworkspace' -print -quit || true)"
+          if [[ -z "$WS" ]]; then
+            echo "::error::No .xcworkspace found after pod install"
+            exit 1
+          fi
+          echo "Using workspace: $WS"
+          xcodebuild -list -workspace "$WS" || true
+
+      # ---- Build Simulator (no signing required) ----
+      - name: Build (Simulator)
+        run: |
+          set -euo pipefail
+          WS="$(/usr/bin/find ios -maxdepth 1 -name '*.xcworkspace' -print -quit || true)"
+          if [[ -z "$WS" ]]; then
+            echo "::error::No .xcworkspace found for simulator build"
+            exit 1
+          fi
+          xcodebuild \
+            -workspace "$WS" \
+            -scheme "${SCHEME}" \
+            -configuration "${CONFIGURATION}" \
+            -sdk iphonesimulator \
+            -destination "platform=iOS Simulator,name=${SIM_DEVICE}" \
+            clean build | xcpretty
+
+  unsigned-ipa:
+    name: Unsigned device IPA (Release, no codesign)
+    runs-on: macos-15
+    env:
+      NODE_OPTIONS: --max_old_space_size=4096
+      RCT_NEW_ARCH_ENABLED: 1
+      SCHEME: MyOfflineLLMApp
+      CONFIGURATION: Release
+      BUILD_DIR: build
+    steps:
+      - uses: actions/checkout@v4
+
+      - uses: actions/setup-node@v4
+        with:
+          node-version: 20
+          cache: npm
+
+      - name: Install Node deps
+        run: npm ci
+
+      # ---- Bundler for CocoaPods ----
+      - name: Cache Bundler
         uses: actions/cache@v4
         with:
-          path: ios/build
-          key: ${{ runner.os }}-derived-${{ env.SCHEME }}-${{ hashFiles('ios/Podfile.lock') }}
-          restore-keys: ${{ runner.os }}-derived-${{ env.SCHEME }}-
+          path: ios/vendor/bundle
+          key: ${{ runner.os }}-bundler-${{ hashFiles('ios/Gemfile.lock') }}
+          restore-keys: ${{ runner.os }}-bundler-
 
-      - name: Show effective build settings (SDK/Platforms)
-        shell: bash
-        run: |
-          xcodebuild -showBuildSettings \
-            -workspace ios/MyOfflineLLMApp.xcworkspace \
-            -scheme MyOfflineLLMApp \
-            -configuration Release | egrep 'SDKROOT|SUPPORTED_PLATFORMS|IPHONEOS_DEPLOYMENT_TARGET' || true
+      - name: Bundle config path
+        working-directory: ios
+        run: bundle config set path vendor/bundle
 
-      - name: Unpin Base SDK (SDKROOT) if pinned
+      - name: Bundle install
+        working-directory: ios
+        run: bundle install
+
+      - name: Install XcodeGen
+        run: brew install xcodegen
+
+      # ---- XcodeGen BEFORE pods (auto-discover) ----
+      - name: Generate Xcode project (XcodeGen auto-discover)
         shell: bash
         run: |
           set -euo pipefail
-          if [ -f "ios/MyOfflineLLMApp.xcodeproj/project.pbxproj" ]; then
-            # Ensure SWIFT_VERSION and SDKROOT aren’t pinned to old values in the project file
-            sed -E -i '' \
-              -e "s/SWIFT_VERSION = [0-9]+\.[0-9]+;/SWIFT_VERSION = ${SWIFT_VERSION};/g" \
-              -e 's/SDKROOT = iphoneos[0-9]+(\.[0-9]+)?;/SDKROOT = iphoneos;/g' \
-              ios/MyOfflineLLMApp.xcodeproj/project.pbxproj || true
+          SPEC="$(/usr/bin/find ios -maxdepth 2 -name project.yml -print -quit || true)"
+          if [[ -n "${SPEC}" ]]; then
+            echo "🛠  Found XcodeGen spec at: ${SPEC}"
+            pushd "$(dirname "${SPEC}")"
+            xcodegen generate
+            popd
+          else
+            echo "ℹ️  No XcodeGen project.yml found; skipping"
           fi
-          # Do the same for any xcconfig files
-          find ios -name "*.xcconfig" -print0 | xargs -0 -I{} \
-            sed -E -i '' 's/SDKROOT *= *iphoneos[0-9]+(\.[0-9]+)?/SDKROOT = iphoneos/g' "{}" || true
-          # Ensure Swift version is explicitly set in main xcconfig (append if not present)
-          echo "SWIFT_VERSION=${SWIFT_VERSION}" >> ios/MyOfflineLLMApp.xcconfig || true
 
-          echo "After unpinning — effective SDKROOT:"
-          xcodebuild -showBuildSettings \
-            -workspace ios/MyOfflineLLMApp.xcworkspace \
-            -scheme MyOfflineLLMApp \
-            -configuration Release | grep -E "^ *SDKROOT" || true
+      - name: Verify generated project
+        shell: bash
+        run: |
+          set -euo pipefail
+          FOUND="$(/usr/bin/find ios -maxdepth 3 -name '*.xcodeproj' -print -quit || true)"
+          if [[ -z "${FOUND}" ]]; then
+            echo "❌ No .xcodeproj generated!"
+            exit 1
+          fi
+          echo "📁 Using project: ${FOUND}"
 
-      - name: Validate Xcode project
+      - name: Debug Xcode projects
+        run: find ios -maxdepth 3 -name "*.xcodeproj" -print
+
+      # ---- CocoaPods (clean + install via Bundler) ----
+      - name: Clean CocoaPods sandbox if stale
         working-directory: ios
         run: |
           set -euo pipefail
-          WORKSPACE_BASENAME="$(basename "${{ env.WORKSPACE }}")"
-          PROJECT_BASENAME="${WORKSPACE_BASENAME%.xcworkspace}.xcodeproj"
-          # Regenerate project if it contains unresolved merge conflict markers
-          if grep -E '^(<<<<<<<|=======|>>>>>>>)' "$PROJECT_BASENAME/project.pbxproj" >/dev/null; then
-            echo "::error::Git conflict markers detected in project.pbxproj; regenerating..."
-            xcodegen generate
-          fi
-          # Regenerate if xcodebuild -list fails (invalid project)
-          if ! xcodebuild -list -project "$PROJECT_BASENAME" >/dev/null; then
-            echo "::error::Xcode project is invalid, regenerating..."
-            xcodegen generate
-          fi
-          # Abort if conflict markers still remain
-          if grep -E '^(<<<<<<<|=======|>>>>>>>)' "$PROJECT_BASENAME/project.pbxproj" >/dev/null; then
-            echo "::error::Conflict markers remain after regeneration"; exit 1;
-          fi
-          # Verify the scheme exists in the workspace
-          xcodebuild -list -workspace "$WORKSPACE_BASENAME" | grep -q "${{ env.SCHEME }}" || {
-            echo "::error::Scheme ${{ env.SCHEME }} not found"; exit 1; }
+          rm -f Pods/Manifest.lock
+          rm -rf Pods/Headers || true
 
-      - name: Archive (device, unsigned)
-        id: archive
+      - name: Install Pods (bundler)
         working-directory: ios
-        shell: bash
+        run: bundle exec pod install --repo-update
+
+      # ---- Build device .app (no code signing) ----
+      - name: Build device .app (no code signing)
         run: |
           set -euo pipefail
-          ARCHIVE_PATH="build/${{ env.SCHEME }}.xcarchive"
-          echo "Archiving with $(xcodebuild -version | head -1)…"
+          WS="$(/usr/bin/find ios -maxdepth 1 -name '*.xcworkspace' -print -quit || true)"
+          if [[ -z "$WS" ]]; then
+            echo "::error::No .xcworkspace found for device build"
+            exit 1
+          fi
           xcodebuild \
-            -workspace "$(basename "${{ env.WORKSPACE }}")" \
-            -scheme "${{ env.SCHEME }}" \
-            -configuration Release \
+            -workspace "$WS" \
+            -scheme "${SCHEME}" \
+            -configuration "${CONFIGURATION}" \
             -sdk iphoneos \
-            -destination "generic/platform=iOS" \
-            CODE_SIGNING_ALLOWED=NO CODE_SIGNING_REQUIRED=NO CODE_SIGN_IDENTITY="" \
-            ONLY_ACTIVE_ARCH=NO ARCHS=arm64 \
-            -archivePath "$ARCHIVE_PATH" \
-            -resultBundlePath "${RUNNER_TEMP}/archive.xcresult" \
-            archive | tee xcodebuild-archive.log
+            -destination 'generic/platform=iOS' \
+            CODE_SIGNING_ALLOWED=NO \
+            CODE_SIGNING_REQUIRED=NO \
+            CODE_SIGNING_IDENTITY="" \
+            clean build \
+            BUILD_DIR="${BUILD_DIR}" \
+            | xcpretty
 
-          # Verify that archive contains an application
-          if [ ! -d "$ARCHIVE_PATH/Products/Applications" ]; then
-            echo "::error::Archive missing Applications folder: $ARCHIVE_PATH/Products/Applications"
-            # Print available destinations and settings for debugging
-            xcodebuild -showdestinations -workspace "$(basename "${{ env.WORKSPACE }}")" -scheme "${{ env.SCHEME }}" -sdk iphoneos || true
-            xcodebuild -showBuildSettings -workspace "$(basename "${{ env.WORKSPACE }}")" -scheme "${{ env.SCHEME }}" -configuration Release | grep -E '^ *SDKROOT' || true
-            exit 1
-          fi
-          echo "archive=$(pwd)/$ARCHIVE_PATH" >> "$GITHUB_OUTPUT"
-
-      - name: Upload .xcarchive
-        uses: actions/upload-artifact@v4
-        with:
-          name: ${{ env.SCHEME }}-xcarchive
-          path: ios/build/${{ env.SCHEME }}.xcarchive
-
-      - name: Create unsigned IPA from archive
-        working-directory: ios
-        shell: bash
-        env:
-          IPA_OUT: ${{ runner.temp }}/MyOfflineLLMApp-unsigned.ipa
+      - name: Locate built .app and dSYMs
+        id: locate
         run: |
           set -euo pipefail
-          archive_path="${{ steps.archive.outputs.archive }}"
-          : "${archive_path:?Archive path missing}"
-          APP_PATH="$(/usr/bin/find "$archive_path/Products/Applications" -maxdepth 1 -type d -name '*.app' -print -quit)"
-          if [ -z "$APP_PATH" ]; then
-            echo "::error::No .app found inside archive."
-            /usr/bin/find "$archive_path" -name '*.app' -print || true
+          APP_PATH="$(/usr/bin/find "${BUILD_DIR}/Build/Products/${CONFIGURATION}-iphoneos" -maxdepth 1 -name '*.app' -print -quit)"
+          if [[ -z "${APP_PATH}" ]]; then
+            echo "::error::Could not find built .app in ${BUILD_DIR}/Build/Products/${CONFIGURATION}-iphoneos"
+            ls -la "${BUILD_DIR}/Build/Products/${CONFIGURATION}-iphoneos" || true
             exit 1
           fi
-          # Remove any signing info to create a truly unsigned .ipa
-          rm -rf "$APP_PATH/_CodeSignature" || true
-          rm -f "$APP_PATH/embedded.mobileprovision" || true
-          # Package into an IPA
-          WORK_DIR="$(mktemp -d)"
-          mkdir -p "$WORK_DIR/Payload"
-          cp -R "$APP_PATH" "$WORK_DIR/Payload/"
-          (cd "$WORK_DIR" && zip -qry "$IPA_OUT" Payload)
-          mv "$IPA_OUT" .
-          echo "IPA_PATH=$(pwd)/$(basename "$IPA_OUT")" >> "$GITHUB_ENV"
-          echo "Unsigned IPA created at: $(pwd)/$(basename "$IPA_OUT")"
+          echo "app_path=${APP_PATH}" >> "$GITHUB_OUTPUT"
+          echo "✅ Found app: ${APP_PATH}"
+
+          DSYM_DIR="${BUILD_DIR}/Build/Products/${CONFIGURATION}-iphoneos"
+          DSYM_ZIP="${BUILD_DIR}/MyOfflineLLMApp.dSYMs.zip"
+          if compgen -G "${DSYM_DIR}/*.dSYM" > /dev/null; then
+            /usr/bin/zip -qry "${DSYM_ZIP}" "${DSYM_DIR}"/*.dSYM
+            echo "dsym_zip=${DSYM_ZIP}" >> "$GITHUB_OUTPUT"
+            echo "✅ dSYMs zipped: ${DSYM_ZIP}"
+          else
+            echo "dsym_zip=" >> "$GITHUB_OUTPUT"
+            echo "ℹ️ No dSYMs found to zip"
+          fi
+
+      - name: Create unsigned IPA
+        run: |
+          set -euo pipefail
+          APP_PATH="${{ steps.locate.outputs.app_path }}"
+          IPA_DIR="${BUILD_DIR}/ipa"
+          PAYLOAD_DIR="${IPA_DIR}/Payload"
+          mkdir -p "${PAYLOAD_DIR}"
+          /bin/cp -R "${APP_PATH}" "${PAYLOAD_DIR}/"
+          (cd "${IPA_DIR}" && /usr/bin/zip -qry "MyOfflineLLMApp-unsigned.ipa" "Payload")
+          ls -la "${IPA_DIR}"
 
       - name: Upload unsigned IPA
         uses: actions/upload-artifact@v4
         with:
           name: MyOfflineLLMApp-unsigned-ipa
-          path: ${{ env.IPA_PATH }}
+          path: build/ipa/MyOfflineLLMApp-unsigned.ipa
           if-no-files-found: error
 
-      - name: Print top issues from xcresult on failure
-        if: failure()
-        shell: bash
-        run: |
-          set -euo pipefail
-          RESULT_BUNDLE="${RUNNER_TEMP}/archive.xcresult"
-          if [ -d "$RESULT_BUNDLE" ]; then
-            echo "::group::xcresult: top issues"
-            /usr/bin/xcrun xcresulttool get --format json --path "$RESULT_BUNDLE" --legacy \
-            | /usr/bin/python3 scripts/xcresult_top_issues.py
-            echo "::endgroup::"
-          fi
-
+      - name: Upload dSYMs (if any)
+        if: ${{ steps.locate.outputs.dsym_zip != '' }}
+        uses: actions/upload-artifact@v4
+        with:
+          name: MyOfflineLLMApp-dSYMs
+          path: ${{ steps.locate.outputs.dsym_zip }}
+          if-no-files-found: warn

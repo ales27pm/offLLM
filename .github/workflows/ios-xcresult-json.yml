@@ -41,38 +41,91 @@ jobs:
       - name: Run ESLint (no warnings allowed)
         run: npm run lint:ci
 
-      - name: Setup Ruby & CocoaPods
+      - name: Setup Ruby
         uses: ruby/setup-ruby@v1
         with:
           ruby-version: "3.2"
 
-      - name: Install CocoaPods & xcpretty
-        shell: bash
-        run: |
-          set -euo pipefail
-          gem install cocoapods -N
-          gem install xcpretty -N
-          pod --version
+      - name: Cache Bundler
+        uses: actions/cache@v4
+        with:
+          path: ios/vendor/bundle
+          key: ${{ runner.os }}-bundler-${{ hashFiles('ios/Gemfile.lock') }}
+          restore-keys: ${{ runner.os }}-bundler-
 
-      - name: Generate Xcode project from root /ios
+      - name: Bundle config path
+        working-directory: ios
+        shell: bash
+        run: bundle config set path vendor/bundle
+
+      - name: Bundle install
+        working-directory: ios
+        shell: bash
+        run: bundle install
+
+      - name: Install XcodeGen
+        run: brew install xcodegen
+
+      - name: Install xcpretty
+        shell: bash
+        run: gem install xcpretty -N
+
+      - name: Generate Xcode project (XcodeGen auto-discover)
         shell: bash
         run: |
           set -euo pipefail
-          if [ -f "ios/project.yml" ]; then
-            echo "Generating project with XcodeGen"
-            brew install xcodegen || true
-            (cd ios && xcodegen generate)
+          SPEC="$(/usr/bin/find ios -maxdepth 2 -name project.yml -print -quit || true)"
+          if [[ -n "${SPEC}" ]]; then
+            echo "🛠  Found XcodeGen spec at: ${SPEC}"
+            pushd "$(dirname "${SPEC}")"
+            xcodegen generate
+            popd
+          else
+            echo "ℹ️  No XcodeGen project.yml found; skipping"
           fi
 
-      - name: Install Pods
+      - name: Verify generated project
+        shell: bash
+        run: ls -R ios | grep -m1 '\.xcodeproj$' || (echo '❌ No .xcodeproj generated!' && exit 1)
+
+      - name: Debug Xcode projects
+        run: find ios -maxdepth 3 -name "*.xcodeproj" -print
+
+      - name: Clean CocoaPods sandbox if stale
+        working-directory: ios
         shell: bash
         run: |
           set -euo pipefail
-          cd ios
-          pod repo update
-          pod install --repo-update
-          cd -
-          find ios -maxdepth 3 -name "*.xcworkspace" -print
+          rm -f Pods/Manifest.lock
+          rm -rf Pods/Headers || true
+
+      - name: Install Pods (bundler)
+        working-directory: ios
+        shell: bash
+        run: bundle exec pod install --repo-update
+
+      # Optional: verify sandbox is in sync (auto-heal if needed)
+      - name: Verify Pods sandbox in sync
+        working-directory: ios
+        shell: bash
+        run: |
+          set -euo pipefail
+          if ! bundle exec pod check >/dev/null 2>&1; then
+            echo "::warning::Pods sandbox not in sync; reinstalling…"
+            rm -f Pods/Manifest.lock
+            bundle exec pod install --repo-update
+          fi
+
+      - name: Verify generated workspace
+        shell: bash
+        run: |
+          set -euo pipefail
+          WS="$(/usr/bin/find ios -maxdepth 1 -name '*.xcworkspace' -print -quit || true)"
+          if [[ -z "$WS" ]]; then
+            echo "❌ No .xcworkspace found after pod install!"
+            exit 1
+          fi
+          echo "📁 Using workspace: $WS"
 
       - name: Ensure jq is available
         shell: bash
@@ -131,7 +184,6 @@ jobs:
         shell: bash
         env:
           SCHEME: MyOfflineLLMApp
-          WORKSPACE: ios/MyOfflineLLMApp.xcworkspace
           CONFIGURATION: Debug
           SDK: iphonesimulator
           RESULT_BUNDLE: ${{ runner.temp }}/MyOfflineLLMApp.xcresult
@@ -141,8 +193,14 @@ jobs:
           DESTINATION="${{ steps.sim.outputs.destination }}"
           echo "Building with destination: $DESTINATION"
 
+          WS="$(/usr/bin/find ios -maxdepth 1 -name '*.xcworkspace' -print -quit || true)"
+          if [[ -z "$WS" ]]; then
+            echo "::error::No .xcworkspace found for simulator build"
+            exit 1
+          fi
+
           xcodebuild \
-            -workspace "$WORKSPACE" \
+            -workspace "$WS" \
             -scheme "$SCHEME" \
             -configuration "$CONFIGURATION" \
             -sdk "$SDK" \
@@ -178,14 +236,20 @@ jobs:
         shell: bash
         env:
           SCHEME: MyOfflineLLMApp
-          WORKSPACE: ios/MyOfflineLLMApp.xcworkspace
           CONFIGURATION: Release
           ARCHIVE_PATH: ${{ runner.temp }}/MyOfflineLLMApp.xcarchive
         run: |
           set -euo pipefail
           echo "Archiving for generic iOS device (no codesign)…"
+
+          WS="$(/usr/bin/find ios -maxdepth 1 -name '*.xcworkspace' -print -quit || true)"
+          if [[ -z "$WS" ]]; then
+            echo "::error::No .xcworkspace found for archive"
+            exit 1
+          fi
+
           xcodebuild \
-            -workspace "$WORKSPACE" \
+            -workspace "$WS" \
             -scheme "$SCHEME" \
             -configuration "$CONFIGURATION" \
             -sdk iphoneos \
@@ -199,7 +263,7 @@ jobs:
 
           if [ ! -d "$ARCHIVE_PATH/Products/Applications" ]; then
             echo "::error::Archive missing Applications folder: $ARCHIVE_PATH/Products/Applications"
-            xcodebuild -showdestinations -workspace "$WORKSPACE" -scheme "$SCHEME" -sdk iphoneos || true
+            xcodebuild -showdestinations -workspace "$WS" -scheme "$SCHEME" -sdk iphoneos || true
             exit 1
           fi
 
