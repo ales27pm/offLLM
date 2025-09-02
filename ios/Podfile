@@ -102,32 +102,27 @@ end
 post_integrate do |installer|
   pods_project = installer.pods_project
 
-  # 1) On CI, remove the Hermes "[Hermes] Replace Hermes..." phase from the Pods project
+  # --- Remove the forbidden Hermes script (only from Pods project)
   if ENV['CI'] == 'true'
-    begin
-      pods_project.targets
-        .select { |t| t.name == 'hermes-engine' }
-        .each do |t|
-          t.shell_script_build_phases.each do |phase|
-            if (phase.name || '').include?('Replace Hermes for the right configuration')
-              UI.puts "🧹 Removing Hermes script phase from #{t.name}"
-              t.build_phases.delete(phase)
-            end
-          end
+    pods_project.targets.each do |t|
+      next unless t.name == 'hermes-engine'
+      t.shell_script_build_phases.each do |phase|
+        if phase.name&.include?('Replace Hermes for the right configuration')
+          UI.puts "🧹 Removing Hermes script phase from #{t.name}"
+          t.build_phases.delete(phase)
         end
-      pods_project.save
-    rescue => e
-      UI.puts "[warn] post_integrate Hermes cleanup failed: #{e}"
+      end
     end
+    pods_project.save
   end
 
-  # 2) Collect user Xcode projects safely
+  # --- Collect real Xcode *projects* only (avoid Pod::PodTarget, etc.)
   user_projects = installer.aggregate_targets
-                    .map { |agg| agg.user_project }
-                    .compact
-                    .uniq
+    .select { |agg| agg.respond_to?(:user_project) && agg.user_project }
+    .map(&:user_project)
+    .uniq { |p| p.path.to_s }
 
-  # 3) For Pods project + each user project, silence [CP] “always out of date” warnings if no I/O paths
+  # Mark [CP] phases without I/O as always out-of-date to silence Xcode warnings
   ([pods_project] + user_projects).each do |proj|
     next unless proj.respond_to?(:targets)
 
@@ -146,27 +141,22 @@ post_integrate do |installer|
     proj.save
   end
 
-  # 4) Guard: fail CI if any Hermes "Replace Hermes" phase still exists after our cleanup
+  # --- Guard: fail if any Hermes replacement script remains
   if ENV['CI'] == 'true'
     offending = []
-    pods_project.targets
-      .select { |t| t.name == 'hermes-engine' }
-      .each do |t|
-        t.shell_script_build_phases.each do |phase|
-          name = (phase.name || '').downcase
-          body = (phase.shell_script || '').downcase
-          if name.include?('replace hermes') || body.include?('replace hermes')
-            offending << "#{t.name} :: #{phase.name}"
-          end
-        end
+    pods_project.targets.each do |t|
+      next unless t.name == 'hermes-engine'
+      t.shell_script_build_phases.each do |phase|
+        name = (phase.name || '').downcase
+        body = (phase.shell_script || '').downcase
+        offending << "#{t.name} :: #{phase.name}" if name.include?('replace hermes') || body.include?('replace hermes')
       end
-
+    end
     unless offending.empty?
       raise <<~MSG
         Detected forbidden Hermes script phase(s):
           #{offending.join("\n  ")}
-        CI policy: the "[Hermes] Replace Hermes" script must not exist.
-        The phase was expected to be deleted in post_integrate. Investigate Pod integration.
+        CI policy: the "[Hermes] Replace Hermes" script must not exist after pod install.
       MSG
     end
   end
