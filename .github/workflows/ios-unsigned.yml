@@ -125,14 +125,6 @@ jobs:
             -UseModernBuildSystem=YES \
             CODE_SIGN_IDENTITY="" CODE_SIGNING_REQUIRED=NO CODE_SIGNING_ALLOWED=NO | tee "${BUILD_DIR}/xcodebuild.log"
 
-      - name: Upload xcodebuild logs
-        uses: actions/upload-artifact@v4
-        with:
-          name: xcodebuild-logs
-          path: |
-            ${{ env.BUILD_DIR }}/xcodebuild.log
-            ${{ env.BUILD_DIR }}/MyOfflineLLMApp.xcresult
-
       - name: Summarize build log
         if: always()
         run: |
@@ -151,8 +143,11 @@ jobs:
         if: always()
         uses: actions/upload-artifact@v4
         with:
-          name: build-diagnosis
-          path: ${{ env.BUILD_DIR }}/ci_diagnosis.md
+          name: ios-ci-diagnosis
+          path: |
+            ${{ env.BUILD_DIR }}/ci_diagnosis.md
+            ${{ env.BUILD_DIR }}/xcodebuild.log
+            ${{ env.BUILD_DIR }}/MyOfflineLLMApp.xcresult
           if-no-files-found: warn
 
       - name: Locate built .app and dSYMs
