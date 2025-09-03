@@ -5,6 +5,9 @@ on:
     branches: [main, master]
   pull_request:
 
+permissions:
+  contents: write # needed to push ci reports
+
 jobs:
   unsigned-ipa:
     name: Unsigned device IPA (Release, no codesign)
@@ -129,6 +132,57 @@ jobs:
       - name: Diagnose build & publish report
         if: always()
         run: bash scripts/ci/diagnose_build.sh "${BUILD_DIR}"
+
+      # Save reports into a branch: ci-reports/reports/ios/<run_id>/*
+      - name: Commit diagnosis reports to ci-reports branch
+        if: always() && github.event_name != 'pull_request'
+        shell: bash
+        run: |
+          set -euo pipefail
+
+          REPORT_SRC="build/ios-ci-report"
+          [[ -d "${REPORT_SRC}" ]] || { echo "No report dir; skipping push."; exit 0; }
+
+          git config user.name  "github-actions[bot]"
+          git config user.email "github-actions[bot]@users.noreply.github.com"
+
+          git fetch --depth=1 origin ci-reports || true
+
+          if git show-ref --verify --quiet refs/heads/ci-reports; then
+            git checkout ci-reports
+          else
+            if git ls-remote --exit-code --heads origin ci-reports >/dev/null 2>&1; then
+              git checkout -b ci-reports origin/ci-reports
+            else
+              git checkout --orphan ci-reports
+              rm -rf .
+              git commit --allow-empty -m "init ci-reports [skip ci]" >/dev/null 2>&1 || true
+            fi
+          fi
+
+          RUN_DIR="reports/ios/${GITHUB_RUN_ID}"
+          mkdir -p "${RUN_DIR}"
+          cp -R "${REPORT_SRC}/." "${RUN_DIR}/"
+
+          rm -rf reports/ios/latest
+          mkdir -p reports/ios/latest
+          cp -R "${REPORT_SRC}/." "reports/ios/latest/"
+
+          git add "${RUN_DIR}" reports/ios/latest
+          if ! git diff --cached --quiet; then
+            git commit -m "ci: add ios report run=${GITHUB_RUN_ID} [skip ci]"
+            git push origin ci-reports
+          else
+            echo "No changes to commit."
+          fi
+
+      # Surface the permanent repo path in the summary
+      - name: Link to saved reports
+        if: always() && github.event_name != 'pull_request'
+        run: |
+          echo "### Saved iOS CI Reports" >> "$GITHUB_STEP_SUMMARY"
+          echo "- Path (this run): \`ci-reports: reports/ios/${GITHUB_RUN_ID}/REPORT.md\`" >> "$GITHUB_STEP_SUMMARY"
+          echo "- Latest pointer:   \`ci-reports: reports/ios/latest/REPORT.md\`" >> "$GITHUB_STEP_SUMMARY"
 
       - name: Upload diagnosis artifacts
         if: always()

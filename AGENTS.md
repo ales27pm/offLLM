@@ -81,3 +81,15 @@ Read `build/ios-ci-report/report_agent.md`. Based on the listed root cause, erro
 3. Ensure xcodebuild invocations use `-parallelizeTargets NO -jobs 1` on CI.
 4. Reduce warning noise (raise pod `IPHONEOS_DEPLOYMENT_TARGET` to 18.0; fix header symlink script phases).
    Output unified diffs only.
+
+## CI Report Sources (Git-backed)
+
+Primary (latest): `ci-reports` branch → `reports/ios/latest/REPORT.md`
+Per-run report: `ci-reports` branch → `reports/ios/<RUN_ID>/REPORT.md`
+
+When diagnosing iOS CI issues, read the latest digest first:
+
+- `reports/ios/latest/report_agent.md` (compact)
+- `reports/ios/latest/REPORT.md` (full)
+
+If needed, read `xcodebuild.log` and `xcresult.json` in the same folder.
