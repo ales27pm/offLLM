@@ -153,7 +153,7 @@ jobs:
         uses: actions/upload-artifact@v4
         with:
           name: build-diagnosis
-          path: ${{ env.BUILD_DIR }}/diagnosis.md
+          path: ${{ env.BUILD_DIR }}/ci_diagnosis.md
           if-no-files-found: warn
 
       - name: Locate built .app and dSYMs

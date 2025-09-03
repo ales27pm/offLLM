@@ -49,11 +49,11 @@
 
 - Log modifications and build results to track changes and help future iterations avoid regressions.
 
-## Build Doctor Prompt (iOS)
+## Task: Fix iOS build from CI diagnosis
 
-You are the CI Build Doctor. Read the compact diagnosis report and apply fixes.
+You are a build doctor. Read the compact diagnosis report produced by CI and apply fixes.
 
-**Input report:** `build/diagnosis.md`  
+**Input report:** `build/ci_diagnosis.md`
 (Guaranteed to be <= 180 KB.)
 
 **Your tasks:**

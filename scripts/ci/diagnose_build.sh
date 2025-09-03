@@ -2,7 +2,7 @@
 set -euo pipefail
 
 BUILD_DIR="${1:-build}"
-REPORT="${BUILD_DIR}/diagnosis.md"
+REPORT="${BUILD_DIR}/ci_diagnosis.md"
 XCRESULT="${BUILD_DIR}/MyOfflineLLMApp.xcresult"
 LOG="${BUILD_DIR}/xcodebuild.log"
 
@@ -52,7 +52,13 @@ if [ -f "${LOG}" ]; then
     BEGIN{IGNORECASE=1}
     /error:|fatal error:|Command PhaseScriptExecution failed|Internal inconsistency error|never received target ended message/ {
       for(i=NR-3;i<=NR+3;i++) if (i>0) buf[i]=lines[i];
-      print "```"; for(i=NR-3;i<=NR+3;i++) if (buf[i]) print buf[i]; print "```"; print "";
+      print "```";
+      for(i=NR-3;i<=NR+3;i++) if (buf[i] && buf[i] !~ /\/clang/) {
+        line=buf[i];
+        if(length(line)>500) line=substr(line,1,500)"…";
+        print line;
+      }
+      print "```"; print "";
     }
     {lines[NR]=$0}
   ' "${LOG}" | sed -e "s/\x1B\[[0-9;]*[A-Za-z]//g" >> "${REPORT}" || true

@@ -82,10 +82,10 @@ post_install do |installer|
       cfg.build_settings['CLANG_CXX_LANGUAGE_STANDARD'] ||= 'gnu++17'
       cfg.build_settings['SWIFT_VERSION'] ||= '5.0'
 
-      # Bump pods below iOS 12 to avoid deployment target warnings
-      min = Gem::Version.new('12.0')
+      # Bump pods below iOS 13 to avoid deployment target warnings
+      min = Gem::Version.new('13.0')
       cur = Gem::Version.new((cfg.build_settings['IPHONEOS_DEPLOYMENT_TARGET'] || '0.0').to_s)
-      cfg.build_settings['IPHONEOS_DEPLOYMENT_TARGET'] = '12.0' if cur < min
+      cfg.build_settings['IPHONEOS_DEPLOYMENT_TARGET'] = '13.0' if cur < min
     end
   end
 
