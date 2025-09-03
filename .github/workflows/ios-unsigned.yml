@@ -70,7 +70,7 @@ jobs:
       - name: Scrub Hermes script phases
         working-directory: ios
         run: |
-          bundle exec ruby ../scripts/strip_hermes_phase.rb $(find Pods -name "*.xcodeproj") MyOfflineLLMApp.xcodeproj
+          bundle exec ruby ../scripts/strip_hermes_phase.rb Pods/Pods.xcodeproj MyOfflineLLMApp.xcodeproj
 
       - name: Assert Hermes phase is gone
         run: |
@@ -122,16 +122,8 @@ jobs:
             -destination 'generic/platform=iOS' \
             -archivePath "${BUILD_DIR}/MyOfflineLLMApp.xcarchive" \
             -resultBundlePath "${BUILD_DIR}/MyOfflineLLMApp.xcresult" \
-            -UseModernBuildSystem=YES \
+            -UseModernBuildSystem=YES -parallelizeTargets NO -jobs 1 \
             CODE_SIGN_IDENTITY="" CODE_SIGNING_REQUIRED=NO CODE_SIGNING_ALLOWED=NO | tee "${BUILD_DIR}/xcodebuild.log"
-
-      - name: Upload xcodebuild logs
-        uses: actions/upload-artifact@v4
-        with:
-          name: xcodebuild-logs
-          path: |
-            ${{ env.BUILD_DIR }}/xcodebuild.log
-            ${{ env.BUILD_DIR }}/MyOfflineLLMApp.xcresult
 
       - name: Summarize build log
         if: always()
@@ -143,16 +135,27 @@ jobs:
             echo "No xcodebuild.log found"
           fi
 
-      - name: Generate compact diagnosis (xcresult + logs)
+      - name: Upload xcodebuild logs
+        uses: actions/upload-artifact@v4
+        with:
+          name: xcodebuild-logs
+          path: |
+            ${{ env.BUILD_DIR }}/xcodebuild.log
+            ${{ env.BUILD_DIR }}/MyOfflineLLMApp.xcresult
+
+      - name: Generate compact diagnosis (xcresult + log)
         if: always()
-        run: bash scripts/ci/diagnose_build.sh "${BUILD_DIR}"
+        run: bash scripts/ci/diagnose_build.sh "${BUILD_DIR}" || true
 
       - name: Upload diagnosis report
         if: always()
         uses: actions/upload-artifact@v4
         with:
-          name: build-diagnosis
-          path: ${{ env.BUILD_DIR }}/ci_diagnosis.md
+          name: ios-ci-diagnosis
+          path: |
+            ${{ env.BUILD_DIR }}/ci_diagnosis.md
+            ${{ env.BUILD_DIR }}/xcodebuild.log
+            ${{ env.BUILD_DIR }}/MyOfflineLLMApp.xcresult
           if-no-files-found: warn
 
       - name: Locate built .app and dSYMs
