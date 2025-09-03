@@ -122,7 +122,6 @@ jobs:
             -archivePath "${BUILD_DIR}/MyOfflineLLMApp.xcarchive" \
             -resultBundlePath "${BUILD_DIR}/MyOfflineLLMApp.xcresult" \
             -UseModernBuildSystem=YES \
-            -parallelizeTargets NO \
             SWIFT_WORKER_THREADS=1 \
             SWIFT_SERIALIZE_DEBUGGING_OPTIONS=NO \
             CODE_SIGN_IDENTITY="" CODE_SIGNING_REQUIRED=NO CODE_SIGNING_ALLOWED=NO | tee "${BUILD_DIR}/xcodebuild.log"
