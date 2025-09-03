@@ -99,10 +99,13 @@ post_install do |installer|
 
         # Point to the actual bridging sources so <react/bridging/...> resolves
         paths = Array(cfg.build_settings['HEADER_SEARCH_PATHS'] || '$(inherited)')
+        # Include the ReactCommon root and its `react` subtree so angled includes like
+        # <react/bridging/EventEmitter.h> resolve during compilation
         paths += [
           '$(PODS_ROOT)/Headers/Public/ReactCommon',
           '$(PODS_ROOT)/Headers/Private/ReactCommon',
           '$(PODS_TARGET_SRCROOT)',
+          '$(PODS_TARGET_SRCROOT)/react',
           '$(PODS_TARGET_SRCROOT)/react/bridging'
         ]
         cfg.build_settings['HEADER_SEARCH_PATHS'] = paths.uniq
