@@ -50,6 +50,9 @@ target app_target do
 
 end
 
+# ---- Hermes Fix 2: Remove "Replace Hermes" script phases everywhere ----
+forbidden_markers = ['Replace Hermes', 'Replace Hermes for the right configuration']
+
 post_install do |installer|
   react_native_post_install(installer) if defined?(react_native_post_install)
 
@@ -74,6 +77,8 @@ post_install do |installer|
     scrub_cp_filelists_from_target(t)
     t.build_configurations.each do |cfg|
       cfg.build_settings['ENABLE_USER_SCRIPT_SANDBOXING'] = 'NO'
+      # Lift pod deployment target to app floor to avoid “set to 9.0” noise.
+      cfg.build_settings['IPHONEOS_DEPLOYMENT_TARGET'] = '18.0'
       if cfg.name.include?('Debug')
         # SwiftUI previews expect no optimization in debug builds
         cfg.build_settings['SWIFT_OPTIMIZATION_LEVEL'] = '-Onone'
@@ -85,11 +90,6 @@ post_install do |installer|
       # Ensure mixed C++ headers compile under gnu++17 and Swift 5
       cfg.build_settings['CLANG_CXX_LANGUAGE_STANDARD'] ||= 'gnu++17'
       cfg.build_settings['SWIFT_VERSION'] ||= '5.0'
-
-      # Bump pods below iOS 13 to avoid deployment target warnings
-      min = Gem::Version.new('13.0')
-      cur = Gem::Version.new((cfg.build_settings['IPHONEOS_DEPLOYMENT_TARGET'] || '0.0').to_s)
-      cfg.build_settings['IPHONEOS_DEPLOYMENT_TARGET'] = '13.0' if cur < min
 
       # ReactCommon's TurboModule core needs bridging headers like <react/bridging/EventEmitter.h>
       if t.name == 'ReactCommon'
@@ -128,39 +128,33 @@ post_install do |installer|
   installer.pods_project.save
 end
 
- # Silences "will be run during every build" warnings for shell phases with no I/O,
- # and scrubs any Hermes "Replace Hermes" phases that may be (re)introduced.
- post_integrate do |installer|
-  pods_projects =
-    if installer.respond_to?(:generated_projects) && installer.generated_projects.any?
-      installer.generated_projects.select { |p| p.path.basename.to_s.include?('Pods') }
-    else
-      [installer.pods_project].compact
-    end
+# Silences "will be run during every build" warnings for shell phases with no I/O,
+# and scrubs any Hermes "Replace Hermes" phases that may be (re)introduced.
+post_integrate do |installer|
+  pods_project = installer.pods_project
 
-  # --- Remove the forbidden Hermes script from ALL Pods projects (CI only)
+  # --- Remove the forbidden Hermes script (all pods, all user targets)
   if ENV['CI'] == 'true'
-    pods_projects.each do |proj|
+    scrub = lambda { |proj|
       proj.targets.each do |t|
-        next unless t.name == 'hermes-engine'
-        t.shell_script_build_phases.each do |phase|
-          if phase.name&.include?('Replace Hermes for the right configuration')
-            t.build_phases.delete(phase)
-          end
-        end
+        t.build_phases.select { |p|
+          p.isa == 'PBXShellScriptBuildPhase' && p.name && forbidden_markers.any? { |m| p.name.include?(m) }
+        }.each { |p| t.build_phases.delete(p) }
       end
       proj.save
-    end
+    }
+    scrub.call(pods_project)
+    installer.aggregate_targets.each { |agg| scrub.call(agg.user_project) }
   end
 
-  # --- Collect real Xcode *projects* only (avoid Pod::PodTarget, etc.)
+  # Collect real Xcode projects (user app)
   user_projects = installer.aggregate_targets
     .select { |agg| agg.respond_to?(:user_project) && agg.user_project }
     .map(&:user_project)
     .uniq { |p| p.path.to_s }
 
   # Mark [CP] phases without I/O as always out-of-date to silence Xcode warnings
-  (pods_projects + user_projects).each do |proj|
+  ([pods_project] + user_projects).each do |proj|
     proj.targets.each do |t|
       t.build_phases
         .select { |p| p.isa == 'PBXShellScriptBuildPhase' && p.name&.start_with?('[CP]') }
@@ -171,16 +165,15 @@ end
     proj.save
   end
 
-  # --- Guard: fail if any Hermes replacement script remains in any Pods project
+  # --- Guard: fail if any Hermes replacement script remains
   if ENV['CI'] == 'true'
     offending = []
-    pods_projects.each do |proj|
+    ([pods_project] + user_projects).each do |proj|
       proj.targets.each do |t|
-        next unless t.name == 'hermes-engine'
-        t.shell_script_build_phases.each do |phase|
+        t.build_phases.select { |p| p.isa == 'PBXShellScriptBuildPhase' }.each do |phase|
           name = (phase.name || '').downcase
           body = (phase.shell_script || '').downcase
-          offending << "#{proj.path} :: #{t.name} :: #{phase.name}" if name.include?('replace hermes') || body.include?('replace hermes')
+          offending << "#{proj.path.basename} :: #{t.name} :: #{phase.name}" if name.include?('replace hermes') || body.include?('replace hermes')
         end
       end
     end

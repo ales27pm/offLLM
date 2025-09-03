@@ -51,9 +51,9 @@
 
 ## Task: Fix iOS build from CI diagnosis
 
-You are a build doctor. Read the compact diagnosis report produced by CI and apply fixes.
+You are a build doctor. Read the compact CI report produced by CI and apply fixes.
 
-**Input report:** `build/ci_diagnosis.md`
+**Input report:** `build/ios_ci_report/report_agent.md`
 (Guaranteed to be <= 180 KB.)
 
 **Your tasks:**
@@ -98,3 +98,19 @@ You are a build doctor. Read the compact diagnosis report produced by CI and app
 ## Rollback Guidance
 
 - Revert doc-only changes with `git revert <commit>`.
+
+## CI Repair Prompt (iOS Build)
+
+**Goal:** Read the compact CI report and propose minimal, targeted fixes.
+
+**Artifacts to read:**
+
+- `build/ios_ci_report/report_agent.md` (short digest)
+- If needed for details only: `build/ios_ci_report/report.md`
+
+**Instructions:**
+
+1. List the top 3 concrete failures with file/target names if present.
+2. For each, propose the smallest code/config change required (Podfile, workflow flags, or specific source files).
+3. Output diffs in unified format. Keep changes minimal and safe for CI.
+4. Do NOT paste entire logs. Keep the response under 800 words.
