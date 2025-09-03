@@ -94,15 +94,15 @@ post_install do |installer|
 
       # ReactCommon's TurboModule core needs bridging headers like <react/bridging/EventEmitter.h>
       if t.name == 'ReactCommon'
-        # Point directly at the ReactCommon sources in node_modules so angled includes resolve
+        # Allow <react/…> includes to resolve without header maps
         paths = Array(cfg.build_settings['HEADER_SEARCH_PATHS'] || '$(inherited)')
         paths += [
           '$(PODS_ROOT)/Headers/Public/ReactCommon',
           '$(PODS_ROOT)/Headers/Private/ReactCommon',
-          # Reach back into node_modules to expose the react/bridging directory
-          '$(PODS_ROOT)/../../node_modules/react-native/ReactCommon',
-          '$(PODS_ROOT)/../../node_modules/react-native/ReactCommon/react',
-          '$(PODS_ROOT)/../../node_modules/react-native/ReactCommon/react/bridging'
+          # Search the pod sources directly for react/bridging headers
+          '$(PODS_TARGET_SRCROOT)',
+          '$(PODS_TARGET_SRCROOT)/react',
+          '$(PODS_TARGET_SRCROOT)/react/bridging'
         ]
         cfg.build_settings['HEADER_SEARCH_PATHS'] = paths.uniq
         # Disable header maps so the compiler consults our explicit search paths
