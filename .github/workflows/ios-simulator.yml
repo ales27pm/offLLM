@@ -71,7 +71,7 @@ jobs:
       - name: Scrub Hermes script phases
         working-directory: ios
         run: |
-          bundle exec ruby ../scripts/strip_hermes_phase.rb Pods/Pods.xcodeproj MyOfflineLLMApp.xcodeproj
+          bundle exec ruby ../scripts/strip_hermes_phase.rb $(find Pods -name "*.xcodeproj") MyOfflineLLMApp.xcodeproj
 
       - name: Assert Hermes phase is gone
         run: |
