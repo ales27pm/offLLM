@@ -121,33 +121,24 @@ jobs:
             -configuration "${CONFIGURATION}" \
             -sdk iphonesimulator \
             -destination "platform=iOS Simulator,name=${SIM_DEVICE}" \
-            -UseModernBuildSystem=YES -parallelizeTargets NO -jobs 1 \
+            -UseModernBuildSystem=YES \
+            -parallelizeTargets NO -jobs 1 \
             -resultBundlePath "${BUILD_DIR}/MyOfflineLLMApp.xcresult" \
             CODE_SIGNING_ALLOWED=NO \
             clean build | tee "${BUILD_DIR}/xcodebuild.log" | xcpretty
 
-      - name: Summarize build log
+      - name: Diagnose build & publish report
         if: always()
-        run: |
-          if [ -f "${BUILD_DIR}/xcodebuild.log" ]; then
-            echo "Summary of warnings and errors:"
-            grep -iE "error|warning|failed" "${BUILD_DIR}/xcodebuild.log" | tail -n 200 || true
-          else
-            echo "No xcodebuild.log found"
-          fi
+        run: bash scripts/ci/diagnose_build.sh "${BUILD_DIR}"
 
-      - name: Diagnose build & create compact reports
-        if: always()
-        run: bash scripts/ci/diagnose_build.sh "${BUILD_DIR}" || true
-
-      - name: Upload iOS CI report
+      - name: Upload diagnosis artifacts
         if: always()
         uses: actions/upload-artifact@v4
         with:
           name: ios-ci-report
           path: |
+            build/ios-ci-report/REPORT.md
             build/ios-ci-report/report_agent.md
-            build/ios-ci-report/report.md
             build/ios-ci-report/xcodebuild.log
             build/ios-ci-report/xcresult.json
           if-no-files-found: warn

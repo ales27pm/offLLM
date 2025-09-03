@@ -72,20 +72,12 @@
 
 - Revert doc-only changes with `git revert <commit>`.
 
-## CI Repair Prompt (iOS Build)
+## CI Repair Prompt (ingests compact digest)
 
-**Context:** Open the artifact `ios-ci-report/report_agent.md`. Read it carefully; it's a tiny digest of the full logs and xcresult.
+Read `build/ios-ci-report/report_agent.md`. Based on the listed root cause, errors, warnings, and recommendations:
 
-**Task:**
-
-1. Identify one concrete root cause for the iOS build failure.
-2. Propose a minimal patch (Podfile, Xcode project settings, or workflow step) to fix it.
-3. Output a single, copy-pasteable git apply patch or YAML edit. Keep changes under 30 lines.
-4. If the problem is a flaky parallel build, serialize xcodebuild (`-parallelizeTargets NO -jobs 1`).
-5. If a CocoaPods script like Hermes "Replace Hermes" is present, delete that script phase from every affected target.
-6. If the deployment target warning blocks the build, bump the problematic pod's `IPHONEOS_DEPLOYMENT_TARGET` in `post_install`.
-
-**Deliverables:**
-
-- `Root cause:` 1–2 short lines.
-- `Fix:` patch or YAML (≤30 lines).
+1. Propose a minimal patch to fix the CI build deterministically.
+2. If Hermes “Replace Hermes” script phases appear, add/remediate Podfile `post_install`/`post_integrate` scrubbing.
+3. Ensure xcodebuild invocations use `-parallelizeTargets NO -jobs 1` on CI.
+4. Reduce warning noise (raise pod `IPHONEOS_DEPLOYMENT_TARGET` to 18.0; fix header symlink script phases).
+   Output unified diffs only.
