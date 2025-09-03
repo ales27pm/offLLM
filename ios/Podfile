@@ -40,7 +40,8 @@ target app_target do
 
   # Ensure TurboModule core can find bridging headers like EventEmitter.h
   pod 'ReactCommon/turbomodule/bridging',
-      :path => "#{react_native_path}/ReactCommon" # exposes <react/bridging/...> to TurboModule core
+      :path => "#{react_native_path}/ReactCommon",
+      :modular_headers => true # expose <react/bridging/...> via module map
 
   # Codegen pods (ReactCodegen + ReactAppDependencyProvider) are handled automatically by use_react_native! using :app_path
 
