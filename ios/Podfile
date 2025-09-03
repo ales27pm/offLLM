@@ -117,7 +117,6 @@ post_integrate do |installer|
       next unless t.name == 'hermes-engine'
       t.shell_script_build_phases.each do |phase|
         if phase.name&.include?('Replace Hermes for the right configuration')
-          UI.puts "Removing Hermes script phase from #{t.name}"
           t.build_phases.delete(phase)
         end
       end
