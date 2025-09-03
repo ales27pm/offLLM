@@ -94,14 +94,18 @@ post_install do |installer|
 
       # ReactCommon's TurboModule core needs bridging headers like <react/bridging/EventEmitter.h>
       if t.name == 'ReactCommon'
-        # Ensure <react/bridging/...> headers like EventEmitter.h resolve
+        # Disable header maps so our manual search paths are used reliably
+        cfg.build_settings['USE_HEADERMAP'] = 'NO'
+
+        # Point to the actual bridging sources so <react/bridging/...> resolves
         paths = Array(cfg.build_settings['HEADER_SEARCH_PATHS'] || '$(inherited)')
         paths += [
           '$(PODS_ROOT)/Headers/Public/ReactCommon',
           '$(PODS_ROOT)/Headers/Private/ReactCommon',
-          '$(PODS_TARGET_SRCROOT)'
+          '$(PODS_TARGET_SRCROOT)',
+          '$(PODS_TARGET_SRCROOT)/react/bridging'
         ]
-        cfg.build_settings['HEADER_SEARCH_PATHS'] = paths
+        cfg.build_settings['HEADER_SEARCH_PATHS'] = paths.uniq
       end
     end
   end
