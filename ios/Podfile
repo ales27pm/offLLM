@@ -98,7 +98,9 @@ post_install do |installer|
         paths = Array(cfg.build_settings['HEADER_SEARCH_PATHS'] || '$(inherited)')
         paths += [
           '$(PODS_ROOT)/Headers/Public/ReactCommon',
+          '$(PODS_ROOT)/Headers/Public/ReactCommon/turbomodule/bridging',
           '$(PODS_ROOT)/Headers/Private/ReactCommon',
+          '$(PODS_ROOT)/Headers/Private/ReactCommon/turbomodule/bridging',
           # Search the pod sources directly for react/bridging headers
           '$(PODS_TARGET_SRCROOT)',
           '$(PODS_TARGET_SRCROOT)/react',
