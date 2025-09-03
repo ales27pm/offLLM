@@ -125,7 +125,6 @@ jobs:
             -sdk iphonesimulator \
             -destination "platform=iOS Simulator,name=${SIM_DEVICE}" \
             -UseModernBuildSystem=YES \
-            -parallelizeTargets 'NO' \
             -jobs 1 \
             -resultBundlePath "${BUILD_DIR}/MyOfflineLLMApp.xcresult" \
             CODE_SIGNING_ALLOWED=NO \
