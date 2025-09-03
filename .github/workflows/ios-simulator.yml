@@ -143,14 +143,23 @@ jobs:
             echo "No xcodebuild.log found"
           fi
 
-      - name: Generate compact diagnosis (xcresult + logs)
+      - name: Ensure diagnose script is executable
         if: always()
-        run: bash scripts/ci/diagnose_build.sh "${BUILD_DIR}"
+        run: chmod +x scripts/ci/diagnose_build.sh || true
+
+      - name: Generate compact diagnosis (xcresult + log)
+        if: always()
+        run: |
+          set -e
+          bash scripts/ci/diagnose_build.sh "${{ env.BUILD_DIR }}" || true
 
       - name: Upload diagnosis report
         if: always()
         uses: actions/upload-artifact@v4
         with:
-          name: build-diagnosis
-          path: ${{ env.BUILD_DIR }}/ci_diagnosis.md
+          name: ios-ci-diagnosis
+          path: |
+            ${{ env.BUILD_DIR }}/ci_diagnosis.md
+            ${{ env.BUILD_DIR }}/xcodebuild.log
+            ${{ env.BUILD_DIR }}/MyOfflineLLMApp.xcresult
           if-no-files-found: warn

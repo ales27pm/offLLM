@@ -101,19 +101,17 @@ You are a build doctor. Read the compact diagnosis report produced by CI and app
 
 ## iOS Build Doctor (CI Triage)
 
-**Inputs available as CI artifacts:**
+Artifacts to read first:
 
-- `build/ci_diagnosis.md` (≤8K chars) — compact summary generated from the latest build.
-- `build/xcodebuild.log`, `build/*.xcresult` (full artifacts if you need detail).
+- `build/ci_diagnosis.md` (≤ 8,000 chars): compact summary from the latest run.
 
-**Your task:**
+Your task:
 
-1. Read `ci_diagnosis.md` and identify the _most likely_ root cause in 1–3 bullets.
-2. Propose concrete repository changes to fix it. Prefer small, surgical edits:
-   - For missing `react/bridging/*` headers, ensure the app's Debug/Release xcconfig files `#include` the Pods-generated configs and (if needed) add `ReactCommon` / `React-Codegen` header search paths.
-3. Output your answer as:
-   - **Patches**: each with path and a minimal diff block.
-   - **Rationale**: 1–2 sentences per patch.
-4. Keep the total output under 300 lines. If uncertain, propose the smallest change that surfaces richer errors next run.
+1. Read `ci_diagnosis.md`. In 1–3 bullets, state the most likely root cause.
+2. Propose **small, surgical patches** to fix it (show unified diffs).
+   - If missing `react/bridging/*` headers, ensure our Debug/Release xcconfig includes the Pods-generated configs and, if needed, add ReactCommon / React-Codegen header paths.
+3. Keep the total output under 300 lines.
 
-**Don’ts:** Don’t paste the entire log. Don’t propose sweeping refactors. Aim for the next green build.
+Don’ts:
+
+- Don’t paste large log chunks. Don’t refactor broadly. Aim for the next green build.

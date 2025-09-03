@@ -74,6 +74,10 @@ post_install do |installer|
     scrub_cp_filelists_from_target(t)
     t.build_configurations.each do |cfg|
       cfg.build_settings['ENABLE_USER_SCRIPT_SANDBOXING'] = 'NO'
+      # Cosmetic: silence too-low deployment target warnings from privacy/info pods
+      if t.name =~ /RNDeviceInfo/i && cfg.build_settings['IPHONEOS_DEPLOYMENT_TARGET'].to_s < '18.0'
+        cfg.build_settings['IPHONEOS_DEPLOYMENT_TARGET'] = '18.0'
+      end
       if cfg.name.include?('Debug')
         # SwiftUI previews expect no optimization in debug builds
         cfg.build_settings['SWIFT_OPTIMIZATION_LEVEL'] = '-Onone'

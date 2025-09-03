@@ -22,11 +22,16 @@ PY
   # Heuristic: pick 5 most frequent / representative error lines
   if [ -f "$LOG" ]; then
     echo '```'
-    grep -E '(^|: )error:|Internal inconsistency error' -n "$LOG" \
-      | sed 's#^.*Build/Intermediates[^:]*:##' \
-      | sed 's#^.*node_modules/[^:]*:##' \
-      | cut -c -240 \
-      | sort | uniq -c | sort -nr | head -n 5
+    ERR_LINES=$(grep -E '(^|: )error:|Internal inconsistency error' -n "$LOG" || true)
+    if [ -n "$ERR_LINES" ]; then
+      printf '%s\n' "$ERR_LINES" \
+        | sed 's#^.*Build/Intermediates[^:]*:##' \
+        | sed 's#^.*node_modules/[^:]*:##' \
+        | cut -c -240 \
+        | sort | uniq -c | sort -nr | head -n 5
+    else
+      echo "(no errors found)"
+    fi
     echo '```'
   else
     echo "_log not found_"
@@ -34,7 +39,7 @@ PY
   echo
   echo "## Top XCResult issues"
   if [ -d "$XC" ] || [ -f "$XC" ]; then
-    python3 scripts/xcresult_top_issues.py "$XC" 2>/dev/null | shorten 4000 || echo "_xcresult parse failed_"
+    (python3 scripts/xcresult_top_issues.py "$XC" 2>/dev/null | shorten 4000) || echo "_xcresult parse failed_"
   else
     echo "_xcresult missing_"
   fi
@@ -45,3 +50,4 @@ PY
 } > "$OUT_MD"
 
 echo "Wrote $OUT_MD"
+exit 0
