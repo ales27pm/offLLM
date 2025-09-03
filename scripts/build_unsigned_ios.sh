@@ -6,13 +6,14 @@ set -euo pipefail
 ROOT="$(pwd)"
 IOS_DIR="ios"
 DERIVED="${IOS_DIR}/build"
+BUILD_DIR="${BUILD_DIR:-build}"
 
 : "${SCHEME:?SCHEME env var required}"
 : "${WORKSPACE:?WORKSPACE env var required}"
 IOS_DESTINATION="${IOS_DESTINATION:-}"
 
-RESULT_BUNDLE="${RESULT_BUNDLE:-${IOS_DIR}/${SCHEME}.xcresult}"
-LOG_FILE="${IOS_DIR}/xcodebuild.log"
+RESULT_BUNDLE="${RESULT_BUNDLE:-${BUILD_DIR}/${SCHEME}.xcresult}"
+LOG_FILE="${LOG_FILE:-${BUILD_DIR}/xcodebuild.log}"
 
 echo "▶️  Unsigned iOS build starting…"
 echo "Environment:"
@@ -25,6 +26,8 @@ if [ -n "${IOS_SIM_OS:-}" ]; then
   echo "  IOS_SIM_OS=${IOS_SIM_OS}"
 fi
 echo
+
+mkdir -p "$BUILD_DIR"
 
 XCODE_CMD=(xcodebuild
   -workspace "$WORKSPACE"
