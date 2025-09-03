@@ -23,10 +23,10 @@ settings:
 packages:
   MLX:
     url: https://github.com/ml-explore/mlx-swift.git
-    exact: 0.25.6
+    exactVersion: 0.25.6
   MLXLibraries:
     url: https://github.com/ml-explore/mlx-swift-examples
-    exact: 2.25.6 # exposes the MLXLLM product
+    exactVersion: 2.25.6 # exposes the MLXLLM product
 
 targets:
   MyOfflineLLMApp:
