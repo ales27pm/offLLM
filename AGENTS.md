@@ -49,33 +49,32 @@
 
 - Log modifications and build results to track changes and help future iterations avoid regressions.
 
-## Task: Fix iOS build from CI diagnosis
+## Build Doctor Prompt (iOS)
 
-You are a build doctor. Read the artifact **ci_diagnosis.md** produced by CI (and optionally xcresult.json if needed). Then:
+You are the CI Build Doctor. Read the compact diagnosis report and apply fixes.
 
-1. Identify the primary build-breaking error(s). Be concise.
-2. Propose concrete fixes that can be applied as code/config changes (Podfile, project.yml, Xcode settings, workflow YAML, or source).
-3. Output your answer as a set of patch blocks the user can apply directly:
-   - For YAML or Podfile changes, use fenced blocks starting with ```patch and unified diff format.
-   - For source files, also use unified diffs.
-4. Keep the response under ~6000 tokens. If findings are too long, summarize and link to file paths/sections.
+**Input report:** `build/diagnosis.md`  
+(Guaranteed to be <= 180 KB.)
 
-**Inputs**:
+**Your tasks:**
 
-- `ios/build/ci_diagnosis.md` (compact report from CI)
-- Optional: `ios/build/xcresult.json` for exact issue contexts
+1. Summarize the top root causes and the exact files/lines they affect.
+2. Propose minimal, well-commented patches (use `apply_patch` style) to:
+   - Fix any invalid `xcodebuild` flags or arguments.
+   - Address errors found in `.xcresult` (e.g., missing headers, bad search paths, failing script phases).
+   - Silence high-entropy warnings that break CI signal (e.g., too-low pod deployment targets).
+3. Re-run the reasoning to confirm the fixes would eliminate the errors called out in the report.
 
-**Heuristics**:
+**Constraints:**
 
-- If you see “Internal inconsistency error: never received target ended message”, first try build-system stability flags (disable target parallelization, set SWIFT_WORKER_THREADS=1) and consider pinning swift-transformers if needed.
-- If deployment target warnings (< iOS 12) appear in Pods sub-targets, add a `post_install` block to enforce a consistent minimum.
-- Avoid changing user code unless necessary; prefer Podfile/project/workflow adjustments.
+- Keep patches as small as possible, with inline comments explaining _why_.
+- Do not introduce new tools unless they are already available in the workflow environment.
+- If a fix is risky, propose it behind a guarded step or with a clear rollback note.
 
-**Deliverables**:
+**Output:**
 
-- A short diagnosis paragraph.
-- One or more patch blocks implementing the fixes.
-- A “What changed & why” bullet list tied to each patch.
+- A short summary of causes.
+- A single `apply_patch` block with all necessary changes.
 
 ## Testing & Quality Gates
 
