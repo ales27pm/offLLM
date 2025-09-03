@@ -59,9 +59,9 @@ npm test
 
 ### Codegen
 
- - `npm run codegen` reads [src/specs/](src/specs/) and generates TurboModule headers under `ios/build/generated/ios`.
- - Re-run after editing specs.
- - CI sets safe defaults for `CODEGEN_OUTPUT_DIR` and `TEMPLATE_SRC_DIR` to avoid path resolution errors.
+- `npm run codegen` reads [src/specs/](src/specs/) and generates TurboModule headers under `ios/build/generated/ios`.
+- Re-run after editing specs.
+- CI sets safe defaults for `CODEGEN_OUTPUT_DIR` and `TEMPLATE_SRC_DIR` to avoid path resolution errors.
 
 ### iOS build
 
@@ -80,14 +80,14 @@ npm test
 
 ## Scripts Reference
 
-| Command              | Description                     |
-| -------------------- | ------------------------------- |
-| `npm ci`             | Install deps from lockfile      |
-| `npm run ci:install` | CI install wrapper for `npm ci` |
-| `npm run codegen`    | Generate Turbo headers          |
-| `npm test`           | Run Jest suite                  |
-| `npm run lint`       | ESLint                          |
-| `npm run ios`        | Run iOS simulator               |
+| Command                           | Description                        |
+| --------------------------------- | ---------------------------------- |
+| `npm ci`                          | Install deps from lockfile         |
+| `npm run ci:install`              | CI install wrapper for `npm ci`    |
+| `npm run codegen`                 | Generate Turbo headers             |
+| `npm test`                        | Run Jest suite                     |
+| `npm run lint`                    | ESLint                             |
+| `npm run ios`                     | Run iOS simulator                  |
 | `./scripts/build-ios-unsigned.sh` | Clean install & unsigned IPA build |
 
 ## iOS Unsigned Build (Simulator)
@@ -120,12 +120,12 @@ The app uses a privacy-focused consent system (`src/privacy/consents.ts`) to man
 - Throws `ConsentError` for invalid keys.
 
 ```typescript
-import { getConsent, setConsent } from './src/privacy/consents';
+import { getConsent, setConsent } from "./src/privacy/consents";
 
 async function requestCameraAccess() {
-  const consent = await getConsent('camera');
+  const consent = await getConsent("camera");
   if (!consent?.value) {
-    await setConsent('camera', true);
+    await setConsent("camera", true);
   }
 }
 ```

@@ -1,9 +1,21 @@
-import type {TurboModule} from 'react-native';
-import {TurboModuleRegistry} from 'react-native';
+import type { TurboModule } from "react-native";
+import { TurboModuleRegistry } from "react-native";
 
-export interface GenerateOptions { maxTokens?: number; temperature?: number; topK?: number; topP?: number; stop?: string[] | null; }
-export interface LoadOptions { quantization?: string | null; contextLength?: number | null; }
-export interface PerfMetrics { memoryUsage?: number; cpuUsage?: number; }
+export interface GenerateOptions {
+  maxTokens?: number;
+  temperature?: number;
+  topK?: number;
+  topP?: number;
+  stop?: string[] | null;
+}
+export interface LoadOptions {
+  quantization?: string | null;
+  contextLength?: number | null;
+}
+export interface PerfMetrics {
+  memoryUsage?: number;
+  cpuUsage?: number;
+}
 
 export interface Spec extends TurboModule {
   loadModel(_path: string, _options?: LoadOptions | null): Promise<boolean>;
@@ -21,11 +33,10 @@ export interface Spec extends TurboModule {
 // Probe for codegen so the spec is marked as used.
 try {
   // IMPORTANT: codegen looks specifically for `get<Spec>('Name')` calls.
-  TurboModuleRegistry.get<Spec>('LLM');
+  TurboModuleRegistry.get<Spec>("LLM");
 } catch {
   // Ignore missing native module during runtime.
 }
 
 // Expose the TurboModule; returns `null` when the native implementation is missing.
-export default TurboModuleRegistry.getOptional<Spec>('LLM');
-
+export default TurboModuleRegistry.getOptional<Spec>("LLM");

@@ -64,7 +64,7 @@ export const webSearchTool = {
         maxResults,
         timeRange,
         safeSearch,
-        extractContent
+        extractContent,
       );
 
       return {

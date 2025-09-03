@@ -14,7 +14,7 @@ export function useEmotion() {
     };
     const lower = text.toLowerCase();
     const found = Object.entries(checks).find(([, words]) =>
-      words.some((w) => lower.includes(w))
+      words.some((w) => lower.includes(w)),
     );
     return found ? found[0] : null;
   };

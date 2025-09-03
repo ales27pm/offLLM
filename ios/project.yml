@@ -66,5 +66,14 @@ targets:
         product: MLX
       - package: MLXLibraries
         product: MLXLLM
+    scripts:
+      - name: Create Symlinks to Header Folders
+        script: echo "Symlinks handled by CocoaPods"
+        outputFiles:
+          - "${DERIVED_FILE_DIR}/create_symlinks_to_header_folders.stamp"
+      - name: "[CP] Copy XCFrameworks"
+        script: echo "Copy XCFrameworks handled by CocoaPods"
+        outputFiles:
+          - "${DERIVED_FILE_DIR}/copy_xcframeworks.stamp"
     scheme:
       testTargets: []

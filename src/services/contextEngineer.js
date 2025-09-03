@@ -26,7 +26,7 @@ export class ContextEvaluator {
     }
 
     const relevantContext = contextItems.filter(
-      (item) => item.similarity >= this.relevanceThreshold
+      (item) => item.similarity >= this.relevanceThreshold,
     );
 
     const topContext = relevantContext
@@ -54,7 +54,7 @@ export class ContextEvaluator {
     const selectedContext = await applySparseAttention(
       queryEmbedding,
       clusteredContext,
-      { numClusters: 3, topK: 2 }
+      { numClusters: 3, topK: 2 },
     );
 
     return await this._assessContextQuality(query, selectedContext);
@@ -69,7 +69,7 @@ export class ContextEvaluator {
       for (const cluster of clusters) {
         const clusterSimilarity = cosineSimilarity(
           item.embedding,
-          cluster.center
+          cluster.center,
         );
 
         if (clusterSimilarity > 0.7) {
@@ -190,14 +190,14 @@ export class ContextEngineer {
       return this._hierarchicalContextProcessing(
         query,
         conversationHistory,
-        tokenBudget
+        tokenBudget,
       );
     }
 
     return this._standardContextProcessing(
       query,
       conversationHistory,
-      tokenBudget
+      tokenBudget,
     );
   }
 
@@ -238,18 +238,18 @@ export class ContextEngineer {
   async _hierarchicalContextProcessing(
     query,
     conversationHistory,
-    tokenBudget
+    tokenBudget,
   ) {
     const queryEmbedding = await LLMService.embed(query);
 
     const relevantChunks = await this._retrieveRelevantChunksSparse(
       queryEmbedding,
-      Math.floor(tokenBudget.contextTokens / 100)
+      Math.floor(tokenBudget.contextTokens / 100),
     );
 
     const conversationSummary = await this._summarizeConversationHierarchically(
       conversationHistory,
-      tokenBudget.historyTokens
+      tokenBudget.historyTokens,
     );
 
     const availableContextTokens =
@@ -259,14 +259,14 @@ export class ContextEngineer {
 
     const selectedContext = await this._selectContextWithinBudgetSparse(
       relevantChunks,
-      availableContextTokens
+      availableContextTokens,
     );
 
     return {
       contextPrompt: this._assembleHierarchicalContext(
         query,
         selectedContext,
-        conversationSummary
+        conversationSummary,
       ),
       tokenUsage: {
         total: tokenBudget.maxContextTokens,
@@ -283,13 +283,13 @@ export class ContextEngineer {
       const results = await vectorStore.searchVectorsSparse(
         queryEmbedding,
         limit,
-        { useHierarchical: true, numClusters: 3 }
+        { useHierarchical: true, numClusters: 3 },
       );
       return results;
     } catch (error) {
       console.error(
         "Sparse retrieval failed, falling back to standard:",
-        error
+        error,
       );
       return await vectorStore.searchVectors(queryEmbedding, limit);
     }
@@ -306,7 +306,7 @@ export class ContextEngineer {
       const summaryResult = await LLMService.generate(
         summaryPrompt,
         maxTokens,
-        0.3
+        0.3,
       );
 
       return {
@@ -324,7 +324,7 @@ export class ContextEngineer {
           conversationHistory
             .slice(-2)
             .map((m) => m.content)
-            .join("\n")
+            .join("\n"),
         ),
       };
     }

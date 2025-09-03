@@ -4,6 +4,6 @@ module.exports = {
   },
   testEnvironment: "node",
   coverageThreshold: {
-    global: { lines: 40 }
+    global: { lines: 40 },
   },
 };

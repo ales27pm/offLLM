@@ -1,4 +1,4 @@
-import { up as init } from './0001_initial';
+import { up as init } from "./0001_initial";
 
 export const CURRENT_VERSION = 1;
 

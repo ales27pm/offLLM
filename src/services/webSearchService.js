@@ -1,10 +1,10 @@
-import * as google from './providers/google';
-import * as bing from './providers/bing';
-import * as brave from './providers/brave';
-import * as duckduckgo from './providers/duckduckgo';
-import { validate } from './utils/apiKeys';
-import { simpleCache, rateLimiter } from './utils/cacheAndRate';
-import ReadabilityService from './readabilityService';
+import * as google from "./providers/google";
+import * as bing from "./providers/bing";
+import * as brave from "./providers/brave";
+import * as duckduckgo from "./providers/duckduckgo";
+import { validate } from "./utils/apiKeys";
+import { simpleCache, rateLimiter } from "./utils/cacheAndRate";
+import ReadabilityService from "./readabilityService";
 
 const PROVIDERS = { google, bing, brave, duckduckgo };
 
@@ -15,13 +15,30 @@ export class SearchService {
     if (!(await validate(providerName))) {
       throw new Error(`No API key for ${providerName}`);
     }
-    const run = () => provider.search(query, { maxResults, timeRange, safeSearch });
+    const run = () =>
+      provider.search(query, { maxResults, timeRange, safeSearch });
     const limited = () => rateLimiter(providerName, run);
-    return simpleCache(`${providerName}:${query}:${maxResults}:${timeRange}:${safeSearch}`, limited);
+    return simpleCache(
+      `${providerName}:${query}:${maxResults}:${timeRange}:${safeSearch}`,
+      limited,
+    );
   }
 
-  async performSearchWithContentExtraction(provider, query, maxResults, timeRange, safeSearch, extractContent = true) {
-    const results = await this.performSearch(provider, query, maxResults, timeRange, safeSearch);
+  async performSearchWithContentExtraction(
+    provider,
+    query,
+    maxResults,
+    timeRange,
+    safeSearch,
+    extractContent = true,
+  ) {
+    const results = await this.performSearch(
+      provider,
+      query,
+      maxResults,
+      timeRange,
+      safeSearch,
+    );
     if (!extractContent) return results;
     const readabilityService = new ReadabilityService();
     const enriched = [];
@@ -34,13 +51,13 @@ export class SearchService {
         enriched.push({
           ...r,
           content,
-          contentExtracted: true
+          contentExtracted: true,
         });
       } catch (e) {
         enriched.push({
           ...r,
           contentExtracted: false,
-          contentExtractionError: e?.message || 'Content extraction failed'
+          contentExtractionError: e?.message || "Content extraction failed",
         });
       }
     }

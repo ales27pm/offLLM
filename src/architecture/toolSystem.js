@@ -78,7 +78,7 @@ export class ToolRegistry {
 
   getToolsByCategory(category) {
     return Array.from(this.toolCategories.get(category) || []).map((toolName) =>
-      this.tools.get(toolName)
+      this.tools.get(toolName),
     );
   }
 
@@ -318,7 +318,7 @@ export const builtInTools = {
       try {
         // Safe evaluation of mathematical expressions
         const result = eval(
-          parameters.expression.replace(/[^0-9+\-*/().]/g, "")
+          parameters.expression.replace(/[^0-9+\-*/().]/g, ""),
         );
         return { result, success: true };
       } catch (error) {

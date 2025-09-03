@@ -4,16 +4,17 @@ export async function validateKey() {
 
 function parseResults(html, maxResults) {
   const results = [];
-  const regex = /<a class="result__a".*?href="([^"]+)".*?>(.*?)<\/a>.*?<a class="result__snippet".*?>(.*?)<\/a>/gs;
+  const regex =
+    /<a class="result__a".*?href="([^"]+)".*?>(.*?)<\/a>.*?<a class="result__snippet".*?>(.*?)<\/a>/gs;
   let match;
   while ((match = regex.exec(html)) !== null && results.length < maxResults) {
-    if (match[1].startsWith('//ad.')) continue;
-    const url = match[1].startsWith('//') ? 'https:' + match[1] : match[1];
+    if (match[1].startsWith("//ad.")) continue;
+    const url = match[1].startsWith("//") ? "https:" + match[1] : match[1];
     results.push({
-      title: match[2].replace(/<[^>]*>/g, ''),
+      title: match[2].replace(/<[^>]*>/g, ""),
       url,
-      snippet: match[3].replace(/<[^>]*>/g, ''),
-      date: null
+      snippet: match[3].replace(/<[^>]*>/g, ""),
+      date: null,
     });
   }
   return results;

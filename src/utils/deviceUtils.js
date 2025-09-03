@@ -12,13 +12,13 @@ export function getDeviceProfile() {
 
       if (!totalMemory) {
         console.warn(
-          "[DeviceProfile] getTotalMemory unavailable, using fallback value 4000MB"
+          "[DeviceProfile] getTotalMemory unavailable, using fallback value 4000MB",
         );
         totalMemory = 4000;
       }
       if (!processorCores) {
         console.warn(
-          "[DeviceProfile] getProcessorCount unavailable, using fallback value 4 cores"
+          "[DeviceProfile] getProcessorCount unavailable, using fallback value 4 cores",
         );
         processorCores = 4;
       }
@@ -28,13 +28,13 @@ export function getDeviceProfile() {
 
       if (!totalMemory) {
         console.warn(
-          "[DeviceProfile] totalMemory unavailable, using fallback value 4000MB"
+          "[DeviceProfile] totalMemory unavailable, using fallback value 4000MB",
         );
         totalMemory = 4000;
       }
       if (!processorCores) {
         console.warn(
-          "[DeviceProfile] processorCores unavailable, using fallback value 4 cores"
+          "[DeviceProfile] processorCores unavailable, using fallback value 4 cores",
         );
         processorCores = 4;
       }
@@ -77,7 +77,7 @@ export function getDeviceProfile() {
 export function getPerformanceMode(
   deviceProfile,
   batteryLevel = 1.0,
-  thermalState = "nominal"
+  thermalState = "nominal",
 ) {
   const { tier, isLowEndDevice } = deviceProfile;
 

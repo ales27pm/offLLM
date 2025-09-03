@@ -42,7 +42,43 @@
 - Build with Xcode 16.x (command line tools installed).
 - Deployment target stays **18.0** in [`ios/project.yml`](ios/project.yml), [`ios/MyOfflineLLMApp/project.yml`](ios/MyOfflineLLMApp/project.yml), and `Podfile` post_install.
 - When editing these files, update comments and re-run `bundle exec pod install --repo-update`.
-- **Do not enable CocoaPods input/output file lists** with static pods (`:disable_input_output_paths => true` stays). Keep the Hermes "Replace Hermes..." user script neutralized and `ENABLE_USER_SCRIPT_SANDBOXING` set to `NO` in `post_install` for CI stability.
+- **Do not enable CocoaPods input/output file lists** with static pods (`:disable_input_output_paths => true` stays). Set `ENABLE_USER_SCRIPT_SANDBOXING` to `NO` in `post_install` for CI stability.
+- When editing project.yml or Podfile, ensure no legacy .xcfilelist references or invalid Podfile hooks are reintroduced.
+
+## Agent Learning
+
+- Log modifications and build results to track changes and help future iterations avoid regressions.
+
+## Task: Read iOS Build Diagnostic Report and apply fixes
+
+**Goal:** Make the iOS CI build pass reliably.
+
+**Inputs:**
+
+- `ios-build-diagnostics` artifact from the latest CI run
+  - `build_report.md`
+  - `xcodebuild.log`
+  - `MyOfflineLLMApp.xcresult` (if present)
+
+**Instructions:**
+
+1. Open `build_report.md`. Identify the **first fatal error** (not just warnings). Cross-check in `xcodebuild.log` and `xcresult` issues.
+2. Classify the failure:
+   - Swift build-system/compiler crash
+   - Script phase failure
+   - Linker issue
+   - Codegen/spec generation issue
+   - Deployment target / platform mismatch
+3. Propose **minimal, concrete fixes**. For each fix:
+   - Describe the root cause in one sentence.
+   - Provide exact code/config changes (Podfile hooks, SPM pin, Xcode build setting, YAML change).
+   - Note any tradeoffs.
+4. Update CI to reduce flakiness:
+   - Add/adjust cache cleaning or `-jobs 1` retry only when hitting known race/crash signatures.
+   - Ensure `-resultBundlePath` and artifact upload steps are present.
+5. Output:
+   - A patch-style snippet that can be applied directly.
+   - A short “why this works” note.
 
 ## Testing & Quality Gates
 
