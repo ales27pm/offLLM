@@ -82,12 +82,8 @@ post_install do |installer|
       cfg.build_settings['CLANG_CXX_LANGUAGE_STANDARD'] ||= 'gnu++17'
       cfg.build_settings['SWIFT_VERSION'] ||= '5.0'
 
-      # Bump pods that declare an iOS deployment target lower than Xcode's supported floor
-      floor = '12.0'
-      current = cfg.build_settings['IPHONEOS_DEPLOYMENT_TARGET']
-      if current.nil? || Gem::Version.new(current) < Gem::Version.new(floor)
-        cfg.build_settings['IPHONEOS_DEPLOYMENT_TARGET'] = floor
-      end
+      # Enforce a sane, Xcode-16-compatible minimum iOS
+      cfg.build_settings['IPHONEOS_DEPLOYMENT_TARGET'] = '13.0'
     end
   end
 

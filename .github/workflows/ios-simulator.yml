@@ -122,6 +122,7 @@ jobs:
             -sdk iphonesimulator \
             -destination "platform=iOS Simulator,name=${SIM_DEVICE}" \
             -UseModernBuildSystem=YES \
+            -resultBundlePath "${BUILD_DIR}/MyOfflineLLMApp.xcresult" \
             CODE_SIGNING_ALLOWED=NO \
             clean build | tee "${BUILD_DIR}/xcodebuild.log" | xcpretty
 
@@ -131,6 +132,55 @@ jobs:
         with:
           name: xcodebuild-log
           path: ${{ env.BUILD_DIR }}/xcodebuild.log
+
+      - name: Export xcresult as JSON
+        if: always()
+        run: |
+          set -euo pipefail
+          XR="${BUILD_DIR}/MyOfflineLLMApp.xcresult"
+          if [ -d "$XR" ]; then
+            /usr/bin/xcrun xcresulttool get --format json --path "$XR" > "${BUILD_DIR}/xcresult.json"
+          else
+            echo "{}" > "${BUILD_DIR}/xcresult.json"
+          fi
+
+      - name: Generate CI diagnosis (compact)
+        if: always()
+        run: |
+          set -euo pipefail
+          : "${BUILD_DIR:=build}"
+          : > "${BUILD_DIR}/ci_diagnosis.md"
+          echo "# Build Diagnosis" >> "${BUILD_DIR}/ci_diagnosis.md"
+          echo "" >> "${BUILD_DIR}/ci_diagnosis.md"
+          if command -v python3 >/dev/null 2>&1; then
+            if [ -f "scripts/xcresult_top_issues.py" ] && [ -s "${BUILD_DIR}/xcresult.json" ]; then
+              echo "## Top Issues (xcresult)" >> "${BUILD_DIR}/ci_diagnosis.md"
+              python3 scripts/xcresult_top_issues.py "${BUILD_DIR}/xcresult.json" >> "${BUILD_DIR}/ci_diagnosis.md" || true
+              echo "" >> "${BUILD_DIR}/ci_diagnosis.md"
+            fi
+          fi
+          if [ -f "${BUILD_DIR}/xcodebuild.log" ]; then
+            echo "## Recent Errors & Warnings (log tail)" >> "${BUILD_DIR}/ci_diagnosis.md"
+            grep -iE "error|failed|warning" "${BUILD_DIR}/xcodebuild.log" | tail -n 300 >> "${BUILD_DIR}/ci_diagnosis.md" || true
+            echo "" >> "${BUILD_DIR}/ci_diagnosis.md"
+          fi
+          python3 - <<'PY' "${BUILD_DIR}/ci_diagnosis.md"
+          import os, sys
+          p = sys.argv[1]
+          data = open(p,'rb').read()
+          MAX = 180_000
+          if len(data) > MAX:
+              open(p,'wb').write(data[:MAX] + b"\n\n…(truncated)\n")
+          PY
+
+      - name: Upload diagnosis report
+        if: always()
+        uses: actions/upload-artifact@v4
+        with:
+          name: ios-build-diagnosis
+          path: |
+            ${{ env.BUILD_DIR }}/ci_diagnosis.md
+            ${{ env.BUILD_DIR }}/xcresult.json
 
       - name: Summarize build log
         if: always()

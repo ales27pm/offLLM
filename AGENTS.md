@@ -49,36 +49,33 @@
 
 - Log modifications and build results to track changes and help future iterations avoid regressions.
 
-## Task: Read iOS Build Diagnostic Report and apply fixes
+## Task: Fix iOS build from CI diagnosis
 
-**Goal:** Make the iOS CI build pass reliably.
+You are a build doctor. Read the artifact **ci_diagnosis.md** produced by CI (and optionally xcresult.json if needed). Then:
 
-**Inputs:**
+1. Identify the primary build-breaking error(s). Be concise.
+2. Propose concrete fixes that can be applied as code/config changes (Podfile, project.yml, Xcode settings, workflow YAML, or source).
+3. Output your answer as a set of patch blocks the user can apply directly:
+   - For YAML or Podfile changes, use fenced blocks starting with ```patch and unified diff format.
+   - For source files, also use unified diffs.
+4. Keep the response under ~6000 tokens. If findings are too long, summarize and link to file paths/sections.
 
-- `ios-build-diagnostics` artifact from the latest CI run
-  - `build_report.md`
-  - `xcodebuild.log`
-  - `MyOfflineLLMApp.xcresult` (if present)
+**Inputs**:
 
-**Instructions:**
+- `ios/build/ci_diagnosis.md` (compact report from CI)
+- Optional: `ios/build/xcresult.json` for exact issue contexts
 
-1. Open `build_report.md`. Identify the **first fatal error** (not just warnings). Cross-check in `xcodebuild.log` and `xcresult` issues.
-2. Classify the failure:
-   - Swift build-system/compiler crash
-   - Script phase failure
-   - Linker issue
-   - Codegen/spec generation issue
-   - Deployment target / platform mismatch
-3. Propose **minimal, concrete fixes**. For each fix:
-   - Describe the root cause in one sentence.
-   - Provide exact code/config changes (Podfile hooks, SPM pin, Xcode build setting, YAML change).
-   - Note any tradeoffs.
-4. Update CI to reduce flakiness:
-   - Add/adjust cache cleaning or `-jobs 1` retry only when hitting known race/crash signatures.
-   - Ensure `-resultBundlePath` and artifact upload steps are present.
-5. Output:
-   - A patch-style snippet that can be applied directly.
-   - A short “why this works” note.
+**Heuristics**:
+
+- If you see “Internal inconsistency error: never received target ended message”, first try build-system stability flags (disable target parallelization, set SWIFT_WORKER_THREADS=1) and consider pinning swift-transformers if needed.
+- If deployment target warnings (< iOS 12) appear in Pods sub-targets, add a `post_install` block to enforce a consistent minimum.
+- Avoid changing user code unless necessary; prefer Podfile/project/workflow adjustments.
+
+**Deliverables**:
+
+- A short diagnosis paragraph.
+- One or more patch blocks implementing the fixes.
+- A “What changed & why” bullet list tied to each patch.
 
 ## Testing & Quality Gates
 
