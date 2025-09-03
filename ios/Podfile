@@ -98,8 +98,9 @@ post_install do |installer|
           '$(PODS_TARGET_SRCROOT)/react',
           '$(PODS_TARGET_SRCROOT)/react/bridging',
           # Reach into node_modules for bridging headers when not copied into the sandbox
-          '$(PODS_ROOT)/../node_modules/react-native/ReactCommon',
-          '$(PODS_ROOT)/../node_modules/react-native/ReactCommon/react/bridging'
+          # Node modules live one level above ios/, so we need ../../ to reach them
+          '$(PODS_ROOT)/../../node_modules/react-native/ReactCommon',
+          '$(PODS_ROOT)/../../node_modules/react-native/ReactCommon/react/bridging'
         ]
         cfg.build_settings['HEADER_SEARCH_PATHS'] = paths.uniq
         # Disable header maps so the compiler consults our explicit search paths
