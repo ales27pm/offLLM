@@ -105,6 +105,8 @@ post_install do |installer|
           '$(PODS_ROOT)/../../node_modules/react-native/ReactCommon/react/bridging'
         ]
         cfg.build_settings['HEADER_SEARCH_PATHS'] = paths.uniq
+        # Disable header maps so the compiler consults our explicit search paths
+        cfg.build_settings['USE_HEADERMAP'] = 'NO'
       end
     end
   end
