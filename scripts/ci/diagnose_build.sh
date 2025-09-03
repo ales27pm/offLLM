@@ -1,51 +1,52 @@
 #!/usr/bin/env bash
 set -euo pipefail
 
-# Generate a compact build summary for CI artifacts.
-# Usage: diagnose_build.sh [build_dir]
-
 BUILD_DIR="${1:-build}"
-XC="${BUILD_DIR}/MyOfflineLLMApp.xcresult"
+REPORT_DIR="${BUILD_DIR}/ios-ci-report"
+mkdir -p "${REPORT_DIR}"
+
 LOG="${BUILD_DIR}/xcodebuild.log"
-OUT_MD="${BUILD_DIR}/ci_diagnosis.md"
+XCBUNDLE="${BUILD_DIR}/MyOfflineLLMApp.xcresult"
 
-shorten() { # trim long sections while preserving context
-  local max=${1:-8000}
-  python3 - "$max" <<'PY'
-import sys, textwrap
-limit=int(sys.argv[1]); data=sys.stdin.read()
-print((data if len(data)<=limit else data[:limit-200]+"\n\n…(truncated)…"))
-PY
-}
-
+# Agent-friendly digest
+AGENT_MD="${REPORT_DIR}/report_agent.md"
 {
   echo "# iOS CI Diagnosis"
   echo
   echo "## Most likely root cause"
-  if [ -f "$LOG" ]; then
-    echo '```'
-    (grep -E '(^|: )error:|Internal inconsistency error' -n "$LOG" || true) \
-      | sed 's#^.*Build/Intermediates[^:]*:##' \
-      | sed 's#^.*node_modules/[^:]*:##' \
-      | cut -c -240 \
-      | sort | uniq -c | sort -nr | head -n 5
-    echo '```'
-  else
-    echo "_log not found_"
-  fi
+  echo '```'
+  awk '/Internal inconsistency error|PhaseScriptExecution failed|error: /{print}' "${LOG}" | head -n 30 || true
+  echo '```'
   echo
   echo "## Top XCResult issues"
-  if [ -d "$XC" ] || [ -f "$XC" ]; then
-    (python3 scripts/xcresult_top_issues.py "$XC" 2>/dev/null | shorten 4000) || echo "_xcresult parse failed_"
-  else
-    echo "_xcresult missing_"
-  fi
+} > "${AGENT_MD}"
+
+if [ -d "${XCBUNDLE}" ] || [ -f "${XCBUNDLE}" ]; then
+  /usr/bin/xcrun xcresulttool get --format json --path "${XCBUNDLE}" > "${REPORT_DIR}/xcresult.json" || true
+  {
+    echo
+    echo '```'
+    /usr/bin/grep -Eo '"issueType" *: *"[^"]+"|"title" *: *"[^"]+"' "${REPORT_DIR}/xcresult.json" \
+      | sed -E 's/^"issueType": //g; s/^"title": //g; s/"//g' \
+      | head -n 50 || true
+    echo '```'
+  } >> "${AGENT_MD}"
+else
+  echo "_No .xcresult found_" >> "${AGENT_MD}"
+fi
+
+# Human-readable report
+{
+  echo "# iOS CI Diagnosis (human)"
   echo
-  echo "## Pointers"
-  echo "- Full log: \`$LOG\`"
-  echo "- Result bundle: \`$XC\`"
-} > "$OUT_MD"
+  echo "## Log: First errors"
+  grep -nE "Internal inconsistency error|PhaseScriptExecution failed|error:" "${LOG}" | head -n 100 || true
+  echo
+  echo "## Log: Last 200 lines"
+  tail -n 200 "${LOG}" || true
+} > "${REPORT_DIR}/report.md"
 
-echo "Wrote $OUT_MD"
+# Copy raw log for convenience
+cp -f "${LOG}" "${REPORT_DIR}/" || true
+
 exit 0
-

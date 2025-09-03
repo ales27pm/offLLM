@@ -135,27 +135,20 @@ jobs:
             echo "No xcodebuild.log found"
           fi
 
-      - name: Upload xcodebuild logs
-        uses: actions/upload-artifact@v4
-        with:
-          name: xcodebuild-logs
-          path: |
-            ${{ env.BUILD_DIR }}/xcodebuild.log
-            ${{ env.BUILD_DIR }}/MyOfflineLLMApp.xcresult
-
-      - name: Generate compact diagnosis (xcresult + log)
+      - name: Diagnose build & create compact reports
         if: always()
         run: bash scripts/ci/diagnose_build.sh "${BUILD_DIR}" || true
 
-      - name: Upload diagnosis report
+      - name: Upload iOS CI report
         if: always()
         uses: actions/upload-artifact@v4
         with:
-          name: ios-ci-diagnosis
+          name: ios-ci-report
           path: |
-            ${{ env.BUILD_DIR }}/ci_diagnosis.md
-            ${{ env.BUILD_DIR }}/xcodebuild.log
-            ${{ env.BUILD_DIR }}/MyOfflineLLMApp.xcresult
+            build/ios-ci-report/report_agent.md
+            build/ios-ci-report/report.md
+            build/ios-ci-report/xcodebuild.log
+            build/ios-ci-report/xcresult.json
           if-no-files-found: warn
 
       - name: Locate built .app and dSYMs

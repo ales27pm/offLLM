@@ -72,21 +72,20 @@
 
 - Revert doc-only changes with `git revert <commit>`.
 
-## iOS Build Doctor (CI Triage)
+## CI Repair Prompt (iOS Build)
 
-**Inputs available as CI artifacts:**
+**Context:** Open the artifact `ios-ci-report/report_agent.md`. Read it carefully; it's a tiny digest of the full logs and xcresult.
 
-- `build/ci_diagnosis.md` (≤8K chars) — compact summary generated from the latest build.
-- `build/xcodebuild.log`, `build/*.xcresult` (full artifacts if you need detail).
+**Task:**
 
-**Your task:**
+1. Identify one concrete root cause for the iOS build failure.
+2. Propose a minimal patch (Podfile, Xcode project settings, or workflow step) to fix it.
+3. Output a single, copy-pasteable git apply patch or YAML edit. Keep changes under 30 lines.
+4. If the problem is a flaky parallel build, serialize xcodebuild (`-parallelizeTargets NO -jobs 1`).
+5. If a CocoaPods script like Hermes "Replace Hermes" is present, delete that script phase from every affected target.
+6. If the deployment target warning blocks the build, bump the problematic pod's `IPHONEOS_DEPLOYMENT_TARGET` in `post_install`.
 
-1. Read `ci_diagnosis.md` and identify the _most likely_ root cause in 1–3 bullets.
-2. Propose concrete repository changes to fix it. Prefer small, surgical edits:
-   - For missing `react/bridging/*` headers, ensure the app's Debug/Release xcconfig files `#include` the Pods-generated configs and add `ReactCommon`/`React-Codegen` header search paths if needed.
-3. Output your answer as:
-   - **Patches**: each with path and a minimal diff block.
-   - **Rationale**: 1–2 sentences per patch.
-4. Keep the total output under 300 lines. If uncertain, propose the smallest change that surfaces richer errors next run.
+**Deliverables:**
 
-**Don’ts:** Don’t paste the entire log. Don’t propose sweeping refactors. Aim for the next green build.
+- `Root cause:` 1–2 short lines.
+- `Fix:` patch or YAML (≤30 lines).
