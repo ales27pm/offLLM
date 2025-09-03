@@ -40,8 +40,7 @@ target app_target do
 
   # Ensure TurboModule core can find bridging headers like EventEmitter.h
   pod 'ReactCommon/turbomodule/bridging',
-      :path => "#{react_native_path}/ReactCommon",
-      :modular_headers => true # exposes <react/bridging/...> to TurboModule core
+      :path => "#{react_native_path}/ReactCommon" # exposes <react/bridging/...> to TurboModule core
 
   # Codegen pods (ReactCodegen + ReactAppDependencyProvider) are handled automatically by use_react_native! using :app_path
 
@@ -91,6 +90,12 @@ post_install do |installer|
       min = Gem::Version.new('13.0')
       cur = Gem::Version.new((cfg.build_settings['IPHONEOS_DEPLOYMENT_TARGET'] || '0.0').to_s)
       cfg.build_settings['IPHONEOS_DEPLOYMENT_TARGET'] = '13.0' if cur < min
+
+      # ReactCommon's TurboModule core needs bridging headers like <react/bridging/EventEmitter.h>
+      if t.name == 'ReactCommon'
+        cfg.build_settings['HEADER_SEARCH_PATHS'] ||= '$(inherited)'
+        cfg.build_settings['HEADER_SEARCH_PATHS'] << ' "$(PODS_ROOT)/Headers/Public/ReactCommon"'
+      end
     end
   end
 
