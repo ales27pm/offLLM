@@ -49,6 +49,37 @@
 
 - Log modifications and build results to track changes and help future iterations avoid regressions.
 
+## Task: Read iOS Build Diagnostic Report and apply fixes
+
+**Goal:** Make the iOS CI build pass reliably.
+
+**Inputs:**
+
+- `ios-build-diagnostics` artifact from the latest CI run
+  - `build_report.md`
+  - `xcodebuild.log`
+  - `MyOfflineLLMApp.xcresult` (if present)
+
+**Instructions:**
+
+1. Open `build_report.md`. Identify the **first fatal error** (not just warnings). Cross-check in `xcodebuild.log` and `xcresult` issues.
+2. Classify the failure:
+   - Swift build-system/compiler crash
+   - Script phase failure
+   - Linker issue
+   - Codegen/spec generation issue
+   - Deployment target / platform mismatch
+3. Propose **minimal, concrete fixes**. For each fix:
+   - Describe the root cause in one sentence.
+   - Provide exact code/config changes (Podfile hooks, SPM pin, Xcode build setting, YAML change).
+   - Note any tradeoffs.
+4. Update CI to reduce flakiness:
+   - Add/adjust cache cleaning or `-jobs 1` retry only when hitting known race/crash signatures.
+   - Ensure `-resultBundlePath` and artifact upload steps are present.
+5. Output:
+   - A patch-style snippet that can be applied directly.
+   - A short “why this works” note.
+
 ## Testing & Quality Gates
 
 - Run `npm test` before committing.

@@ -75,22 +75,11 @@ jobs:
       - name: Assert Hermes phase is gone
         run: |
           set -euo pipefail
-          ruby -e '
-            require "xcodeproj";
-            p = Xcodeproj::Project.open("ios/Pods/Pods.xcodeproj");
-            offenders = [];
-            p.targets.each do |t|
-              t.build_phases.select{ |bp| bp.isa=="PBXShellScriptBuildPhase" }.each do |bp|
-                name = (bp.name || "").downcase;
-                body = (bp.shell_script || "").downcase;
-                offenders << "#{t.name} :: #{bp.name}" if name.include?("replace hermes") || body.include?("replace hermes");
-              end;
-            end;
-            if offenders.any?
-              warn "Remaining Hermes phases:\n  #{offenders.join("\n  ")}";
-              exit 1;
-            end;
-          '
+          if /usr/bin/grep -R --include=project.pbxproj --line-number -i "Replace Hermes|\[Hermes\]" \
+               ios/Pods ios/MyOfflineLLMApp.xcodeproj 2>/dev/null; then
+            echo "::error::Forbidden Hermes 'Replace Hermes' script phase detected after pod install."
+            exit 1
+          fi
           echo "✅ Hermes phase not found."
 
       - name: Snapshot Pods shell script phases (forensics)
