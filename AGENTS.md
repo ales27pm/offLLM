@@ -72,19 +72,22 @@
 
 - Revert doc-only changes with `git revert <commit>`.
 
-## CI Reports
+## Build Diagnosis & Reports
 
-The iOS workflows publish two reports at the repository root:
+After each CI run, two reports are automatically generated in the repository:
 
-- `report_agent.md` — compact, model-friendly digest.
-- `REPORT.md` — detailed, human-readable version.
+- `REPORT.md` — human-oriented, detailed summary of warnings, errors, and xcresult issues.
+- `report_agent.md` — machine-friendly (key=value format) for AI coding agents.
 
-## /diagnose-ios
+### Agent Guidelines
 
-Read these reports in order when triaging iOS CI failures:
+- Always consult `report_agent.md` first to quickly understand counts and the first error/warning/xcresult issue.
+- If more detail is needed, open `REPORT.md`.
+- Use these reports as the authoritative source for diagnosing and fixing build issues.
+- Never rely only on raw logs in `.github/workflows` artifacts if a report is available.
+- When proposing fixes, cite the corresponding section (e.g., "`Errors` in `REPORT.md`") so humans can trace the context.
 
-1. `report_agent.md`
-2. `REPORT.md` (only if more context is needed)
-3. Raw artifacts like `build/xcodebuild.log` or `build/MyOfflineLLMApp.xcresult` only for specifics.
+### Important
 
-Then propose minimal patches with unified diffs and a brief verification plan.
+- Do not regenerate `REPORT.md` or `report_agent.md` manually; they are created automatically by the CI workflow via `scripts/ci/build_report.py`.
+- If a build fails without generating reports, fallback parsing will still summarize logs, but the agent should note this and recommend rerunning the workflow with report generation enabled.

@@ -1,150 +1,136 @@
 #!/usr/bin/env python3
-"""
-Generates REPORT.md (human) and report_agent.md (LLM-friendly) from:
-- build/MyOfflineLLMApp.xcresult (if present)
-- build/xcodebuild.log (if present)
+"""Generate CI build reports from xcodebuild log and xcresult.
 
-Safe-by-default: never exits non-zero; won't break CI.
+Creates two files:
+  - REPORT.md       (human-readable)
+  - report_agent.md (compact key=value digest for agents)
+
+The script never exits non-zero, so it cannot break CI.
 """
 
-import json, os, re, sys, subprocess
+import argparse
+import json
+import os
+import subprocess
 from pathlib import Path
 
-BUILD_DIR = Path(os.environ.get("BUILD_DIR", "build"))
-XCRESULT = BUILD_DIR / "MyOfflineLLMApp.xcresult"
-LOGFILE  = BUILD_DIR / "xcodebuild.log"
-OUT_HUMAN = Path("REPORT.md")
-OUT_AGENT = Path("report_agent.md")
-XCRESULT_JSON = BUILD_DIR / "xcresult.json"
 
-def sh(cmd):
+def parse_args():
+    p = argparse.ArgumentParser(description="Generate CI build reports")
+    p.add_argument("--log", required=True, help="Path to xcodebuild.log")
+    p.add_argument("--xcresult", required=True, help="Path to .xcresult bundle")
+    p.add_argument("--out", default="REPORT.md", help="Output human report path")
+    p.add_argument("--agent", default="report_agent.md", help="Output agent report path")
+    return p.parse_args()
+
+
+def parse_log(path: Path):
+    errors, warnings = [], []
     try:
-        return subprocess.check_output(cmd, text=True).strip()
-    except Exception:
-        return ""
+        with path.open(errors="ignore") as f:
+            for line in f:
+                low = line.lower().strip()
+                if "error:" in low:
+                    errors.append(line.strip())
+                elif "warning:" in low:
+                    warnings.append(line.strip())
+    except FileNotFoundError:
+        pass
+    return errors, warnings
 
-def try_dump_xcresult_json():
-    if XCRESULT.is_dir():
-        try:
-            data = sh(["xcrun", "xcresulttool", "get", "--format", "json", "--path", str(XCRESULT)])
-            if data:
-                XCRESULT_JSON.write_text(data)
-        except Exception:
-            pass
 
-def collect_xcresult_messages():
-    """Return list of (severity, title/message, path?)."""
-    if not XCRESULT_JSON.exists():
-        return []
-    try:
-        data = json.loads(XCRESULT_JSON.read_text())
-    except Exception:
-        return []
-    out = []
-    def walk(o):
-        if isinstance(o, dict):
-            title = o.get("title") or o.get("message")
-            sev = o.get("severity") or o.get("_severity") or ""
-            loc = o.get("location")
-            path = None
-            if isinstance(loc, dict):
-                path = loc.get("path")
-            if isinstance(title, str) and title.strip():
-                out.append((sev, title.strip(), path))
-            for v in o.values():
-                walk(v)
-        elif isinstance(o, list):
-            for v in o:
-                walk(v)
-    walk(data)
-    seen, dedup = set(), []
-    for tup in out:
-        if tup not in seen:
-            seen.add(tup)
-            dedup.append(tup)
-    return dedup
-
-def grep_lines(path: Path, pattern: str, max_lines: int):
+def parse_xcresult(path: Path):
     if not path.exists():
         return []
     try:
-        rx = re.compile(pattern, re.IGNORECASE)
-        res = []
-        with path.open(errors="ignore") as f:
-            for line in f:
-                if rx.search(line):
-                    res.append(line.rstrip())
-        return res[-max_lines:]
-    except Exception:
-        return []
+        out = subprocess.check_output(
+            ["xcrun", "xcresulttool", "get", "--format", "json", "--path", str(path)],
+            text=True,
+        )
+        data = json.loads(out)
+    except Exception as e:  # xcresulttool missing or parse error
+        return [f"(xcresult parse failed: {e})"]
 
-def detect_root_cause(log_lines):
-    root = None
-    joined = "\n".join(log_lines)
-    if re.search(r"Internal inconsistency error: never received target ended message", joined, re.I):
-        root = "Xcode internal scheduler inconsistency (e.g., TensorUtils target) — often triggered by flaky/expensive script phases or huge graphs."
-    if re.search(r"\[Hermes\]\s*Replace Hermes", joined, re.I):
-        root = "Leftover Hermes 'Replace Hermes' script phase present (should be scrubbed)."
-    return root or "Undetermined"
+    issues = []
 
-def write_human_report(xc_msgs, log_errors, log_warns):
-    with OUT_HUMAN.open("w") as w:
-        w.write("# iOS CI Diagnosis\n\n")
-        w.write("## Inputs\n")
-        w.write(f"- Log: `{LOGFILE}`\n")
-        w.write(f"- XCResult: `{XCRESULT}`\n\n")
-        w.write("## Top XCResult issues\n")
-        if xc_msgs:
-            for sev, title, path in xc_msgs[:120]:
-                tag = sev.upper() if sev else "ISSUE"
-                loc = f" — {path}" if path else ""
-                w.write(f"- **{tag}**: {title}{loc}\n")
-        else:
-            w.write("_No xcresult messages extracted._\n")
-        w.write("\n")
-        w.write("## Log highlights\n\n")
-        if LOGFILE.exists():
-            w.write("### Errors\n")
-            if log_errors:
-                w.write("\n".join(log_errors) + "\n\n")
-            else:
-                w.write("_No 'error' lines captured._\n\n")
-            w.write("### Suspicious warnings (sample)\n")
-            if log_warns:
-                w.write("\n".join(log_warns) + "\n")
-            else:
-                w.write("_No suspicious warnings captured._\n")
-        else:
-            w.write("_No xcodebuild.log found_\n")
+    def walk(obj):
+        if isinstance(obj, dict):
+            t = obj.get("_type", {}).get("_name", "")
+            if "Issue" in t:
+                desc = obj.get("issueType") or obj.get("title") or obj.get("message")
+                if isinstance(desc, str) and desc:
+                    issues.append(desc)
+            for v in obj.values():
+                walk(v)
+        elif isinstance(obj, list):
+            for v in obj:
+                walk(v)
 
-def write_agent_report(xc_msgs, log_errors):
-    root = detect_root_cause(log_errors)
-    with OUT_AGENT.open("w") as w:
-        w.write("# iOS CI Agent Report\n\n")
-        w.write("## Most likely root cause\n")
-        w.write(f"`{root}`\n\n")
-        w.write("## Top issues (dedup, capped)\n")
-        if xc_msgs:
-            for sev, title, path in xc_msgs[:60]:
-                tag = sev.upper() if sev else "ISSUE"
-                loc = f" @ {path}" if path else ""
-                w.write(f"- {tag}: {title}{loc}\n")
+    walk(data)
+    return issues
+
+
+def write_human_report(out_path: Path, log_path: Path, xc_path: Path, errors, warnings, xc_issues):
+    with out_path.open("w") as f:
+        f.write("# iOS CI Report\n\n")
+        f.write(f"- Workflow log: {log_path}\n")
+        f.write(f"- Result bundle: {xc_path}\n\n")
+
+        f.write("## Errors\n")
+        if errors:
+            f.write("\n".join(f"- {e}" for e in errors[:100]))
+            if len(errors) > 100:
+                f.write(f"\n... ({len(errors)-100} more)\n")
         else:
-            w.write("- (no xcresult)\n")
-        w.write("\n## Pointers\n")
-        w.write(f"- Log: `{LOGFILE}`\n")
-        w.write(f"- Result bundle: `{XCRESULT}`\n")
+            f.write("No errors detected\n")
+
+        f.write("\n\n## Warnings\n")
+        if warnings:
+            f.write("\n".join(f"- {w}" for w in warnings[:100]))
+            if len(warnings) > 100:
+                f.write(f"\n... ({len(warnings)-100} more)\n")
+        else:
+            f.write("No warnings detected\n")
+
+        f.write("\n\n## XCResult Issues\n")
+        if xc_issues:
+            f.write("\n".join(f"- {i}" for i in xc_issues[:50]))
+            if len(xc_issues) > 50:
+                f.write(f"\n... ({len(xc_issues)-50} more)\n")
+        else:
+            f.write("No issues detected\n")
+
+
+def write_agent_report(out_path: Path, errors, warnings, xc_issues):
+    with out_path.open("w") as f:
+        f.write("# agent_report\n")
+        f.write(f"errors_count={len(errors)}\n")
+        f.write(f"warnings_count={len(warnings)}\n")
+        f.write(f"xcresult_issues_count={len(xc_issues)}\n")
+        if errors:
+            f.write("first_error=" + errors[0].replace("|", "/") + "\n")
+        if warnings:
+            f.write("first_warning=" + warnings[0].replace("|", "/") + "\n")
+        if xc_issues:
+            f.write("first_xcresult_issue=" + xc_issues[0].replace("|", "/") + "\n")
+
 
 def main():
-    try_dump_xcresult_json()
-    xc_msgs   = collect_xcresult_messages()
-    log_errs  = grep_lines(LOGFILE, r"(error:|Command PhaseScriptExecution failed)", 160)
-    log_warns = grep_lines(LOGFILE, r"(Run script build phase .* will be run during every build|deployment target)", 120)
-    write_human_report(xc_msgs, log_errs, log_warns)
-    write_agent_report(xc_msgs, log_errs)
+    args = parse_args()
+    log_path = Path(args.log)
+    xc_path = Path(args.xcresult)
+
+    errors, warnings = parse_log(log_path)
+    xc_issues = parse_xcresult(xc_path)
+
+    write_human_report(Path(args.out), log_path, xc_path, errors, warnings, xc_issues)
+    write_agent_report(Path(args.agent), errors, warnings, xc_issues)
+    print(f"✅ Reports generated: {args.out}, {args.agent}")
+
 
 if __name__ == "__main__":
     try:
         main()
-    except Exception:
-        pass
+    except Exception as exc:
+        print(f"⚠️ Report generation failed: {exc}")
+        # never fail CI
