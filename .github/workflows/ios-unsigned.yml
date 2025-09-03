@@ -114,6 +114,7 @@ jobs:
         run: |
           set -euo pipefail
           mkdir -p "${BUILD_DIR}"
+          SWIFT_WORKER_THREADS=1 SWIFT_SERIALIZE_DEBUGGING_OPTIONS=NO \
           xcodebuild clean archive \
             -workspace ios/MyOfflineLLMApp.xcworkspace \
             -scheme "${SCHEME}" \
@@ -141,6 +142,18 @@ jobs:
           else
             echo "No xcodebuild.log found"
           fi
+
+      - name: Generate compact diagnosis (xcresult + logs)
+        if: always()
+        run: bash scripts/ci/diagnose_build.sh "${BUILD_DIR}"
+
+      - name: Upload diagnosis report
+        if: always()
+        uses: actions/upload-artifact@v4
+        with:
+          name: build-diagnosis
+          path: ${{ env.BUILD_DIR }}/ci_diagnosis.md
+          if-no-files-found: warn
 
       - name: Locate built .app and dSYMs
         id: locate

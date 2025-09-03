@@ -122,6 +122,7 @@ jobs:
             -sdk iphonesimulator \
             -destination "platform=iOS Simulator,name=${SIM_DEVICE}" \
             -UseModernBuildSystem=YES \
+            -resultBundlePath "${BUILD_DIR}/MyOfflineLLMApp.xcresult" \
             CODE_SIGNING_ALLOWED=NO \
             clean build | tee "${BUILD_DIR}/xcodebuild.log" | xcpretty
 
@@ -141,3 +142,15 @@ jobs:
           else
             echo "No xcodebuild.log found"
           fi
+
+      - name: Generate compact diagnosis (xcresult + logs)
+        if: always()
+        run: bash scripts/ci/diagnose_build.sh "${BUILD_DIR}"
+
+      - name: Upload diagnosis report
+        if: always()
+        uses: actions/upload-artifact@v4
+        with:
+          name: build-diagnosis
+          path: ${{ env.BUILD_DIR }}/ci_diagnosis.md
+          if-no-files-found: warn

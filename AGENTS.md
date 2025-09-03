@@ -49,36 +49,32 @@
 
 - Log modifications and build results to track changes and help future iterations avoid regressions.
 
-## Task: Read iOS Build Diagnostic Report and apply fixes
+## Task: Fix iOS build from CI diagnosis
 
-**Goal:** Make the iOS CI build pass reliably.
+You are a build doctor. Read the compact diagnosis report produced by CI and apply fixes.
 
-**Inputs:**
+**Input report:** `build/ci_diagnosis.md`
+(Guaranteed to be <= 180 KB.)
 
-- `ios-build-diagnostics` artifact from the latest CI run
-  - `build_report.md`
-  - `xcodebuild.log`
-  - `MyOfflineLLMApp.xcresult` (if present)
+**Your tasks:**
 
-**Instructions:**
+1. Summarize the top root causes and the exact files/lines they affect.
+2. Propose minimal, well-commented patches (use `apply_patch` style) to:
+   - Fix any invalid `xcodebuild` flags or arguments.
+   - Address errors found in `.xcresult` (e.g., missing headers, bad search paths, failing script phases).
+   - Silence high-entropy warnings that break CI signal (e.g., too-low pod deployment targets).
+3. Re-run the reasoning to confirm the fixes would eliminate the errors called out in the report.
 
-1. Open `build_report.md`. Identify the **first fatal error** (not just warnings). Cross-check in `xcodebuild.log` and `xcresult` issues.
-2. Classify the failure:
-   - Swift build-system/compiler crash
-   - Script phase failure
-   - Linker issue
-   - Codegen/spec generation issue
-   - Deployment target / platform mismatch
-3. Propose **minimal, concrete fixes**. For each fix:
-   - Describe the root cause in one sentence.
-   - Provide exact code/config changes (Podfile hooks, SPM pin, Xcode build setting, YAML change).
-   - Note any tradeoffs.
-4. Update CI to reduce flakiness:
-   - Add/adjust cache cleaning or `-jobs 1` retry only when hitting known race/crash signatures.
-   - Ensure `-resultBundlePath` and artifact upload steps are present.
-5. Output:
-   - A patch-style snippet that can be applied directly.
-   - A short “why this works” note.
+**Constraints:**
+
+- Keep patches as small as possible, with inline comments explaining _why_.
+- Do not introduce new tools unless they are already available in the workflow environment.
+- If a fix is risky, propose it behind a guarded step or with a clear rollback note.
+
+**Output:**
+
+- A short summary of causes.
+- A single `apply_patch` block with all necessary changes.
 
 ## Testing & Quality Gates
 
