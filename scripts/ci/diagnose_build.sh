@@ -48,20 +48,27 @@ fi
 # Pull out error snippets from the xcodebuild log (3 lines of context, strip ANSI)
 if [ -f "${LOG}" ]; then
   echo "## xcodebuild.log errors (with context)" >> "${REPORT}"
-  LANG=C awk '
-    BEGIN{IGNORECASE=1}
-    /error:|fatal error:|Command PhaseScriptExecution failed|Internal inconsistency error|never received target ended message/ {
-      for(i=NR-3;i<=NR+3;i++) if (i>0) buf[i]=lines[i];
-      print "```";
-      for(i=NR-3;i<=NR+3;i++) if (buf[i] && buf[i] !~ /\/clang/) {
-        line=buf[i];
-        if(length(line)>500) line=substr(line,1,500)"…";
-        print line;
-      }
-      print "```"; print "";
-    }
-    {lines[NR]=$0}
-  ' "${LOG}" | sed -e "s/\x1B\[[0-9;]*[A-Za-z]//g" >> "${REPORT}" || true
+  python3 - "${LOG}" >> "${REPORT}" <<'PY' || true
+import re, sys
+log = sys.argv[1]
+try:
+    with open(log, 'r', errors='ignore') as f:
+        lines = f.readlines()
+    pattern = re.compile(r'error:|fatal error:|Command PhaseScriptExecution failed|Internal inconsistency error|never received target ended message', re.IGNORECASE)
+    for idx, line in enumerate(lines):
+        if pattern.search(line):
+            print("```")
+            for ctx in lines[max(0, idx-3): min(len(lines), idx+4)]:
+                if '/clang' in ctx:
+                    continue
+                ctx = re.sub(r'\x1B\[[0-9;]*[A-Za-z]', '', ctx.rstrip("\n"))
+                if len(ctx) > 500:
+                    ctx = ctx[:500] + '…'
+                print(ctx)
+            print("```\n")
+except Exception:
+    pass
+PY
 fi
 
 # Cap size to ~180KB so the AGENT can ingest it in one go
