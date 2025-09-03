@@ -72,22 +72,19 @@
 
 - Revert doc-only changes with `git revert <commit>`.
 
-## iOS Build Doctor (CI Triage)
+## CI Reports
 
-**Artifacts to read first:**
+The iOS workflows publish two reports at the repository root:
 
-- `build/ci_diagnosis.md` (≤8K chars): compact summary from the latest run.
+- `report_agent.md` — compact, model-friendly digest.
+- `REPORT.md` — detailed, human-readable version.
 
-**Instructions:**
+## /diagnose-ios
 
-1. Read `ci_diagnosis.md` and list the top 3 concrete failures with file/target names if present.
-2. For each, propose the smallest code/config change required (Podfile, workflow flags, or specific source files).
-3. Output diffs in unified format. Keep changes minimal and safe for CI.
-4. Do **not** paste entire logs. Keep the response under 300 lines.
+Read these reports in order when triaging iOS CI failures:
 
-## CI Report Sources (Git-backed)
+1. `report_agent.md`
+2. `REPORT.md` (only if more context is needed)
+3. Raw artifacts like `build/xcodebuild.log` or `build/MyOfflineLLMApp.xcresult` only for specifics.
 
-Primary (latest): `ci-reports` branch → `reports/ios/latest/ci_diagnosis.md`
-Per-run report: `ci-reports` branch → `reports/ios/<RUN_ID>/ci_diagnosis.md`
-
-If needed, read `xcodebuild.log` and `.xcresult` in the same folder.
+Then propose minimal patches with unified diffs and a brief verification plan.

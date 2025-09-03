@@ -131,72 +131,41 @@ jobs:
             CODE_SIGNING_ALLOWED=NO \
             clean build | tee "${BUILD_DIR}/xcodebuild.log" | xcpretty
 
-      - name: Ensure diagnose script is executable
+      - name: Generate CI reports (human + agent)
         if: always()
-        run: chmod +x scripts/ci/diagnose_build.sh || true
-
-      - name: Generate compact diagnosis (xcresult + log)
-        if: always()
-        run: bash scripts/ci/diagnose_build.sh "${BUILD_DIR}" || true
-
-      # Save reports into a branch: ci-reports/reports/ios/<run_id>/*
-      - name: Commit diagnosis reports to ci-reports branch
-        if: always() && github.event_name != 'pull_request'
-        shell: bash
         run: |
           set -euo pipefail
+          python3 scripts/ci/build_report.py
+          echo "REPORT.md preview:"
+          head -n 50 REPORT.md || true
+          echo "report_agent.md preview:"
+          head -n 50 report_agent.md || true
 
-          REPORT_FILE="${BUILD_DIR}/ci_diagnosis.md"
-          [[ -f "${REPORT_FILE}" ]] || { echo "No report file; skipping push."; exit 0; }
-
-          git config user.name  "github-actions[bot]"
-          git config user.email "github-actions[bot]@users.noreply.github.com"
-
-          git fetch --depth=1 origin ci-reports || true
-
-          if git show-ref --verify --quiet refs/heads/ci-reports; then
-            git checkout ci-reports
-          else
-            if git ls-remote --exit-code --heads origin ci-reports >/dev/null 2>&1; then
-              git checkout -b ci-reports origin/ci-reports
-            else
-              git checkout --orphan ci-reports
-              rm -rf .
-              git commit --allow-empty -m "init ci-reports [skip ci]" >/dev/null 2>&1 || true
-            fi
-          fi
-
-          RUN_DIR="reports/ios/${GITHUB_RUN_ID}"
-          mkdir -p "${RUN_DIR}"
-          cp "${REPORT_FILE}" "${RUN_DIR}/ci_diagnosis.md"
-
-          rm -rf reports/ios/latest
-          mkdir -p reports/ios/latest
-          cp "${REPORT_FILE}" reports/ios/latest/ci_diagnosis.md
-
-          git add "${RUN_DIR}/ci_diagnosis.md" reports/ios/latest/ci_diagnosis.md
-          if ! git diff --cached --quiet; then
-            git commit -m "ci: add ios report run=${GITHUB_RUN_ID} [skip ci]"
-            git push origin ci-reports
-          else
-            echo "No changes to commit."
-          fi
-
-      # Surface the permanent repo path in the summary
-      - name: Link to saved reports
-        if: always() && github.event_name != 'pull_request'
+      - name: Commit CI reports back to repo (best effort)
+        if: always()
+        env:
+          GH_EMAIL: "ci-bot@users.noreply.github.com"
+          GH_NAME: "ci-bot"
         run: |
-          echo "### Saved iOS CI Reports" >> "$GITHUB_STEP_SUMMARY"
-          echo "- Path (this run): \`ci-reports: reports/ios/${GITHUB_RUN_ID}/ci_diagnosis.md\`" >> "$GITHUB_STEP_SUMMARY"
-          echo "- Latest pointer:   \`ci-reports: reports/ios/latest/ci_diagnosis.md\`" >> "$GITHUB_STEP_SUMMARY"
+          set -euo pipefail
+          git config user.email "${GH_EMAIL}"
+          git config user.name  "${GH_NAME}"
+          git add REPORT.md report_agent.md || true
+          if git diff --cached --quiet; then
+            echo "No report changes to commit."
+          else
+            git commit -m "ci(ios): add/update CI reports"
+            git push || echo "⚠️ Skipped push (likely a PR from a fork)."
+          fi
 
-      - name: Upload diagnosis report
+      - name: Upload CI reports as artifacts
         if: always()
         uses: actions/upload-artifact@v4
         with:
-          name: ios-ci-diagnosis
+          name: ios-ci-reports
           path: |
-            ${{ env.BUILD_DIR }}/ci_diagnosis.md
+            REPORT.md
+            report_agent.md
             ${{ env.BUILD_DIR }}/xcodebuild.log
             ${{ env.BUILD_DIR }}/MyOfflineLLMApp.xcresult
           if-no-files-found: warn
