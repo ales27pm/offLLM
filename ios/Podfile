@@ -95,7 +95,8 @@ post_install do |installer|
       # ReactCommon's TurboModule core needs bridging headers like <react/bridging/EventEmitter.h>
       if t.name == 'ReactCommon'
         cfg.build_settings['HEADER_SEARCH_PATHS'] ||= '$(inherited)'
-        cfg.build_settings['HEADER_SEARCH_PATHS'] << ' "$(PODS_ROOT)/Headers/Public/ReactCommon"'
+        # Include both public and private ReactCommon headers so CallbackWrapper.h resolves
+        cfg.build_settings['HEADER_SEARCH_PATHS'] << ' "$(PODS_ROOT)/Headers/Public/ReactCommon" "$(PODS_ROOT)/Headers/Private/ReactCommon"'
       end
     end
   end
