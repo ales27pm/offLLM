@@ -20,13 +20,18 @@ PY
   echo
   echo "## Most likely root cause"
   if [ -f "$LOG" ]; then
-    echo '```'
-    (grep -E '(^|: )error:|Internal inconsistency error' -n "$LOG" || true) \
+    ERRORS=$(grep -E '(^|: )error:|Internal inconsistency error' -n "$LOG" \
       | sed 's#^.*Build/Intermediates[^:]*:##' \
       | sed 's#^.*node_modules/[^:]*:##' \
       | cut -c -240 \
-      | sort | uniq -c | sort -nr | head -n 5
-    echo '```'
+      | sort | uniq -c | sort -nr | head -n 5 || true)
+    if [ -n "$ERRORS" ]; then
+      echo '```'
+      echo "$ERRORS"
+      echo '```'
+    else
+      echo "(no errors found)"
+    fi
   else
     echo "_log not found_"
   fi
