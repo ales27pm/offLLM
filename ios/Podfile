@@ -15,7 +15,7 @@ install! 'cocoapods',
 project_candidates = Dir['*.xcodeproj'] + Dir['**/*.xcodeproj']
 project_path = project_candidates.first
 raise "No .xcodeproj found near Podfile (#{__dir__})" unless project_path
-puts "📁 Using Xcode project at: #{project_path}"
+puts "Using Xcode project at: #{project_path}"
 
 # Map build configurations so CocoaPods knows which are debug vs release
 project project_path, 'Debug' => :debug, 'Release' => :release
@@ -60,7 +60,7 @@ post_install do |installer|
         phase.input_paths = [] if phase.respond_to?(:input_paths=)
         phase.output_paths = [] if phase.respond_to?(:output_paths=)
       rescue => e
-        puts "⚠️  Skipping scrub for phase #{phase.name}: #{e}"
+        puts "WARN: Skipping scrub for phase #{phase.name}: #{e}"
       end
     end
   end
@@ -82,7 +82,7 @@ post_install do |installer|
       cfg.build_settings['CLANG_CXX_LANGUAGE_STANDARD'] ||= 'gnu++17'
       cfg.build_settings['SWIFT_VERSION'] ||= '5.0'
 
-      # Bump pods that declare an iOS deployment target lower than Xcode’s supported floor
+      # Bump pods that declare an iOS deployment target lower than Xcode's supported floor
       floor = '12.0'
       current = cfg.build_settings['IPHONEOS_DEPLOYMENT_TARGET']
       if current.nil? || Gem::Version.new(current) < Gem::Version.new(floor)
@@ -117,7 +117,7 @@ post_integrate do |installer|
       next unless t.name == 'hermes-engine'
       t.shell_script_build_phases.each do |phase|
         if phase.name&.include?('Replace Hermes for the right configuration')
-          UI.puts "\uD83E\uDDF9 Removing Hermes script phase from #{t.name}"
+          UI.puts "Removing Hermes script phase from #{t.name}"
           t.build_phases.delete(phase)
         end
       end
