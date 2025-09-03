@@ -125,14 +125,19 @@ jobs:
             -sdk iphonesimulator \
             -destination "platform=iOS Simulator,name=${SIM_DEVICE}" \
             -UseModernBuildSystem=YES \
-            -parallelizeTargets NO -jobs 1 \
+            -parallelizeTargets 'NO' \
+            -jobs 1 \
             -resultBundlePath "${BUILD_DIR}/MyOfflineLLMApp.xcresult" \
             CODE_SIGNING_ALLOWED=NO \
             clean build | tee "${BUILD_DIR}/xcodebuild.log" | xcpretty
 
-      - name: Diagnose build & publish report
+      - name: Ensure diagnose script is executable
         if: always()
-        run: bash scripts/ci/diagnose_build.sh "${BUILD_DIR}"
+        run: chmod +x scripts/ci/diagnose_build.sh || true
+
+      - name: Generate compact diagnosis (xcresult + log)
+        if: always()
+        run: bash scripts/ci/diagnose_build.sh "${BUILD_DIR}" || true
 
       # Save reports into a branch: ci-reports/reports/ios/<run_id>/*
       - name: Commit diagnosis reports to ci-reports branch
@@ -141,8 +146,8 @@ jobs:
         run: |
           set -euo pipefail
 
-          REPORT_SRC="build/ios-ci-report"
-          [[ -d "${REPORT_SRC}" ]] || { echo "No report dir; skipping push."; exit 0; }
+          REPORT_FILE="${BUILD_DIR}/ci_diagnosis.md"
+          [[ -f "${REPORT_FILE}" ]] || { echo "No report file; skipping push."; exit 0; }
 
           git config user.name  "github-actions[bot]"
           git config user.email "github-actions[bot]@users.noreply.github.com"
@@ -163,13 +168,13 @@ jobs:
 
           RUN_DIR="reports/ios/${GITHUB_RUN_ID}"
           mkdir -p "${RUN_DIR}"
-          cp -R "${REPORT_SRC}/." "${RUN_DIR}/"
+          cp "${REPORT_FILE}" "${RUN_DIR}/ci_diagnosis.md"
 
           rm -rf reports/ios/latest
           mkdir -p reports/ios/latest
-          cp -R "${REPORT_SRC}/." "reports/ios/latest/"
+          cp "${REPORT_FILE}" reports/ios/latest/ci_diagnosis.md
 
-          git add "${RUN_DIR}" reports/ios/latest
+          git add "${RUN_DIR}/ci_diagnosis.md" reports/ios/latest/ci_diagnosis.md
           if ! git diff --cached --quiet; then
             git commit -m "ci: add ios report run=${GITHUB_RUN_ID} [skip ci]"
             git push origin ci-reports
@@ -182,17 +187,16 @@ jobs:
         if: always() && github.event_name != 'pull_request'
         run: |
           echo "### Saved iOS CI Reports" >> "$GITHUB_STEP_SUMMARY"
-          echo "- Path (this run): \`ci-reports: reports/ios/${GITHUB_RUN_ID}/REPORT.md\`" >> "$GITHUB_STEP_SUMMARY"
-          echo "- Latest pointer:   \`ci-reports: reports/ios/latest/REPORT.md\`" >> "$GITHUB_STEP_SUMMARY"
+          echo "- Path (this run): \`ci-reports: reports/ios/${GITHUB_RUN_ID}/ci_diagnosis.md\`" >> "$GITHUB_STEP_SUMMARY"
+          echo "- Latest pointer:   \`ci-reports: reports/ios/latest/ci_diagnosis.md\`" >> "$GITHUB_STEP_SUMMARY"
 
-      - name: Upload diagnosis artifacts
+      - name: Upload diagnosis report
         if: always()
         uses: actions/upload-artifact@v4
         with:
-          name: ios-ci-report
+          name: ios-ci-diagnosis
           path: |
-            build/ios-ci-report/REPORT.md
-            build/ios-ci-report/report_agent.md
-            build/ios-ci-report/xcodebuild.log
-            build/ios-ci-report/xcresult.json
+            ${{ env.BUILD_DIR }}/ci_diagnosis.md
+            ${{ env.BUILD_DIR }}/xcodebuild.log
+            ${{ env.BUILD_DIR }}/MyOfflineLLMApp.xcresult
           if-no-files-found: warn

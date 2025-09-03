@@ -72,24 +72,22 @@
 
 - Revert doc-only changes with `git revert <commit>`.
 
-## CI Repair Prompt (ingests compact digest)
+## iOS Build Doctor (CI Triage)
 
-Read `build/ios-ci-report/report_agent.md`. Based on the listed root cause, errors, warnings, and recommendations:
+**Artifacts to read first:**
 
-1. Propose a minimal patch to fix the CI build deterministically.
-2. If Hermes “Replace Hermes” script phases appear, add/remediate Podfile `post_install`/`post_integrate` scrubbing.
-3. Ensure xcodebuild invocations use `-parallelizeTargets NO -jobs 1` on CI.
-4. Reduce warning noise (raise pod `IPHONEOS_DEPLOYMENT_TARGET` to 18.0; fix header symlink script phases).
-   Output unified diffs only.
+- `build/ci_diagnosis.md` (≤8K chars): compact summary from the latest run.
+
+**Instructions:**
+
+1. Read `ci_diagnosis.md` and list the top 3 concrete failures with file/target names if present.
+2. For each, propose the smallest code/config change required (Podfile, workflow flags, or specific source files).
+3. Output diffs in unified format. Keep changes minimal and safe for CI.
+4. Do **not** paste entire logs. Keep the response under 300 lines.
 
 ## CI Report Sources (Git-backed)
 
-Primary (latest): `ci-reports` branch → `reports/ios/latest/REPORT.md`
-Per-run report: `ci-reports` branch → `reports/ios/<RUN_ID>/REPORT.md`
+Primary (latest): `ci-reports` branch → `reports/ios/latest/ci_diagnosis.md`
+Per-run report: `ci-reports` branch → `reports/ios/<RUN_ID>/ci_diagnosis.md`
 
-When diagnosing iOS CI issues, read the latest digest first:
-
-- `reports/ios/latest/report_agent.md` (compact)
-- `reports/ios/latest/REPORT.md` (full)
-
-If needed, read `xcodebuild.log` and `xcresult.json` in the same folder.
+If needed, read `xcodebuild.log` and `.xcresult` in the same folder.
