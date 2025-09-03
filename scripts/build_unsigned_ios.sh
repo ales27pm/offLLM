@@ -5,8 +5,8 @@ set -euo pipefail
 
 ROOT="$(pwd)"
 IOS_DIR="ios"
-DERIVED="${IOS_DIR}/build"
 BUILD_DIR="${BUILD_DIR:-build}"
+DERIVED_DATA="${DERIVED_DATA:-${BUILD_DIR}/derived-data}"
 
 : "${SCHEME:?SCHEME env var required}"
 : "${WORKSPACE:?WORKSPACE env var required}"
@@ -14,6 +14,12 @@ IOS_DESTINATION="${IOS_DESTINATION:-}"
 
 RESULT_BUNDLE="${RESULT_BUNDLE:-${BUILD_DIR}/${SCHEME}.xcresult}"
 LOG_FILE="${LOG_FILE:-${BUILD_DIR}/xcodebuild.log}"
+
+# Ensure output directories exist (supports custom paths)
+mkdir -p "$BUILD_DIR"
+mkdir -p "$(dirname "$RESULT_BUNDLE")"
+mkdir -p "$(dirname "$LOG_FILE")"
+mkdir -p "$DERIVED_DATA"
 
 echo "▶️  Unsigned iOS build starting…"
 echo "Environment:"
@@ -27,8 +33,6 @@ if [ -n "${IOS_SIM_OS:-}" ]; then
 fi
 echo
 
-mkdir -p "$BUILD_DIR"
-
 XCODE_CMD=(xcodebuild
   -workspace "$WORKSPACE"
   -scheme "$SCHEME"
@@ -37,7 +41,7 @@ XCODE_CMD=(xcodebuild
   CODE_SIGNING_REQUIRED=NO
   CODE_SIGN_ENTITLEMENTS=
   CODE_SIGN_STYLE=Manual
-  -derivedDataPath "$DERIVED"
+  -derivedDataPath "$DERIVED_DATA"
   -resultBundlePath "$RESULT_BUNDLE"
 )
 if [ -n "${IOS_DESTINATION}" ]; then
@@ -45,7 +49,7 @@ if [ -n "${IOS_DESTINATION}" ]; then
 fi
 "${XCODE_CMD[@]}" | tee "$LOG_FILE"
 
-APP_PATH="${DERIVED}/Build/Products/Release-iphonesimulator/${SCHEME}.app"
+APP_PATH="${DERIVED_DATA}/Build/Products/Release-iphonesimulator/${SCHEME}.app"
 if [ ! -d "${APP_PATH}" ]; then
   echo "error: expected app bundle at ${APP_PATH}" >&2
   exit 1
