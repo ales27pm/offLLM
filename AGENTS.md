@@ -49,33 +49,6 @@
 
 - Log modifications and build results to track changes and help future iterations avoid regressions.
 
-## Task: Fix iOS build from CI diagnosis
-
-You are a build doctor. Read the compact diagnosis report produced by CI and apply fixes.
-
-**Input report:** `build/ci_diagnosis.md`
-(Guaranteed to be <= 180 KB.)
-
-**Your tasks:**
-
-1. Summarize the top root causes and the exact files/lines they affect.
-2. Propose minimal, well-commented patches (use `apply_patch` style) to:
-   - Fix any invalid `xcodebuild` flags or arguments.
-   - Address errors found in `.xcresult` (e.g., missing headers, bad search paths, failing script phases).
-   - Silence high-entropy warnings that break CI signal (e.g., too-low pod deployment targets).
-3. Re-run the reasoning to confirm the fixes would eliminate the errors called out in the report.
-
-**Constraints:**
-
-- Keep patches as small as possible, with inline comments explaining _why_.
-- Do not introduce new tools unless they are already available in the workflow environment.
-- If a fix is risky, propose it behind a guarded step or with a clear rollback note.
-
-**Output:**
-
-- A short summary of causes.
-- A single `apply_patch` block with all necessary changes.
-
 ## Testing & Quality Gates
 
 - Run `npm test` before committing.
@@ -98,3 +71,19 @@ You are a build doctor. Read the compact diagnosis report produced by CI and app
 ## Rollback Guidance
 
 - Revert doc-only changes with `git revert <commit>`.
+
+## CI Repair Prompt (iOS Build)
+
+**Goal:** Read the compact CI report and propose minimal, targeted fixes.
+
+**Artifacts to read:**
+
+- `build/ios_ci_report/report_agent.md` (short digest)
+- If needed for details only: `build/ios_ci_report/report.md`
+
+**Instructions:**
+
+1. List the top 3 concrete failures with file/target names if present.
+2. For each, propose the smallest code/config change required (Podfile, workflow flags, or specific source files).
+3. Output diffs in unified format. Keep changes minimal and safe for CI.
+4. Do NOT paste entire logs. Keep the response under 800 words.

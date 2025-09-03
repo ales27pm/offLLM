@@ -71,7 +71,7 @@ jobs:
       - name: Scrub Hermes script phases
         working-directory: ios
         run: |
-          bundle exec ruby ../scripts/strip_hermes_phase.rb $(find Pods -name "*.xcodeproj") MyOfflineLLMApp.xcodeproj
+          bundle exec ruby ../scripts/strip_hermes_phase.rb Pods/Pods.xcodeproj MyOfflineLLMApp.xcodeproj
 
       - name: Assert Hermes phase is gone
         run: |
@@ -121,7 +121,7 @@ jobs:
             -configuration "${CONFIGURATION}" \
             -sdk iphonesimulator \
             -destination "platform=iOS Simulator,name=${SIM_DEVICE}" \
-            -UseModernBuildSystem=YES \
+            -UseModernBuildSystem=YES -parallelizeTargets NO -jobs 1 \
             -resultBundlePath "${BUILD_DIR}/MyOfflineLLMApp.xcresult" \
             CODE_SIGNING_ALLOWED=NO \
             clean build | tee "${BUILD_DIR}/xcodebuild.log" | xcpretty
@@ -143,7 +143,11 @@ jobs:
             echo "No xcodebuild.log found"
           fi
 
-      - name: Generate compact diagnosis (xcresult + logs)
+      - name: Install jq (for report parser)
+        if: always()
+        run: brew install jq
+
+      - name: Build diagnosis report
         if: always()
         run: bash scripts/ci/diagnose_build.sh "${BUILD_DIR}"
 
@@ -151,6 +155,6 @@ jobs:
         if: always()
         uses: actions/upload-artifact@v4
         with:
-          name: build-diagnosis
-          path: ${{ env.BUILD_DIR }}/ci_diagnosis.md
+          name: ios-ci-report
+          path: build/ios_ci_report
           if-no-files-found: warn
