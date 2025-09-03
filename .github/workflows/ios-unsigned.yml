@@ -118,7 +118,7 @@ jobs:
           set -euo pipefail
           mkdir -p "${BUILD_DIR}"
           SWIFT_WORKER_THREADS=1 SWIFT_SERIALIZE_DEBUGGING_OPTIONS=NO \
-          xcodebuild clean archive \
+          xcodebuild \
             -workspace ios/MyOfflineLLMApp.xcworkspace \
             -scheme "${SCHEME}" \
             -configuration "${CONFIGURATION}" \
@@ -127,7 +127,8 @@ jobs:
             -resultBundlePath "${BUILD_DIR}/MyOfflineLLMApp.xcresult" \
             -UseModernBuildSystem=YES \
             -parallelizeTargets NO -jobs 1 \
-            CODE_SIGN_IDENTITY="" CODE_SIGNING_REQUIRED=NO CODE_SIGNING_ALLOWED=NO | tee "${BUILD_DIR}/xcodebuild.log"
+            CODE_SIGN_IDENTITY="" CODE_SIGNING_REQUIRED=NO CODE_SIGNING_ALLOWED=NO \
+            clean archive | tee "${BUILD_DIR}/xcodebuild.log"
 
       - name: Diagnose build & publish report
         if: always()

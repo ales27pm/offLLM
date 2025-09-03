@@ -28,7 +28,11 @@ fi
 # --------- Helpers ----------
 has_line() {
   local needle="$1"
-  [[ -f "${LOG_PATH}" ]] && /usr/bin/grep -Fq "${needle}" "${LOG_PATH}"
+  if [[ -f "${LOG_PATH}" ]]; then
+    /usr/bin/grep -Fq "${needle}" "${LOG_PATH}" || return 1
+  else
+    return 1
+  fi
 }
 
 safe_grep() {
@@ -62,15 +66,16 @@ PY3
 
 # --------- Parse xcresult (best-effort) ----------
 XCRESULT_JSON="${OUT_DIR}/xcresult.json"
+rm -f "${XCRESULT_JSON}" "${XCRESULT_JSON}.tmp" 2>/dev/null || true
 if [[ -d "${XCRESULT_DIR}" ]]; then
   # xcrun must succeed; otherwise leave empty JSON
   if /usr/bin/xcrun xcresulttool get --format json --path "${XCRESULT_DIR}" > "${XCRESULT_JSON}.tmp" 2>/dev/null; then
     mv "${XCRESULT_JSON}.tmp" "${XCRESULT_JSON}"
   else
-    echo "{}" > "${XCRESULT_JSON}"
+    echo "{}" > "${XCRESULT_JSON}" || true
   fi
 else
-  echo "{}" > "${XCRESULT_JSON}"
+  echo "{}" > "${XCRESULT_JSON}" || true
 fi
 
 # Extract a compact summary from the xcresult.json (best-effort)
