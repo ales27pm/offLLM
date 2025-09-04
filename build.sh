@@ -3,9 +3,11 @@ set -euo pipefail
 
 # Configuration
 : "${SCHEME:=MyOfflineLLMApp}"
-: "${WORKSPACE:=${PWD}/ios/MyOfflineLLMApp.xcworkspace}"
+# Resolve the iOS project path to an absolute location to avoid
+# issues when the caller provides IOS_PROJECT_DIR as a relative path.
+IOS_PROJECT_DIR=$(cd "${IOS_PROJECT_DIR:-${PWD}/ios}" && pwd)
+: "${WORKSPACE:=${IOS_PROJECT_DIR}/MyOfflineLLMApp.xcworkspace}"
 : "${BUILD_DIR:=build}"
-: "${PROJECT_DIR:=ios}"
 : "${REQUIRED_NODE_VERSION:=20.0.0}"
 
 echo "▶️ Starting robust unsigned iOS build..."
@@ -31,7 +33,7 @@ echo "✅ Node.js version $CURRENT_NODE_VERSION is compatible."
 # Step 2: Clean all caches and dependencies
 echo "🧹 Cleaning all dependencies and caches..."
 rm -rf node_modules
-rm -rf "$BUILD_DIR" "${PROJECT_DIR}/build"
+rm -rf "$BUILD_DIR" "${IOS_PROJECT_DIR}/build"
 mkdir -p "$BUILD_DIR"
 
 # Step 3: Reinstall dependencies
@@ -39,10 +41,31 @@ echo "📦 Installing Node.js dependencies..."
 npm ci
 
 echo "📦 Installing Ruby dependencies for CocoaPods..."
-cd ios && bundle install && cd ..
+(cd "$IOS_PROJECT_DIR" && bundle install)
 
 echo "📱 Generating Xcode project and installing CocoaPods..."
-cd ios && xcodegen generate && bundle exec pod install --repo-update && cd ..
+(cd "$IOS_PROJECT_DIR" && \
+  xcodegen generate && \
+  bundle exec pod update hermes-engine --no-repo-update && \
+  bundle exec pod install --repo-update)
+
+# Ensure the Xcode workspace exists before attempting to build. If it's
+# missing, retry CocoaPods install once and exit if it still doesn't appear.
+ensure_workspace() {
+  if [ ! -e "$WORKSPACE" ]; then
+    echo "⚠️ Workspace not found at $WORKSPACE; rerunning CocoaPods install..."
+    (cd "$IOS_PROJECT_DIR" && \
+      bundle exec pod update hermes-engine --no-repo-update && \
+      bundle exec pod install --repo-update)
+  fi
+
+  if [ ! -e "$WORKSPACE" ]; then
+    echo "❌ Error: Xcode workspace still missing at $WORKSPACE"
+    return 1
+  fi
+}
+
+ensure_workspace
 
 # Step 4: Run the Xcode build (Simulator, unsigned)
 echo "📦 Building for iOS Simulator (unsigned)..."
@@ -56,8 +79,6 @@ xcodebuild build \
   CODE_SIGNING_ALLOWED=NO \
   CODE_SIGNING_REQUIRED=NO \
   | tee "$BUILD_DIR/xcodebuild.log"
-
-# … previous xcodebuild step …
 
 echo "📦 Packaging simulator build as artifact..."
 APP_DIR="$BUILD_DIR/DerivedData/Build/Products/Release-iphonesimulator"
