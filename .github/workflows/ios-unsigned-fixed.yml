@@ -1,0 +1,91 @@
+name: iOS Unsigned (fixed)
+
+on:
+  workflow_dispatch:
+  push:
+    branches: [main]
+  pull_request:
+    branches: [main]
+
+jobs:
+  build:
+    runs-on: macos-14
+    env:
+      RCT_NEW_ARCH_ENABLED: "1"
+      USE_HERMES: "true"
+      SCHEME: "MyOfflineLLMApp"
+      CONFIGURATION: "Release"
+      BUILD_DIR: build
+    steps:
+      - name: Checkout
+        uses: actions/checkout@v4
+
+      - name: Set up Node
+        uses: actions/setup-node@v4
+        with:
+          node-version: 20
+          cache: npm
+
+      - name: Install Node.js dependencies
+        run: npm ci
+
+      - name: Set up Ruby (Bundler)
+        uses: ruby/setup-ruby@v1
+        with:
+          ruby-version: "3.2"
+          bundler-cache: true
+          working-directory: ios
+
+      - name: Install XcodeGen
+        run: brew install xcodegen
+
+      - name: Generate Xcode project
+        working-directory: ios
+        run: xcodegen generate
+
+      - name: Install CocoaPods
+        working-directory: ios
+        run: bundle install && bundle exec pod install --repo-update
+
+      - name: Install xcodeproj gem for post-pod hardening
+        run: gem install xcodeproj
+
+      - name: Harden Xcode projects (post pod install)
+        run: ruby scripts/ci/post_install_hardening_hook.rb
+
+      - name: Build (Unsigned Simulator)
+        run: |
+          xcodebuild -workspace ios/MyOfflineLLMApp.xcworkspace \
+            -scheme "${SCHEME}" -configuration "${CONFIGURATION}" \
+            -sdk iphonesimulator \
+            CODE_SIGNING_ALLOWED=NO CODE_SIGNING_REQUIRED=NO CODE_SIGN_IDENTITY='' \
+            -destination 'platform=iOS Simulator,name=iPhone 16 Pro' \
+            | tee ${BUILD_DIR}/xcodebuild.log
+
+      - name: Archive XCResult
+        if: always()
+        run: |
+          mkdir -p ${BUILD_DIR}
+          # Find the most recent xcresult produced by the build
+          RESULT=$(ls -1t ~/Library/Developer/Xcode/DerivedData/*/Logs/Test/*.xcresult ~/Library/Developer/Xcode/DerivedData/*/Logs/Build/*.xcresult 2>/dev/null | head -n1 || true)
+          if [ -n "$RESULT" ]; then
+            cp -R "$RESULT" ${BUILD_DIR}/MyOfflineLLMApp.xcresult
+          fi
+
+      - name: Generate diagnosis reports (Codex)
+        if: always()
+        run: |
+          node ./scripts/codex/index.mjs analyze \
+            --log ${BUILD_DIR}/xcodebuild.log \
+            --xcresult ${BUILD_DIR}/MyOfflineLLMApp.xcresult \
+            --out reports
+
+      - name: Upload reports artifact
+        if: always()
+        uses: actions/upload-artifact@v4
+        with:
+          name: ios-unsigned-reports
+          path: |
+            reports/**
+            build/xcodebuild.log
+            build/MyOfflineLLMApp.xcresult
