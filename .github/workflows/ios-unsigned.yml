@@ -59,6 +59,9 @@ jobs:
         working-directory: ios
         run: xcodegen generate
 
+      - name: Install Pods
+        working-directory: ios
+        run: bundle exec pod install --repo-update
       - name: Run Robust Build Script
         run: bash build.sh
       - name: Generate diagnosis reports
