@@ -34,35 +34,46 @@ export function parseXCResult(xcresultPath) {
   }
 
   const records = getValues(root, "actions").flatMap((action) => [
-    ...getValues(action, "actionResult", "issues", "issueSummaries"),
-    ...getValues(action, "actionResult", "issues", "testFailureSummaries"),
+    ...getValues(action, "actionResult", "issues", "issueSummaries").map(
+      (rec) => ({ sourceType: "issueSummary", rec }),
+    ),
+    ...getValues(action, "actionResult", "issues", "testFailureSummaries").map(
+      (rec) => ({ sourceType: "testFailure", rec }),
+    ),
   ]);
 
-  const issues = records.map((rec) => {
-    const issue = {
-      type: rec.issueType?._value,
-      title: rec.message?.text?._value,
-      severity: rec.severity?._value,
-      detailed: rec.producingTarget?.targetName?._value,
-    };
+  const { issues, errorCount, warningCount } = records.reduce(
+    (acc, { sourceType, rec }) => {
+      const issue = {
+        type: rec.issueType?._value,
+        title: rec.message?.text?._value,
+        severity: rec.severity?._value,
+        detailed: rec.producingTarget?.targetName?._value,
+        sourceType,
+      };
 
-    const doc = rec.documentLocationInCreatingWorkspace;
-    const url = doc?.url?._value;
-    if (url) {
-      issue.url = url;
-      const loc = doc.concreteLocation;
-      if (loc) {
-        issue.filePath = loc.filePath?._value;
-        const line = loc.lineNumber?._value;
-        if (line) issue.line = Number(line);
+      const doc = rec.documentLocationInCreatingWorkspace;
+      const url = doc?.url?._value;
+      if (url) {
+        issue.url = url;
+        const loc = doc.concreteLocation;
+        if (loc) {
+          issue.filePath = loc.filePath?._value;
+          const line = loc.lineNumber?._value;
+          if (line && !isNaN(Number(line))) {
+            issue.line = Number(line);
+          }
+        }
       }
-    }
 
-    return issue;
-  });
+      if (issue.severity === "error") acc.errorCount++;
+      else if (issue.severity === "warning") acc.warningCount++;
 
-  const errorCount = issues.filter((i) => i.severity === "error").length;
-  const warningCount = issues.filter((i) => i.severity === "warning").length;
+      acc.issues.push(issue);
+      return acc;
+    },
+    { issues: [], errorCount: 0, warningCount: 0 },
+  );
 
   return {
     ok: true,
