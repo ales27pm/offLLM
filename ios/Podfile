@@ -78,6 +78,8 @@ post_install do |installer|
       begin
         phase.input_paths = [] if phase.respond_to?(:input_paths=)
         phase.output_paths = [] if phase.respond_to?(:output_paths=)
+        phase.input_file_list_paths = [] if phase.respond_to?(:input_file_list_paths=)
+        phase.output_file_list_paths = [] if phase.respond_to?(:output_file_list_paths=)
       rescue => e
         puts "WARN: Skipping scrub for phase #{phase.name}: #{e}"
       end
@@ -160,8 +162,6 @@ post_integrate do |installer|
   pods_projects += Array(installer.generated_projects) if installer.respond_to?(:generated_projects)
 
   # --- Remove the forbidden Hermes script (all pods, all user targets)
-  pods_projects = [installer.pods_project]
-  pods_projects += Array(installer.generated_projects) if installer.respond_to?(:generated_projects)
   pods_projects.each { |proj| strip_hermes_replacement_scripts!(proj) }
   installer.aggregate_targets.each do |agg|
     strip_hermes_replacement_scripts!(agg.user_project) if agg.user_project
