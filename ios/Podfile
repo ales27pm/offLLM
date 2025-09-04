@@ -92,10 +92,6 @@ post_install do |installer|
       scrub_cp_filelists_from_target(t)
       t.build_configurations.each do |cfg|
         cfg.build_settings['ENABLE_USER_SCRIPT_SANDBOXING'] = 'NO'
-        current = cfg.build_settings['IPHONEOS_DEPLOYMENT_TARGET'] || '0'
-        if Gem::Version.new(current) < Gem::Version.new('18.0')
-          cfg.build_settings['IPHONEOS_DEPLOYMENT_TARGET'] = '18.0'
-        end
         if cfg.name.include?('Debug')
           # SwiftUI previews expect no optimization in debug builds
           cfg.build_settings['SWIFT_OPTIMIZATION_LEVEL'] = '-Onone'
