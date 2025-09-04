@@ -86,7 +86,7 @@ post_install do |installer|
 
   # Pods project(s)
   pods_projects = [installer.pods_project]
-  pods_projects += installer.generated_projects if installer.respond_to?(:generated_projects)
+  pods_projects += Array(installer.generated_projects) if installer.respond_to?(:generated_projects)
   pods_projects.each do |proj|
     proj.targets.each do |t|
       scrub_cp_filelists_from_target(t)
