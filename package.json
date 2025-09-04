@@ -18,7 +18,10 @@
     "bundle:ios": "react-native bundle --platform ios --dev false --entry-file index.js --bundle-output ios/main.jsbundle --assets-dest ios",
     "codegen:ios": "RCT_NEW_ARCH_ENABLED=1 node node_modules/react-native/scripts/generate-codegen-artifacts.js --path . --targetPlatform ios --outputPath ios",
     "codegen": "npm run codegen:ios",
-    "ci:install": "npm ci --legacy-peer-deps"
+    "ci:install": "npm ci --legacy-peer-deps",
+    "codex": "node ./scripts/codex/index.mjs",
+    "codex:analyze": "node ./scripts/codex/index.mjs analyze --log build/xcodebuild.log --xcresult build/MyOfflineLLMApp.xcresult --out reports",
+    "codex:fix": "node ./scripts/codex/index.mjs fix --report reports/REPORT.md --agent reports/report_agent.md --out reports"
   },
   "dependencies": {
     "@noble/post-quantum": "^0.5.1",
@@ -65,7 +68,8 @@
     "prettier": "^3.6.2",
     "react-test-renderer": "18.2.0",
     "typescript": "5.9.2",
-    "@react-native-community/cli": "^20.0.1"
+    "@react-native-community/cli": "^20.0.1",
+    "commander": "^12.1.0"
   },
   "overrides": {
     "@types/react": "^19.1.12"
