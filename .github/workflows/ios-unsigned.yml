@@ -31,6 +31,9 @@ jobs:
           node-version: "20"
           cache: "npm"
 
+      - name: Install Node dependencies
+        run: npm ci
+
       - name: Set up Ruby & Bundler (for CocoaPods)
         uses: ruby/setup-ruby@v1
         with:
@@ -64,6 +67,11 @@ jobs:
         run: bundle exec pod install --repo-update
       - name: Run Robust Build Script
         run: bash build.sh
+      - name: Upload unsigned IPA artifact
+        uses: actions/upload-artifact@v4
+        with:
+          name: offLLM-unsigned-ipa
+          path: ${{ env.BUILD_DIR }}/offLLM-unsigned-ipa.zip
       - name: Generate diagnosis reports
         if: always()
         run: |
