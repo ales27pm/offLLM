@@ -1,5 +1,5 @@
-# Ensure pods build against iOS 18.0; the app's deployment target lives in project.yml
-platform :ios, '18.0'
+# Ensure pods support iOS 12.0+; the app's deployment target lives in project.yml
+platform :ios, '12.0'
 ENV['RCT_NEW_ARCH_ENABLED'] = "1" # Enable Fabric/TurboModules
 
 # Include React Native's CocoaPods helpers

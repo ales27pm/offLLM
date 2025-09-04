@@ -20,6 +20,11 @@ jobs:
       - name: Checkout
         uses: actions/checkout@v4
 
+      - name: Select Xcode 16.1
+        uses: maxim-lobanov/setup-xcode@v1
+        with:
+          xcode-version: "16.1"
+
       - name: Setup Node
         uses: actions/setup-node@v4
         with:
@@ -74,6 +79,16 @@ jobs:
           test -d "${BUILD_DIR}/MyOfflineLLMApp.xcresult" || (echo "xcresult missing" && ls -la "${BUILD_DIR}" || true)
           npm run codex:analyze
 
+      - name: Snapshot reports for commit
+        if: always()
+        run: |
+          ts=$(date +%Y%m%d-%H%M%S)
+          mkdir -p ci-reports/$ts
+          cp reports/REPORT.md ci-reports/$ts/
+          cp reports/report_agent.md ci-reports/$ts/
+          [ -f build/xcodebuild.log ] && cp build/xcodebuild.log ci-reports/$ts/
+          [ -d build/MyOfflineLLMApp.xcresult ] && ln -sf ../../build/MyOfflineLLMApp.xcresult ci-reports/$ts/MyOfflineLLMApp.xcresult
+
       - name: Upload /reports artifact (backstop)
         if: always()
         uses: actions/upload-artifact@v4
@@ -85,7 +100,7 @@ jobs:
       - name: Commit reports to repo
         if: always()
         run: |
-          npm run reports:commit || true
+          ALLOW_DIRTY=1 npm run reports:commit || true
           git config user.name "github-actions[bot]"
           git config user.email "github-actions[bot]@users.noreply.github.com"
           git add -A
@@ -94,3 +109,4 @@ jobs:
             git push
           else
             echo "No report changes to commit."
+          fi
