@@ -96,6 +96,10 @@ npm test
 cd ios && xcodebuild -workspace MyOfflineLLMApp.xcworkspace -scheme MyOfflineLLMApp -configuration Release -sdk iphonesimulator CODE_SIGNING_ALLOWED=NO CODE_SIGN_IDENTITY='' CODE_SIGNING_REQUIRED=NO
 ```
 
+## iOS Signed Build (GitHub Actions)
+
+Use the [`.github/workflows/ios-signed.yml`](.github/workflows/ios-signed.yml) workflow to archive and export a signed IPA. Define base64-encoded certificate, provisioning profile, and `ExportOptions.plist` secrets before triggering it via the **workflow_dispatch** event.
+
 ## Testing & Linting
 
 ```bash

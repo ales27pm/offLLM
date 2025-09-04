@@ -1,0 +1,69 @@
+name: iOS Signed Build
+
+on:
+  workflow_dispatch:
+
+jobs:
+  build:
+    runs-on: macos-15
+    steps:
+      - name: Checkout repository
+        uses: actions/checkout@v4
+
+      - name: Select Xcode 16.4
+        uses: maxim-lobanov/setup-xcode@v1
+        with:
+          xcode-version: "16.4"
+
+      - name: Install Apple certificate and provisioning profile
+        env:
+          BUILD_CERTIFICATE_BASE64: ${{ secrets.BUILD_CERTIFICATE_BASE64 }}
+          P12_PASSWORD: ${{ secrets.P12_PASSWORD }}
+          BUILD_PROVISION_PROFILE_BASE64: ${{ secrets.BUILD_PROVISION_PROFILE_BASE64 }}
+          KEYCHAIN_PASSWORD: ${{ secrets.KEYCHAIN_PASSWORD }}
+        run: |
+          echo -n "$BUILD_CERTIFICATE_BASE64" | base64 --decode -o "$RUNNER_TEMP/certificate.p12"
+          echo -n "$BUILD_PROVISION_PROFILE_BASE64" | base64 --decode -o "$RUNNER_TEMP/profile.mobileprovision"
+
+          security create-keychain -p "$KEYCHAIN_PASSWORD" "$RUNNER_TEMP/build.keychain"
+          security unlock-keychain -p "$KEYCHAIN_PASSWORD" "$RUNNER_TEMP/build.keychain"
+          security set-keychain-settings -lut 21600 "$RUNNER_TEMP/build.keychain"
+
+          security import "$RUNNER_TEMP/certificate.p12" \
+            -P "$P12_PASSWORD" -A -t cert -f pkcs12 -k "$RUNNER_TEMP/build.keychain"
+          security set-key-partition-list -S apple-tool:,apple: -s -k "$KEYCHAIN_PASSWORD" "$RUNNER_TEMP/build.keychain"
+
+          mkdir -p ~/Library/MobileDevice/Provisioning\ Profiles
+          UUID=$(grep -a -o '<key>UUID</key>[[:space:]]*<string>[^<]*' "$RUNNER_TEMP/profile.mobileprovision" | sed -n 's/.*<string>\(.*\)<\/string>/\1/p')
+          cp "$RUNNER_TEMP/profile.mobileprovision" ~/Library/MobileDevice/Provisioning\ Profiles/$UUID.mobileprovision
+
+      - name: Build and archive
+        run: |
+          xcodebuild -workspace MyOfflineLLMApp.xcworkspace \
+                     -scheme MyOfflineLLMApp \
+                     -destination generic/platform=iOS \
+                     -archivePath "$RUNNER_TEMP/Actions.xcarchive" \
+                     clean archive
+
+      - name: Export IPA
+        env:
+          EXPORT_OPTIONS_PLIST: ${{ secrets.EXPORT_OPTIONS_PLIST }}
+        run: |
+          echo -n "$EXPORT_OPTIONS_PLIST" | base64 --decode -o "$RUNNER_TEMP/ExportOptions.plist"
+          xcodebuild -exportArchive \
+                     -archivePath "$RUNNER_TEMP/Actions.xcarchive" \
+                     -exportOptionsPlist "$RUNNER_TEMP/ExportOptions.plist" \
+                     -exportPath "$RUNNER_TEMP/ipa"
+          ls -l "$RUNNER_TEMP/ipa"
+
+      - name: Upload IPA artifact
+        uses: actions/upload-artifact@v3
+        with:
+          name: MyOfflineLLMApp
+          path: ${{ runner.temp }}/ipa/*.ipa
+
+      - name: Cleanup keychain and certificates
+        if: always()
+        run: |
+          security delete-keychain "$RUNNER_TEMP/build.keychain"
+          rm -f "$RUNNER_TEMP/certificate.p12" "$RUNNER_TEMP/profile.mobileprovision" "$RUNNER_TEMP/ExportOptions.plist"
