@@ -166,6 +166,8 @@ post_integrate do |installer|
   # --- Remove the forbidden Hermes script (all pods, all user targets)
   pods_projects = [installer.pods_project]
   pods_projects += Array(installer.generated_projects) if installer.respond_to?(:generated_projects)
+  pods_projects.each { |proj| strip_hermes_replacement_scripts!(proj) }
+  installer.aggregate_targets.each do |agg|
     strip_hermes_replacement_scripts!(agg.user_project) if agg.user_project
   end
 
