@@ -81,6 +81,8 @@ After each CI run, reports are automatically generated under `reports/`:
 - `reports/report.json` — structured data (errors, warnings, counts).
 - `reports/patches.md` — suggested fixes inferred from the reports.
 
+For local reproduction, `npm run doctor:ios` mirrors the CI flow and writes time-stamped results to `ci-reports/<ts>/`. Use `npm run reports:commit` to copy the latest snapshot to `CI-REPORT.md` and `report_agent.md` at the repo root (and optionally archive under `docs/ci-reports/`).
+
 ### Agent Guidelines
 
 - Always consult `report_agent.md` first to quickly understand counts and the first error/warning/xcresult issue.
@@ -91,7 +93,7 @@ After each CI run, reports are automatically generated under `reports/`:
 
 ### Important
 
-- Do not regenerate these reports manually; CI runs `npm run codex:analyze` and `npm run codex:fix` to create them.
+- Do not hand-edit `reports/*`; rely on `npm run codex:analyze`, `npm run codex:fix`, or `npm run doctor:ios` to regenerate.
 - If a build fails without generating reports, fallback parsing will still summarize logs, but the agent should note this and recommend rerunning the workflow with report generation enabled.
 
 ## Build Doctor Prompt (CI)

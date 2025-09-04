@@ -21,7 +21,11 @@
     "ci:install": "npm ci --legacy-peer-deps",
     "codex": "node ./scripts/codex/index.mjs",
     "codex:analyze": "node ./scripts/codex/index.mjs analyze --log ${CODEX_LOG_PATH:-build/xcodebuild.log} --xcresult ${CODEX_XCRESULT_PATH:-build/MyOfflineLLMApp.xcresult} --out ${CODEX_REPORTS_DIR:-reports}",
-    "codex:fix": "node ./scripts/codex/index.mjs fix --report ${CODEX_REPORT_PATH:-reports/REPORT.md} --agent ${CODEX_AGENT_PATH:-reports/report_agent.md} --out ${CODEX_REPORTS_DIR:-reports}"
+    "codex:fix": "node ./scripts/codex/index.mjs fix --report ${CODEX_REPORT_PATH:-reports/REPORT.md} --agent ${CODEX_AGENT_PATH:-reports/report_agent.md} --out ${CODEX_REPORTS_DIR:-reports}",
+    "doctor:ios": "bash scripts/dev/doctor.sh",
+    "doctor:ios:sim": "DESTINATION='platform=iOS Simulator,name=iPhone 16 Pro' bash scripts/dev/doctor.sh",
+    "doctor:ios:fast": "NO_INSTALL=1 bash scripts/dev/doctor.sh",
+    "reports:commit": "bash scripts/dev/commit-reports.sh"
   },
   "dependencies": {
     "@noble/post-quantum": "^0.5.1",
