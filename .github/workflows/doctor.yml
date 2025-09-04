@@ -1,0 +1,44 @@
+name: iOS Doctor
+
+on:
+  workflow_dispatch:
+
+jobs:
+  doctor:
+    runs-on: macos-latest
+    steps:
+      - uses: actions/checkout@v4
+
+      - uses: maxim-lobanov/setup-xcode@v1
+        with:
+          xcode-version: "16.1"
+
+      - name: Check Xcode
+        run: |
+          if ! command -v xcodebuild >/dev/null; then
+            echo "xcodebuild not found. Ensure Xcode and Command Line Tools are installed on this runner."
+            exit 1
+          fi
+          xcode-select -p
+          xcodebuild -version
+
+      - name: Setup Node
+        uses: actions/setup-node@v4
+        with:
+          node-version: 20
+          cache: npm
+
+      - name: Install deps
+        run: npm run ci:install
+
+      - name: Doctor iOS
+        run: npm run doctor:ios
+        continue-on-error: true
+
+      - name: Codex analyze
+        if: ${{ always() }}
+        run: npm run codex:analyze
+
+      - name: Codex fix
+        if: ${{ always() }}
+        run: npm run codex:fix
