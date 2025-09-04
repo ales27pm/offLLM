@@ -1,0 +1,13 @@
+# iOS CI Diagnosis
+
+## Most likely root cause
+```No obvious single root cause detected; inspect warnings and CI environment.```
+
+## Top XCResult issues
+- (no structured issues captured from xcresulttool)
+
+## Log stats
+
+## Pointers
+- Full log: `/workspace/offLLM/build/xcodebuild.log`
+- Result bundle: `/workspace/offLLM/build/MyOfflineLLMApp.xcresult`

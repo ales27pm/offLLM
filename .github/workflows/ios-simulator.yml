@@ -62,6 +62,9 @@ jobs:
           rm -f Pods/Manifest.lock
           rm -rf Pods/Headers || true
 
+      - name: Run codegen
+        run: npm run codegen
+
       - name: Set NODE_BINARY for Xcode scripts
         run: |
           rm -f ios/.xcode.env.local
@@ -117,7 +120,7 @@ jobs:
       - name: Build (Simulator)
         run: |
           set -euo pipefail
-          mkdir -p "${BUILD_DIR}"
+          rm -rf "${BUILD_DIR}" && mkdir -p "${BUILD_DIR}"
           xcodebuild \
             -workspace ios/MyOfflineLLMApp.xcworkspace \
             -scheme "${SCHEME}" \
@@ -125,27 +128,35 @@ jobs:
             -sdk iphonesimulator \
             -destination "platform=iOS Simulator,name=${SIM_DEVICE}" \
             -UseModernBuildSystem=YES \
-            -jobs 1 \
+            CODE_SIGNING_ALLOWED=NO CODE_SIGNING_REQUIRED=NO CODE_SIGN_IDENTITY='' \
             -resultBundlePath "${BUILD_DIR}/MyOfflineLLMApp.xcresult" \
-            CODE_SIGNING_ALLOWED=NO \
-            clean build | tee "${BUILD_DIR}/xcodebuild.log" | xcpretty
+            | tee "${BUILD_DIR}/xcodebuild.log"
 
-      - name: Generate diagnosis reports
+      - name: Analyze build (codex)
         if: always()
         run: |
+          CODEX_LOG_PATH="${BUILD_DIR}/xcodebuild.log" \
+          CODEX_XCRESULT_PATH="${BUILD_DIR}/MyOfflineLLMApp.xcresult" \
+          CODEX_REPORTS_DIR=reports \
           npm run codex:analyze
-          npm run codex:fix
-
-      - name: Upload diagnosis reports
+      - name: Upload artifacts (logs + reports)
         if: always()
-        uses: actions/upload-artifact@ea165f8d65b6e75b540449e92b4886f43607fa02
+        uses: actions/upload-artifact@v4
         with:
-          name: ios-simulator-reports
-          path: reports/
+          name: ios-build-and-reports
+          path: |
+            ${BUILD_DIR}/xcodebuild.log
+            ${BUILD_DIR}/MyOfflineLLMApp.xcresult
+            reports/**
 
-      - name: Commit reports back to repo
-        if: always() && github.event_name != 'pull_request' && github.ref == 'refs/heads/main'
-        uses: stefanzweifel/git-auto-commit-action@b863ae1933cb653a53c021fe36dbb774e1fb9403
-        with:
-          commit_message: "chore(ci): add/update iOS diagnosis reports [skip ci]"
-          file_pattern: reports/*
+      - name: Publish reports to repo
+        if: ${{ github.event_name != 'pull_request' }}
+        env:
+          GIT_AUTHOR_NAME: ci-bot
+          GIT_AUTHOR_EMAIL: ci@example.com
+          GIT_COMMITTER_NAME: ci-bot
+          GIT_COMMITTER_EMAIL: ci@example.com
+        run: |
+          git config user.name "ci-bot"
+          git config user.email "ci@example.com"
+          npm run reports:commit

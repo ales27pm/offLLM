@@ -1,5 +1,6 @@
 /* eslint-env node */
 import path from "node:path";
+import fs from "node:fs";
 import { ensureDir, writeJSON, writeText } from "./util.mjs";
 import { parseXcodebuildLog } from "./parse-xcodebuild.mjs";
 import { parseXCResult } from "./parse-xcresult.mjs";
@@ -11,8 +12,31 @@ export async function analyzeCmd(opts) {
   const outDir = path.resolve(opts.out || "reports");
   ensureDir(outDir);
 
-  const xcodebuild = parseXcodebuildLog(path.resolve(opts.log));
-  const xcresult = parseXCResult(path.resolve(opts.xcresult));
+  const emptyLog = (logPath) => ({
+    errorCount: 0,
+    warningCount: 0,
+    errors: [],
+    warnings: [],
+    hermesScripts: [],
+    phaseScriptFailures: [],
+    deploymentTargetNotes: [],
+    internalInconsistency: [],
+    logPath,
+  });
+
+  let xcodebuild = emptyLog(opts.log || "(missing)");
+  if (opts.log && fs.existsSync(opts.log)) {
+    xcodebuild = parseXcodebuildLog(path.resolve(opts.log));
+  }
+
+  let xcresult = {
+    ok: false,
+    path: opts.xcresult ? path.resolve(opts.xcresult) : "(missing)",
+    issues: [],
+  };
+  if (opts.xcresult && fs.existsSync(opts.xcresult)) {
+    xcresult = parseXCResult(path.resolve(opts.xcresult));
+  }
 
   writeJSON(path.join(outDir, "report.json"), { xcodebuild, xcresult });
   writeText(

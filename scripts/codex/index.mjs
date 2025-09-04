@@ -4,6 +4,7 @@ import { Command } from "commander";
 import { analyzeCmd } from "./lib/analyze.mjs";
 import { fixCmd } from "./lib/fix.mjs";
 import process from "node:process";
+import console from "node:console";
 
 const program = new Command();
 program
@@ -13,11 +14,17 @@ program
 
 program
   .command("analyze")
-  .requiredOption("--log <path>", "Path to xcodebuild.log")
-  .requiredOption("--xcresult <path>", "Path to .xcresult bundle")
+  .option("--log <path>", "Path to xcodebuild.log")
+  .option("--xcresult <path>", "Path to .xcresult bundle")
   .option("--out <dir>", "Output directory", "reports")
   .description("Analyze logs & xcresult to produce reports")
-  .action(analyzeCmd);
+  .action((opts) => {
+    if (!opts.log && !opts.xcresult) {
+      console.error("at least one of --log or --xcresult is required");
+      process.exit(1);
+    }
+    return analyzeCmd(opts);
+  });
 
 program
   .command("fix")
