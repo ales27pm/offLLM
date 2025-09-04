@@ -44,6 +44,19 @@ cd ios && bundle install && cd ..
 echo "📱 Generating Xcode project and installing CocoaPods..."
 cd ios && xcodegen generate && bundle exec pod install --repo-update && cd ..
 
+# Ensure the Xcode workspace exists before attempting to build.
+# If the initial pod install failed to produce it (e.g. due to a flaky
+# environment), retry once and bail out with a clear error message.
+if [ ! -d "$WORKSPACE" ]; then
+  echo "⚠️ Workspace not found at $WORKSPACE; rerunning CocoaPods install..."
+  (cd ios && bundle exec pod install --repo-update)
+fi
+
+if [ ! -d "$WORKSPACE" ]; then
+  echo "❌ Error: Xcode workspace still missing at $WORKSPACE"
+  exit 1
+fi
+
 # Step 4: Run the Xcode build (Simulator, unsigned)
 echo "📦 Building for iOS Simulator (unsigned)..."
 xcodebuild build \
