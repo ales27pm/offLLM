@@ -84,47 +84,48 @@ post_install do |installer|
     end
   end
 
-  # Pods project
-  installer.pods_project.targets.each do |t|
-    scrub_cp_filelists_from_target(t)
-    t.build_configurations.each do |cfg|
-      cfg.build_settings['ENABLE_USER_SCRIPT_SANDBOXING'] = 'NO'
-      current = cfg.build_settings['IPHONEOS_DEPLOYMENT_TARGET'] || '0'
-      if Gem::Version.new(current) < Gem::Version.new('18.0')
-        cfg.build_settings['IPHONEOS_DEPLOYMENT_TARGET'] = '18.0'
-      end
-      if cfg.name.include?('Debug')
-        # SwiftUI previews expect no optimization in debug builds
-        cfg.build_settings['SWIFT_OPTIMIZATION_LEVEL'] = '-Onone'
-        cfg.build_settings['SWIFT_COMPILATION_MODE'] = 'singlefile'
-      else
-        cfg.build_settings['SWIFT_OPTIMIZATION_LEVEL'] ||= '-O'
-      end
+  # Pods project(s)
+  pods_projects = [installer.pods_project]
+  pods_projects += Array(installer.generated_projects) if installer.respond_to?(:generated_projects)
+  pods_projects.each do |proj|
+    proj.targets.each do |t|
+      scrub_cp_filelists_from_target(t)
+      t.build_configurations.each do |cfg|
+        cfg.build_settings['ENABLE_USER_SCRIPT_SANDBOXING'] = 'NO'
+        if cfg.name.include?('Debug')
+          # SwiftUI previews expect no optimization in debug builds
+          cfg.build_settings['SWIFT_OPTIMIZATION_LEVEL'] = '-Onone'
+          cfg.build_settings['SWIFT_COMPILATION_MODE'] = 'singlefile'
+        else
+          cfg.build_settings['SWIFT_OPTIMIZATION_LEVEL'] ||= '-O'
+        end
 
-      # Ensure mixed C++ headers compile under gnu++17 and Swift 5
-      cfg.build_settings['CLANG_CXX_LANGUAGE_STANDARD'] ||= 'gnu++17'
-      cfg.build_settings['SWIFT_VERSION'] ||= '5.0'
+        # Ensure mixed C++ headers compile under gnu++17 and Swift 5
+        cfg.build_settings['CLANG_CXX_LANGUAGE_STANDARD'] ||= 'gnu++17'
+        cfg.build_settings['SWIFT_VERSION'] ||= '5.0'
 
-      # ReactCommon's TurboModule core needs bridging headers like <react/bridging/EventEmitter.h>
-      if t.name == 'ReactCommon'
-        # Allow <react/…> includes to resolve without header maps
-        paths = Array(cfg.build_settings['HEADER_SEARCH_PATHS'] || '$(inherited)')
-        paths += [
-          '$(PODS_ROOT)/Headers/Public/ReactCommon',
-          '$(PODS_ROOT)/Headers/Private/ReactCommon',
-          '$(PODS_TARGET_SRCROOT)',
-          '$(PODS_TARGET_SRCROOT)/react',
-          '$(PODS_TARGET_SRCROOT)/react/bridging',
-          # Reach into node_modules for bridging headers when not copied into the sandbox
-          # Node modules live one level above ios/, so we need ../../ to reach them
-          '$(PODS_ROOT)/../../node_modules/react-native/ReactCommon',
-          '$(PODS_ROOT)/../../node_modules/react-native/ReactCommon/react/bridging'
-        ]
-        cfg.build_settings['HEADER_SEARCH_PATHS'] = paths.uniq
-        # Disable header maps so the compiler consults our explicit search paths
-        cfg.build_settings['USE_HEADERMAP'] = 'NO'
+        # ReactCommon's TurboModule core needs bridging headers like <react/bridging/EventEmitter.h>
+        if t.name == 'ReactCommon'
+          # Allow <react/…> includes to resolve without header maps
+          paths = Array(cfg.build_settings['HEADER_SEARCH_PATHS'] || '$(inherited)')
+          paths += [
+            '$(PODS_ROOT)/Headers/Public/ReactCommon',
+            '$(PODS_ROOT)/Headers/Private/ReactCommon',
+            '$(PODS_TARGET_SRCROOT)',
+            '$(PODS_TARGET_SRCROOT)/react',
+            '$(PODS_TARGET_SRCROOT)/react/bridging',
+            # Reach into node_modules for bridging headers when not copied into the sandbox
+            # Node modules live one level above ios/, so we need ../../ to reach them
+            '$(PODS_ROOT)/../../node_modules/react-native/ReactCommon',
+            '$(PODS_ROOT)/../../node_modules/react-native/ReactCommon/react/bridging'
+          ]
+          cfg.build_settings['HEADER_SEARCH_PATHS'] = paths.uniq
+          # Disable header maps so the compiler consults our explicit search paths
+          cfg.build_settings['USE_HEADERMAP'] = 'NO'
+        end
       end
     end
+    proj.save
   end
 
   # User (app) project(s)
@@ -140,13 +141,12 @@ post_install do |installer|
   end
 
   # Remove Hermes "Replace Hermes" script phases from all projects
-  strip_hermes_replacement_scripts!(installer.pods_project)
-  installer.aggregate_targets.each do |agg|
-    strip_hermes_replacement_scripts!(agg.user_project) if agg.user_project
-  end
+  all_projects = (pods_projects + installer.aggregate_targets.map(&:user_project).compact)
+    .uniq { |p| p.path.to_s }
+  all_projects.each { |proj| strip_hermes_replacement_scripts!(proj) }
 
   # Mark [CP] phases without I/O as always out-of-date to silence warnings
-  ([installer.pods_project] + installer.aggregate_targets.map(&:user_project).compact).each do |proj|
+  all_projects.each do |proj|
     proj.targets.each do |t|
       t.build_phases
         .select { |p| p.isa == 'PBXShellScriptBuildPhase' && p.name&.start_with?('[CP]') }
@@ -156,17 +156,18 @@ post_install do |installer|
     end
     proj.save
   end
-
-  installer.pods_project.save
 end
 
 # Silences "will be run during every build" warnings for shell phases with no I/O,
 # and scrubs any Hermes "Replace Hermes" phases that may be (re)introduced.
 post_integrate do |installer|
-  pods_project = installer.pods_project
+  pods_projects = [installer.pods_project]
+  pods_projects += Array(installer.generated_projects) if installer.respond_to?(:generated_projects)
 
   # --- Remove the forbidden Hermes script (all pods, all user targets)
-  strip_hermes_replacement_scripts!(pods_project)
+  pods_projects = [installer.pods_project]
+  pods_projects += Array(installer.generated_projects) if installer.respond_to?(:generated_projects)
+  pods_projects.each { |proj| strip_hermes_replacement_scripts!(proj) }
   installer.aggregate_targets.each do |agg|
     strip_hermes_replacement_scripts!(agg.user_project) if agg.user_project
   end
@@ -178,7 +179,7 @@ post_integrate do |installer|
     .uniq { |p| p.path.to_s }
 
   # Mark [CP] phases without I/O as always out-of-date to silence Xcode warnings
-  ([pods_project] + user_projects).each do |proj|
+  (pods_projects + user_projects).each do |proj|
     proj.targets.each do |t|
       t.build_phases
         .select { |p| p.isa == 'PBXShellScriptBuildPhase' && p.name&.start_with?('[CP]') }
@@ -192,7 +193,7 @@ post_integrate do |installer|
   # --- Guard: fail if any Hermes replacement script remains
   if ENV['CI']
     offending = []
-    ([pods_project] + user_projects).each do |proj|
+    (pods_projects + user_projects).each do |proj|
       proj.targets.each do |t|
         t.build_phases.select { |p| p.isa == 'PBXShellScriptBuildPhase' }.each do |phase|
           name = (phase.name || '').downcase
