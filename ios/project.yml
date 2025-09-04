@@ -62,8 +62,7 @@ targets:
           - $(PODS_ROOT)/Headers/Public/**
           - $(PODS_CONFIGURATION_BUILD_DIR)/ReactCommon/**
           - $(SRCROOT)/../node_modules/react-native/ReactCommon/**
-        USE_HEADERMAP: YES
-        ALWAYS_SEARCH_USER_PATHS: NO
+        # USE_HEADERMAP/ALWAYS_SEARCH_USER_PATHS are set globally via Podfile post_install
         SWIFT_INCLUDE_PATHS:
           - $(SRCROOT)/build/generated/ios
     dependencies:

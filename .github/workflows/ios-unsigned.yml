@@ -55,6 +55,10 @@ jobs:
       - name: Install iOS tooling
         run: brew install xcodegen
 
+      - name: Generate Xcode project
+        working-directory: ios
+        run: xcodegen generate
+
       - name: Run Robust Build Script
         run: bash build.sh
       - name: Generate diagnosis reports
@@ -75,4 +79,9 @@ jobs:
           cp -f reports/REPORT.md REPORT.md || true
           cp -f reports/report_agent.md report_agent.md || true
           git add reports/ REPORT.md report_agent.md || true
-          git diff --staged --quiet || git commit -m "chore(ci): update iOS build reports [skip ci]" || true
+          if ! git diff --staged --quiet; then
+            git commit -m "chore(ci): update iOS build reports [skip ci]"
+            git push
+          else
+            echo "No report changes to commit."
+          fi
