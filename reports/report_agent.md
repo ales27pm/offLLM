@@ -1,7 +1,7 @@
 ## Build Diagnosis (Condensed)
 
-- Errors: 1, Warnings: 50
-- Signals: Pods with too-low IPHONEOS_DEPLOYMENT_TARGET (e.g., 9.0).
+- Errors: 1, Warnings: 41
+- Signals: Hermes replacement script still found. PhaseScriptExecution failures present. Pods with too-low IPHONEOS_DEPLOYMENT_TARGET (e.g., 9.0).
 
 ### Next actions (high-level)
 - Remove '[Hermes] Replace Hermes' script phases (Pods + user projects).

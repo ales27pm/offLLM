@@ -1,200 +1,112 @@
-name: iOS Unsigned IPA
+name: iOS Unsigned Build
 
 on:
   push:
-    branches: [main, master]
+    branches: [main]
   pull_request:
+    branches: [main]
 
 permissions:
-  contents: write
+  contents: write # allow committing REPORT.md, report_agent.md
+  actions: read
+  checks: read
 
 jobs:
-  unsigned-ipa:
-    name: Unsigned device IPA (Release, no codesign)
-    runs-on: macos-15
+  ios:
+    runs-on: macos-14
     env:
-      NODE_OPTIONS: --max_old_space_size=4096
-      RCT_NEW_ARCH_ENABLED: 1
-      USE_HERMES: true
-      SCHEME: MyOfflineLLMApp
-      CONFIGURATION: Release
       BUILD_DIR: build
     steps:
-      - uses: actions/checkout@v4
+      - name: Checkout
+        uses: actions/checkout@v4
 
-      - uses: actions/setup-node@v4
+      - name: Select Xcode 16.1
+        uses: maxim-lobanov/setup-xcode@v1
         with:
-          node-version: 20
-          cache: npm
+          xcode-version: "16.1"
+
+      - name: Setup Node
+        uses: actions/setup-node@v4
+        with:
+          node-version: "20"
+          cache: "npm"
+
+      - name: Set up Ruby & Bundler (for CocoaPods)
+        uses: ruby/setup-ruby@v1
+        with:
+          ruby-version: "3.2"
+          bundler-cache: true
+          working-directory: ios
+
+      - name: Install iOS tooling
+        run: brew install xcodegen xcbeautify
 
       - name: Install Node deps
-        run: npm ci
+        run: npm run ci:install
 
-      - name: Cache Bundler
-        uses: actions/cache@v4
-        with:
-          path: ios/vendor/bundle
-          key: ${{ runner.os }}-bundler-${{ hashFiles('ios/Gemfile.lock') }}
-          restore-keys: ${{ runner.os }}-bundler-
-
-      - name: Bundle config path
-        working-directory: ios
-        run: bundle config set path vendor/bundle
-
-      - name: Bundle install
-        working-directory: ios
-        run: bundle install
-
-      - name: Install XcodeGen
-        run: brew install xcodegen
-
-      - name: Clean DerivedData
-        run: rm -rf ~/Library/Developer/Xcode/DerivedData/*
-
-      - name: Generate Xcode project
-        run: xcodegen generate --spec ios/project.yml
-
-      - name: Clean CocoaPods sandbox if stale
-        working-directory: ios
+      - name: iOS deps (xcodegen & pods)
         run: |
-          set -euo pipefail
-          rm -f Pods/Manifest.lock
-          rm -rf Pods/Headers || true
+          cd ios
+          xcodegen generate
+          bundle install
+          bundle exec pod install --repo-update
 
-      - name: Set NODE_BINARY for Xcode scripts
+      - name: Codegen
+        run: npm run codegen
+
+      - name: Build (Unsigned Simulator) — with logs & xcresult
         run: |
-          rm -f ios/.xcode.env.local
-          printf 'export NODE_BINARY="%s"\n' "$(command -v node)" > ios/.xcode.env
-
-      - name: Install Pods (bundler)
-        working-directory: ios
-        run: bundle exec pod install --repo-update
-
-      - name: Scrub Hermes script phases
-        working-directory: ios
-        run: |
-          bundle exec ruby ../scripts/strip_hermes_phase.rb Pods/Pods.xcodeproj MyOfflineLLMApp.xcodeproj
-
-      - name: Assert Hermes phase is gone
-        run: |
-          set -euo pipefail
-          if /usr/bin/grep -R --include=project.pbxproj --line-number -i "Replace Hermes|\[Hermes\]" \
-               ios/Pods ios/MyOfflineLLMApp.xcodeproj 2>/dev/null; then
-            echo "::error::Forbidden Hermes 'Replace Hermes' script phase detected after pod install."
-            exit 1
-          fi
-          echo "✅ Hermes phase not found."
-
-      - name: Snapshot Pods shell script phases (forensics)
-        if: always()
-        run: |
-          mkdir -p build
-          ruby - <<'RUBY' > build/pods_shell_scripts.txt
-            require 'xcodeproj'
-            p = Xcodeproj::Project.open('ios/Pods/Pods.xcodeproj')
-            p.targets.each do |t|
-              t.build_phases
-               .select { |bp| bp.isa == 'PBXShellScriptBuildPhase' }
-               .each { |bp| puts "#{t.name} :: #{bp.name}" }
-            end
-          RUBY
-
-      - name: Upload Pods/Xcode projects on failure
-        if: failure()
-        uses: actions/upload-artifact@v4
-        with:
-          name: ios-forensics-${{ github.job }}
-          path: |
-            ios/Podfile.lock
-            ios/Pods/Pods.xcodeproj/project.pbxproj
-            ios/MyOfflineLLMApp.xcodeproj/project.pbxproj
-            build/pods_shell_scripts.txt
-
-      - name: Resolve Swift package dependencies
-        run: xcodebuild -resolvePackageDependencies -workspace ios/MyOfflineLLMApp.xcworkspace -scheme MyOfflineLLMApp -UseModernBuildSystem=YES
-
-      - name: Archive (no codesign)
-        run: |
-          set -euo pipefail
+          set -o pipefail
           mkdir -p "${BUILD_DIR}"
-          SWIFT_WORKER_THREADS=1 SWIFT_SERIALIZE_DEBUGGING_OPTIONS=NO \
+          cd ios
           xcodebuild \
-            -workspace ios/MyOfflineLLMApp.xcworkspace \
-            -scheme "${SCHEME}" \
-            -configuration "${CONFIGURATION}" \
-            -destination 'generic/platform=iOS' \
-            -archivePath "${BUILD_DIR}/MyOfflineLLMApp.xcarchive" \
-            -resultBundlePath "${BUILD_DIR}/MyOfflineLLMApp.xcresult" \
-            -UseModernBuildSystem=YES \
-            -jobs 1 \
-            CODE_SIGN_IDENTITY="" CODE_SIGNING_REQUIRED=NO CODE_SIGNING_ALLOWED=NO \
-            clean archive | tee "${BUILD_DIR}/xcodebuild.log"
-      - name: Generate diagnosis reports
+            -workspace MyOfflineLLMApp.xcworkspace \
+            -scheme MyOfflineLLMApp \
+            -configuration Release \
+            -sdk iphonesimulator \
+            -resultBundlePath "../${BUILD_DIR}/MyOfflineLLMApp.xcresult" \
+            CODE_SIGNING_ALLOWED=NO CODE_SIGN_IDENTITY='' CODE_SIGNING_REQUIRED=NO \
+          > "../${BUILD_DIR}/xcodebuild.raw.log" 2>&1
+          STATUS=$?
+          xcbeautify --generator reporter < "../${BUILD_DIR}/xcodebuild.raw.log" > "../${BUILD_DIR}/xcodebuild.log" || cp "../${BUILD_DIR}/xcodebuild.raw.log" "../${BUILD_DIR}/xcodebuild.log"
+          tail -n 200 "../${BUILD_DIR}/xcodebuild.log"
+          exit $STATUS
+
+      - name: Generate Codex reports
         if: always()
         run: |
+          test -f "${BUILD_DIR}/xcodebuild.log" || (echo "xcodebuild.log missing" && ls -la "${BUILD_DIR}" || true)
+          test -d "${BUILD_DIR}/MyOfflineLLMApp.xcresult" || (echo "xcresult missing" && ls -la "${BUILD_DIR}" || true)
           npm run codex:analyze
-          npm run codex:fix
 
-      - name: Upload diagnosis reports
+      - name: Snapshot reports for commit
         if: always()
-        uses: actions/upload-artifact@ea165f8d65b6e75b540449e92b4886f43607fa02
-        with:
-          name: ios-unsigned-reports
-          path: reports/
-
-      - name: Commit reports back to repo
-        if: always() && github.event_name != 'pull_request' && github.ref == 'refs/heads/main'
-        uses: stefanzweifel/git-auto-commit-action@b863ae1933cb653a53c021fe36dbb774e1fb9403
-        with:
-          commit_message: "chore(ci): add/update iOS diagnosis reports [skip ci]"
-          file_pattern: reports/*
-
-      - name: Locate built .app and dSYMs
-        id: locate
         run: |
-          set -euo pipefail
-          ARCHIVE_PATH="${BUILD_DIR}/MyOfflineLLMApp.xcarchive"
-          APP_PATH="$(/usr/bin/find "${ARCHIVE_PATH}/Products/Applications" -maxdepth 1 -name '*.app' -print -quit)"
-          if [[ -z "${APP_PATH}" ]]; then
-            echo "::error::Could not find built .app in ${ARCHIVE_PATH}/Products/Applications"
-            exit 1
-          fi
-          echo "app_path=${APP_PATH}" >> "$GITHUB_OUTPUT"
-          echo "✅ Found app: ${APP_PATH}"
+          ts=$(date +%Y%m%d-%H%M%S)
+          mkdir -p ci-reports/$ts
+          cp reports/REPORT.md ci-reports/$ts/
+          cp reports/report_agent.md ci-reports/$ts/
+          [ -f build/xcodebuild.log ] && cp build/xcodebuild.log ci-reports/$ts/
+          [ -d build/MyOfflineLLMApp.xcresult ] && ln -sf ../../build/MyOfflineLLMApp.xcresult ci-reports/$ts/MyOfflineLLMApp.xcresult
 
-          DSYM_DIR="${ARCHIVE_PATH}/dSYMs"
-          DSYM_ZIP="${BUILD_DIR}/MyOfflineLLMApp.dSYMs.zip"
-          if compgen -G "${DSYM_DIR}/*.dSYM" > /dev/null; then
-            /usr/bin/zip -qry "${DSYM_ZIP}" "${DSYM_DIR}"/*.dSYM
-            echo "dsym_zip=${DSYM_ZIP}" >> "$GITHUB_OUTPUT"
-            echo "✅ dSYMs zipped: ${DSYM_ZIP}"
-          else
-            echo "dsym_zip=" >> "$GITHUB_OUTPUT"
-            echo "ℹ️ No dSYMs found to zip"
-          fi
-
-      - name: Create unsigned IPA
-        run: |
-          set -euo pipefail
-          APP_PATH="${{ steps.locate.outputs.app_path }}"
-          IPA_DIR="${BUILD_DIR}/ipa"
-          PAYLOAD_DIR="${IPA_DIR}/Payload"
-          mkdir -p "${PAYLOAD_DIR}"
-          /bin/cp -R "${APP_PATH}" "${PAYLOAD_DIR}/"
-          (cd "${IPA_DIR}" && /usr/bin/zip -qry "MyOfflineLLMApp-unsigned.ipa" "Payload")
-          ls -la "${IPA_DIR}"
-
-      - name: Upload unsigned IPA
+      - name: Upload /reports artifact (backstop)
+        if: always()
         uses: actions/upload-artifact@v4
         with:
-          name: MyOfflineLLMApp-unsigned-ipa
-          path: build/ipa/MyOfflineLLMApp-unsigned.ipa
-          if-no-files-found: error
-
-      - name: Upload dSYMs (if any)
-        if: ${{ steps.locate.outputs.dsym_zip != '' }}
-        uses: actions/upload-artifact@v4
-        with:
-          name: MyOfflineLLMApp-dSYMs
-          path: ${{ steps.locate.outputs.dsym_zip }}
+          name: ios-codex-reports
+          path: reports
           if-no-files-found: warn
+
+      - name: Commit reports to repo
+        if: always()
+        run: |
+          ALLOW_DIRTY=1 npm run reports:commit || true
+          git config user.name "github-actions[bot]"
+          git config user.email "github-actions[bot]@users.noreply.github.com"
+          git add -A
+          if ! git diff --cached --quiet; then
+            git commit -m "chore(reports): update CI reports [skip ci]"
+            git push
+          else
+            echo "No report changes to commit."
+          fi

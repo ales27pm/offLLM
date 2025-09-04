@@ -1,5 +1,5 @@
-# Ensure the platform is set to iOS 18.0
-platform :ios, '18.0'
+# Ensure pods support iOS 12.0+; the app's deployment target lives in project.yml
+platform :ios, '12.0'
 ENV['RCT_NEW_ARCH_ENABLED'] = "1" # Enable Fabric/TurboModules
 
 # Include React Native's CocoaPods helpers
@@ -84,10 +84,14 @@ post_install do |installer|
     end
   end
 
-  # Pods project(s)
+  # Collect all Pods and user projects
   pods_projects = [installer.pods_project]
   pods_projects += Array(installer.generated_projects) if installer.respond_to?(:generated_projects)
-  pods_projects.each do |proj|
+  user_projects = installer.aggregate_targets.map(&:user_project).compact
+  all_projects = (pods_projects + user_projects).uniq { |p| p.path.to_s }
+
+  # Scrub CI-unfriendly settings from every target
+  all_projects.each do |proj|
     proj.targets.each do |t|
       scrub_cp_filelists_from_target(t)
       t.build_configurations.each do |cfg|
@@ -103,6 +107,11 @@ post_install do |installer|
         # Ensure mixed C++ headers compile under gnu++17 and Swift 5
         cfg.build_settings['CLANG_CXX_LANGUAGE_STANDARD'] ||= 'gnu++17'
         cfg.build_settings['SWIFT_VERSION'] ||= '5.0'
+
+        # Bump any low deployment targets to avoid "IPHONEOS_DEPLOYMENT_TARGET" errors.
+        min_target = Gem::Version.new('12.0')
+        current = Gem::Version.new(cfg.build_settings['IPHONEOS_DEPLOYMENT_TARGET'] || '0')
+        cfg.build_settings['IPHONEOS_DEPLOYMENT_TARGET'] = min_target.to_s if current < min_target
 
         # ReactCommon's TurboModule core needs bridging headers like <react/bridging/EventEmitter.h>
         if t.name == 'ReactCommon'
@@ -128,21 +137,7 @@ post_install do |installer|
     proj.save
   end
 
-  # User (app) project(s)
-  installer.aggregate_targets.each do |agg|
-    user_project = agg.user_project
-    user_project.targets.each do |t|
-      scrub_cp_filelists_from_target(t)
-      t.build_configurations.each do |cfg|
-        cfg.build_settings['ENABLE_USER_SCRIPT_SANDBOXING'] = 'NO'
-      end
-    end
-    user_project.save
-  end
-
   # Remove Hermes "Replace Hermes" script phases from all projects
-  all_projects = (pods_projects + installer.aggregate_targets.map(&:user_project).compact)
-    .uniq { |p| p.path.to_s }
   all_projects.each { |proj| strip_hermes_replacement_scripts!(proj) }
 
   # Mark [CP] phases without I/O as always out-of-date to silence warnings
