@@ -9,7 +9,7 @@ on:
 
 jobs:
   build:
-    runs-on: macos-15-arm64
+    runs-on: macos-14
     env:
       RCT_NEW_ARCH_ENABLED: "1"
       USE_HERMES: "true"
