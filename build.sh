@@ -44,18 +44,21 @@ echo "📦 Installing Ruby dependencies for CocoaPods..."
 echo "📱 Generating Xcode project and installing CocoaPods..."
 (cd "$PROJECT_DIR" && xcodegen generate && bundle exec pod install --repo-update)
 
-# Ensure the Xcode workspace exists before attempting to build.
-# If the initial pod install failed to produce it (e.g. due to a flaky
-# environment), retry once and bail out with a clear error message.
-if [ ! -d "$WORKSPACE" ]; then
-  echo "⚠️ Workspace not found at $WORKSPACE; rerunning CocoaPods install..."
-  (cd "$PROJECT_DIR" && bundle exec pod install --repo-update)
-fi
+# Ensure the Xcode workspace exists before attempting to build. If it's
+# missing, retry CocoaPods install once and exit if it still doesn't appear.
+ensure_workspace() {
+  if [ ! -e "$WORKSPACE" ]; then
+    echo "⚠️ Workspace not found at $WORKSPACE; rerunning CocoaPods install..."
+    (cd "$PROJECT_DIR" && bundle exec pod install --repo-update)
+  fi
 
-if [ ! -d "$WORKSPACE" ]; then
-  echo "❌ Error: Xcode workspace still missing at $WORKSPACE"
-  exit 1
-fi
+  if [ ! -e "$WORKSPACE" ]; then
+    echo "❌ Error: Xcode workspace still missing at $WORKSPACE"
+    return 1
+  fi
+}
+
+ensure_workspace
 
 # Step 4: Run the Xcode build (Simulator, unsigned)
 echo "📦 Building for iOS Simulator (unsigned)..."
@@ -69,8 +72,6 @@ xcodebuild build \
   CODE_SIGNING_ALLOWED=NO \
   CODE_SIGNING_REQUIRED=NO \
   | tee "$BUILD_DIR/xcodebuild.log"
-
-# … previous xcodebuild step …
 
 echo "📦 Packaging simulator build as artifact..."
 APP_DIR="$BUILD_DIR/DerivedData/Build/Products/Release-iphonesimulator"
