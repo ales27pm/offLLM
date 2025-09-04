@@ -33,20 +33,42 @@ export function parseXCResult(xcresultPath) {
     };
   }
 
-  const records = getValues(root, "actions").flatMap((action) =>
-    getValues(action, "actionResult", "issues", "issueSummaries"),
-  );
+  const records = getValues(root, "actions").flatMap((action) => [
+    ...getValues(action, "actionResult", "issues", "issueSummaries"),
+    ...getValues(action, "actionResult", "issues", "testFailureSummaries"),
+  ]);
 
-  const issues = records.map((rec) => ({
-    type: rec.issueType?._value,
-    title: rec.message?.text?._value,
-    severity: rec.severity?._value,
-    detailed: rec.producingTarget?.targetName?._value,
-  }));
+  const issues = records.map((rec) => {
+    const issue = {
+      type: rec.issueType?._value,
+      title: rec.message?.text?._value,
+      severity: rec.severity?._value,
+      detailed: rec.producingTarget?.targetName?._value,
+    };
+
+    const doc = rec.documentLocationInCreatingWorkspace;
+    const url = doc?.url?._value;
+    if (url) {
+      issue.url = url;
+      const loc = doc.concreteLocation;
+      if (loc) {
+        issue.filePath = loc.filePath?._value;
+        const line = loc.lineNumber?._value;
+        if (line) issue.line = Number(line);
+      }
+    }
+
+    return issue;
+  });
+
+  const errorCount = issues.filter((i) => i.severity === "error").length;
+  const warningCount = issues.filter((i) => i.severity === "warning").length;
 
   return {
     ok: true,
     path: path.resolve(xcresultPath),
     issues,
+    errorCount,
+    warningCount,
   };
 }
