@@ -74,10 +74,14 @@
 
 ## Build Diagnosis & Reports
 
-After each CI run, two reports are automatically generated in the repository:
+After each CI run, reports are automatically generated under `reports/`:
 
-- `REPORT.md` — human-oriented, detailed summary of warnings, errors, and xcresult issues.
-- `report_agent.md` — machine-friendly (key=value format) for AI coding agents.
+- `reports/REPORT.md` — human-readable summary.
+- `reports/report_agent.md` — concise agent-friendly prompt.
+- `reports/report.json` — structured data (errors, warnings, counts).
+- `reports/patches.md` — suggested fixes inferred from the reports.
+
+For local reproduction, `npm run doctor:ios` mirrors the CI flow and writes time-stamped results to `ci-reports/<ts>/`. Use `npm run reports:commit` to copy the latest snapshot to `CI-REPORT.md` and `report_agent.md` at the repo root (and optionally archive under `docs/ci-reports/`).
 
 ### Agent Guidelines
 
@@ -89,5 +93,21 @@ After each CI run, two reports are automatically generated in the repository:
 
 ### Important
 
-- Do not regenerate `REPORT.md` or `report_agent.md` manually; they are created automatically by the CI workflow via `scripts/ci/build_report.py`.
+- Do not hand-edit `reports/*`; rely on `npm run codex:analyze`, `npm run codex:fix`, or `npm run doctor:ios` to regenerate.
 - If a build fails without generating reports, fallback parsing will still summarize logs, but the agent should note this and recommend rerunning the workflow with report generation enabled.
+
+## Build Doctor Prompt (CI)
+
+When a build fails or has warnings:
+
+1. Read `reports/report_agent.md` first (short, condensed summary).
+2. Then open `reports/REPORT.md` (full detail).
+3. Finally, check `reports/patches.md` for suggested changes and refine them.
+
+**Rules**
+
+- Propose minimal, safe patches (Podfile hooks, workflow steps).
+- If Hermes replacement scripts are present, add/remove phases in both `post_install` and `post_integrate` and add CI guards.
+- If deployment target < 12.0 is detected in pods, raise it via `post_install` overrides.
+- If “Internal inconsistency error” appears, clean SPM caches, re-resolve packages, and pin versions compatible with Xcode 16.x.
+- Output a unified diff (`apply_patch`-ready) when proposing file changes.
