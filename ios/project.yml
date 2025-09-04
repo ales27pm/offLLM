@@ -59,6 +59,10 @@ targets:
         HEADER_SEARCH_PATHS:
           - $(inherited)
           - $(SRCROOT)/build/generated/ios
+          - $(PODS_ROOT)/Headers/Public/**
+          - $(PODS_CONFIGURATION_BUILD_DIR)/ReactCommon/**
+          - $(SRCROOT)/../node_modules/react-native/ReactCommon/**
+        # USE_HEADERMAP/ALWAYS_SEARCH_USER_PATHS are set globally via Podfile post_install
         SWIFT_INCLUDE_PATHS:
           - $(SRCROOT)/build/generated/ios
     dependencies:
@@ -71,6 +75,8 @@ targets:
         script: echo "Symlinks handled by CocoaPods"
         outputFiles:
           - "${DERIVED_FILE_DIR}/create_symlinks_to_header_folders.stamp"
+        runOnlyForDeploymentPostprocessing: false
+        alwaysOutOfDate: true
       - name: "[CP] Copy XCFrameworks"
         script: echo "Copy XCFrameworks handled by CocoaPods"
         outputFiles:
