@@ -8,7 +8,8 @@
 require 'pathname'
 require 'xcodeproj'
 
-ROOT = Pathname.new(__dir__).parent.parent.expand_path
+# Resolve repository root relative to this script
+ROOT = Pathname.new(__dir__).parent.parent
 IOS_DIR = ROOT + 'ios'
 PODS_XCODEPROJ = IOS_DIR + 'Pods/Pods.xcodeproj'
 APP_XCODEPROJ  = IOS_DIR + 'MyOfflineLLMApp.xcodeproj'
