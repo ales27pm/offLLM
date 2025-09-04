@@ -161,7 +161,7 @@ end
 # and scrubs any Hermes "Replace Hermes" phases that may be (re)introduced.
 post_integrate do |installer|
   pods_projects = [installer.pods_project]
-  pods_projects += installer.generated_projects if installer.respond_to?(:generated_projects)
+  pods_projects += Array(installer.generated_projects) if installer.respond_to?(:generated_projects)
 
   # --- Remove the forbidden Hermes script (all pods, all user targets)
   pods_projects = [installer.pods_project]
