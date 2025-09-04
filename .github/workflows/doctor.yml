@@ -1,0 +1,35 @@
+name: iOS Doctor
+
+on:
+  workflow_dispatch:
+
+jobs:
+  doctor:
+    runs-on: macos-15
+    steps:
+      - uses: actions/checkout@v4
+
+      - name: Ensure xcodebuild
+        run: |
+          if ! command -v xcodebuild >/dev/null; then
+            brew install xcodebuild || echo "xcodebuild install not found"
+          fi
+          xcodebuild -version
+
+      - name: Setup Node
+        uses: actions/setup-node@v4
+        with:
+          node-version: 20
+          cache: npm
+
+      - name: Install deps
+        run: npm ci
+
+      - name: Doctor iOS
+        run: npm run doctor:ios
+
+      - name: Codex analyze
+        run: npm run codex:analyze
+
+      - name: Codex fix
+        run: npm run codex:fix
