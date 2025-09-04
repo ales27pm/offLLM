@@ -1,4 +1,4 @@
-# Ensure the platform is set to iOS 18.0
+# Ensure pods build against iOS 18.0; the app's deployment target lives in project.yml
 platform :ios, '18.0'
 ENV['RCT_NEW_ARCH_ENABLED'] = "1" # Enable Fabric/TurboModules
 
@@ -132,20 +132,6 @@ post_install do |installer|
       end
     end
     proj.save
-  end
-
-  # User (app) project(s)
-  installer.aggregate_targets.each do |agg|
-    user_project = agg.user_project
-    user_project.targets.each do |t|
-      scrub_cp_filelists_from_target(t)
-      t.build_configurations.each do |cfg|
-        cfg.build_settings['ENABLE_USER_SCRIPT_SANDBOXING'] = 'NO'
-        # Ensure the app itself sticks to the repo's iOS 18.0 baseline
-        cfg.build_settings['IPHONEOS_DEPLOYMENT_TARGET'] = '18.0'
-      end
-    end
-    user_project.save
   end
 
   # Remove Hermes "Replace Hermes" script phases from all projects
