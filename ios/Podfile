@@ -69,7 +69,10 @@ def strip_hermes_replacement_scripts!(project)
               (p.shell_script || '').downcase.include?(m)
           end
       end
-      .each { |p| t.build_phases.delete(p) }
+      .each do |p|
+        t.build_phases.delete(p)
+        p.remove_from_project
+      end
   end
   project.save
 end

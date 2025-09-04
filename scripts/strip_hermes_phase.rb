@@ -14,6 +14,7 @@ def scrub_project(path)
         MARKERS.any? { |m| ((p.name || '') + (p.shell_script || '')).downcase.include?(m) }
     end.each do |p|
       t.build_phases.delete(p)
+      p.remove_from_project
       changed = true
     end
   end
