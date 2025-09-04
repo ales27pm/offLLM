@@ -13,17 +13,17 @@ permissions:
 
 jobs:
   ios:
-    runs-on: macos-14
+    runs-on: macos-15
     env:
       BUILD_DIR: build
     steps:
       - name: Checkout
         uses: actions/checkout@v4
 
-      - name: Select Xcode 16.1
+      - name: Select Xcode 16.4
         uses: maxim-lobanov/setup-xcode@v1
         with:
-          xcode-version: "16.1"
+          xcode-version: "16.4"
 
       - name: Setup Node
         uses: actions/setup-node@v4
@@ -38,64 +38,28 @@ jobs:
           bundler-cache: true
           working-directory: ios
 
-      - name: Install iOS tooling
-        run: brew install xcodegen xcbeautify
-
-      - name: Install Node deps
-        run: npm run ci:install
-
-      - name: iOS deps (xcodegen & pods)
-        run: |
-          cd ios
-          xcodegen generate
-          bundle install
-          bundle exec pod install --repo-update
-
-      - name: Codegen
-        run: npm run codegen
-
-      - name: Build (Unsigned Simulator) — with logs & xcresult
-        run: |
-          set -o pipefail
-          mkdir -p "${BUILD_DIR}"
-          cd ios
-          xcodebuild \
-            -workspace MyOfflineLLMApp.xcworkspace \
-            -scheme MyOfflineLLMApp \
-            -configuration Release \
-            -sdk iphonesimulator \
-            -resultBundlePath "../${BUILD_DIR}/MyOfflineLLMApp.xcresult" \
-            CODE_SIGNING_ALLOWED=NO CODE_SIGN_IDENTITY='' CODE_SIGNING_REQUIRED=NO \
-          > "../${BUILD_DIR}/xcodebuild.raw.log" 2>&1
-          STATUS=$?
-          xcbeautify --generator reporter < "../${BUILD_DIR}/xcodebuild.raw.log" > "../${BUILD_DIR}/xcodebuild.log" || cp "../${BUILD_DIR}/xcodebuild.raw.log" "../${BUILD_DIR}/xcodebuild.log"
-          tail -n 200 "../${BUILD_DIR}/xcodebuild.log"
-          exit $STATUS
-
-      - name: Generate Codex reports
-        if: always()
-        run: |
-          test -f "${BUILD_DIR}/xcodebuild.log" || (echo "xcodebuild.log missing" && ls -la "${BUILD_DIR}" || true)
-          test -d "${BUILD_DIR}/MyOfflineLLMApp.xcresult" || (echo "xcresult missing" && ls -la "${BUILD_DIR}" || true)
-          npm run codex:analyze
-
-      - name: Snapshot reports for commit
-        if: always()
-        run: |
-          ts=$(date +%Y%m%d-%H%M%S)
-          mkdir -p ci-reports/$ts
-          [ -f reports/REPORT.md ] && cp reports/REPORT.md ci-reports/$ts/
-          [ -f reports/report_agent.md ] && cp reports/report_agent.md ci-reports/$ts/
-          [ -f build/xcodebuild.log ] && cp build/xcodebuild.log ci-reports/$ts/
-          [ -d build/MyOfflineLLMApp.xcresult ] && ln -sf ../../build/MyOfflineLLMApp.xcresult ci-reports/$ts/MyOfflineLLMApp.xcresult
-
-      - name: Upload /reports artifact (backstop)
-        if: always()
-        uses: actions/upload-artifact@v4
+      - name: Cache Pods
+        uses: actions/cache@v4
         with:
-          name: ios-codex-reports
-          path: reports
-          if-no-files-found: warn
+          path: ios/Pods
+          key: ${{ runner.os }}-pods-${{ hashFiles('ios/Podfile.lock') }}
+          restore-keys: ${{ runner.os }}-pods-
+
+      - name: Cache DerivedData
+        uses: actions/cache@v4
+        with:
+          path: ~/Library/Developer/Xcode/DerivedData
+          key: ${{ runner.os }}-derived-${{ hashFiles('ios/Podfile.lock') }}
+          restore-keys: ${{ runner.os }}-derived-
+
+      - name: Install iOS tooling
+        run: brew install xcodegen
+
+      - name: Run Robust Build Script
+        run: bash build.sh
+
+      - name: Parse Build Results
+        run: node tools/xcresult-parser.js "${BUILD_DIR}/MyOfflineLLMApp.xcresult"
 
       - name: Commit reports to repo
         if: always()
