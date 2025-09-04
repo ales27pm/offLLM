@@ -1,7 +1,9 @@
 #!/usr/bin/env ruby
 require 'xcodeproj'
 
-MARKERS = ['replace hermes'].freeze
+# Match both the explicit "Replace Hermes" phase and any stray phases tagged
+# with bracketed [Hermes] names.
+MARKERS = ['replace hermes', '[hermes]'].freeze
 
 def scrub_project(path)
   project = Xcodeproj::Project.open(path)
@@ -19,7 +21,15 @@ def scrub_project(path)
   puts "[strip_hermes_phase] #{File.basename(path)}: #{changed ? 'removed phases' : 'nothing to remove'}"
 end
 
-ARGV.each do |proj|
+paths = ARGV.flat_map do |proj|
+  if File.directory?(proj)
+    Dir.glob(File.join(proj, '**/*.xcodeproj'))
+  else
+    proj
+  end
+end
+
+paths.each do |proj|
   if File.exist?(proj)
     scrub_project(proj)
   else

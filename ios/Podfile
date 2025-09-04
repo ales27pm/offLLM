@@ -51,14 +51,23 @@ target app_target do
 end
 
 # ---- Hermes Fix 2: Remove "Replace Hermes" script phases everywhere ----
-FORBIDDEN_HERMES_MARKERS = ['Replace Hermes', 'Replace Hermes for the right configuration'].freeze
+# Include both the explicit "Replace Hermes" scripts and any stray phases
+# named with bracketed [Hermes] tags.
+FORBIDDEN_HERMES_MARKERS = [
+  'replace hermes',
+  'replace hermes for the right configuration',
+  '[hermes]'
+].freeze
 
 def strip_hermes_replacement_scripts!(project)
   project.targets.each do |t|
     t.build_phases
       .select do |p|
         p.isa == 'PBXShellScriptBuildPhase' &&
-          FORBIDDEN_HERMES_MARKERS.any? { |m| (p.name || '').include?(m) || (p.shell_script || '').include?(m) }
+          FORBIDDEN_HERMES_MARKERS.any? do |m|
+            (p.name || '').downcase.include?(m) ||
+              (p.shell_script || '').downcase.include?(m)
+          end
       end
       .each { |p| t.build_phases.delete(p) }
   end
@@ -87,8 +96,8 @@ post_install do |installer|
   end
 
   # Collect all Pods and user projects
-  pods_projects = [installer.pods_project]
-  pods_projects += Array(installer.generated_projects) if installer.respond_to?(:generated_projects)
+  pod_project_paths = Dir.glob(File.join(installer.sandbox.root.to_s, '**/*.xcodeproj'))
+  pods_projects = pod_project_paths.map { |p| Xcodeproj::Project.open(p) }
   user_projects = installer.aggregate_targets.map(&:user_project).compact
   all_projects = (pods_projects + user_projects).uniq { |p| p.path.to_s }
 
@@ -158,20 +167,15 @@ end
 # Silences "will be run during every build" warnings for shell phases with no I/O,
 # and scrubs any Hermes "Replace Hermes" phases that may be (re)introduced.
 post_integrate do |installer|
-  pods_projects = [installer.pods_project]
-  pods_projects += Array(installer.generated_projects) if installer.respond_to?(:generated_projects)
-
-  # --- Remove the forbidden Hermes script (all pods, all user targets)
-  pods_projects.each { |proj| strip_hermes_replacement_scripts!(proj) }
-  installer.aggregate_targets.each do |agg|
-    strip_hermes_replacement_scripts!(agg.user_project) if agg.user_project
-  end
-
-  # Collect real Xcode projects (user app)
+  pod_project_paths = Dir.glob(File.join(installer.sandbox.root.to_s, '**/*.xcodeproj'))
+  pods_projects = pod_project_paths.map { |p| Xcodeproj::Project.open(p) }
   user_projects = installer.aggregate_targets
     .select { |agg| agg.respond_to?(:user_project) && agg.user_project }
     .map(&:user_project)
     .uniq { |p| p.path.to_s }
+
+  # --- Remove the forbidden Hermes script (all pods, all user targets)
+  (pods_projects + user_projects).each { |proj| strip_hermes_replacement_scripts!(proj) }
 
   # Mark [CP] phases without I/O as always out-of-date to silence Xcode warnings
   (pods_projects + user_projects).each do |proj|
@@ -193,7 +197,7 @@ post_integrate do |installer|
         t.build_phases.select { |p| p.isa == 'PBXShellScriptBuildPhase' }.each do |phase|
           name = (phase.name || '').downcase
           body = (phase.shell_script || '').downcase
-          offending << "#{proj.path.basename} :: #{t.name} :: #{phase.name}" if name.include?('replace hermes') || body.include?('replace hermes')
+          offending << "#{proj.path.basename} :: #{t.name} :: #{phase.name}" if FORBIDDEN_HERMES_MARKERS.any? { |m| name.include?(m) || body.include?(m) }
         end
       end
     end
