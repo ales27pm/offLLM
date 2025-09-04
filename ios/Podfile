@@ -74,6 +74,16 @@ def strip_hermes_replacement_scripts!(project)
   project.save
 end
 
+def pods_projects_for(installer)
+  pods = [installer.pods_project]
+  pods.concat(Array(installer.generated_projects)) if installer.respond_to?(:generated_projects)
+  pods.compact
+end
+
+def user_projects_for(installer)
+  installer.aggregate_targets.map(&:user_project).compact.uniq { |p| p.path.to_s }
+end
+
 post_install do |installer|
   react_native_post_install(installer) if defined?(react_native_post_install)
 
@@ -96,9 +106,8 @@ post_install do |installer|
   end
 
   # Collect all Pods and user projects
-  pod_project_paths = Dir.glob(File.join(installer.sandbox.root.to_s, '**/*.xcodeproj'))
-  pods_projects = pod_project_paths.map { |p| Xcodeproj::Project.open(p) }
-  user_projects = installer.aggregate_targets.map(&:user_project).compact
+  pods_projects = pods_projects_for(installer)
+  user_projects = user_projects_for(installer)
   all_projects = (pods_projects + user_projects).uniq { |p| p.path.to_s }
 
   # Scrub CI-unfriendly settings from every target
@@ -167,12 +176,8 @@ end
 # Silences "will be run during every build" warnings for shell phases with no I/O,
 # and scrubs any Hermes "Replace Hermes" phases that may be (re)introduced.
 post_integrate do |installer|
-  pod_project_paths = Dir.glob(File.join(installer.sandbox.root.to_s, '**/*.xcodeproj'))
-  pods_projects = pod_project_paths.map { |p| Xcodeproj::Project.open(p) }
-  user_projects = installer.aggregate_targets
-    .select { |agg| agg.respond_to?(:user_project) && agg.user_project }
-    .map(&:user_project)
-    .uniq { |p| p.path.to_s }
+  pods_projects = pods_projects_for(installer)
+  user_projects = user_projects_for(installer)
 
   # --- Remove the forbidden Hermes script (all pods, all user targets)
   (pods_projects + user_projects).each { |proj| strip_hermes_replacement_scripts!(proj) }
