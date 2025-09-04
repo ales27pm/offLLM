@@ -3,9 +3,9 @@ set -euo pipefail
 
 # Configuration
 : "${SCHEME:=MyOfflineLLMApp}"
-: "${WORKSPACE:=${PWD}/ios/MyOfflineLLMApp.xcworkspace}"
+: "${PROJECT_DIR:=${PWD}/ios}"
+: "${WORKSPACE:=${PROJECT_DIR}/MyOfflineLLMApp.xcworkspace}"
 : "${BUILD_DIR:=build}"
-: "${PROJECT_DIR:=ios}"
 : "${REQUIRED_NODE_VERSION:=20.0.0}"
 
 echo "▶️ Starting robust unsigned iOS build..."
@@ -39,17 +39,17 @@ echo "📦 Installing Node.js dependencies..."
 npm ci
 
 echo "📦 Installing Ruby dependencies for CocoaPods..."
-cd ios && bundle install && cd ..
+(cd "$PROJECT_DIR" && bundle install)
 
 echo "📱 Generating Xcode project and installing CocoaPods..."
-cd ios && xcodegen generate && bundle exec pod install --repo-update && cd ..
+(cd "$PROJECT_DIR" && xcodegen generate && bundle exec pod install --repo-update)
 
 # Ensure the Xcode workspace exists before attempting to build.
 # If the initial pod install failed to produce it (e.g. due to a flaky
 # environment), retry once and bail out with a clear error message.
 if [ ! -d "$WORKSPACE" ]; then
   echo "⚠️ Workspace not found at $WORKSPACE; rerunning CocoaPods install..."
-  (cd ios && bundle exec pod install --repo-update)
+  (cd "$PROJECT_DIR" && bundle exec pod install --repo-update)
 fi
 
 if [ ! -d "$WORKSPACE" ]; then
