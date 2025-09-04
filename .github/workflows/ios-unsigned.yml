@@ -84,8 +84,8 @@ jobs:
         run: |
           ts=$(date +%Y%m%d-%H%M%S)
           mkdir -p ci-reports/$ts
-          cp reports/REPORT.md ci-reports/$ts/
-          cp reports/report_agent.md ci-reports/$ts/
+          [ -f reports/REPORT.md ] && cp reports/REPORT.md ci-reports/$ts/
+          [ -f reports/report_agent.md ] && cp reports/report_agent.md ci-reports/$ts/
           [ -f build/xcodebuild.log ] && cp build/xcodebuild.log ci-reports/$ts/
           [ -d build/MyOfflineLLMApp.xcresult ] && ln -sf ../../build/MyOfflineLLMApp.xcresult ci-reports/$ts/MyOfflineLLMApp.xcresult
 
