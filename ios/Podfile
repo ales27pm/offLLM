@@ -130,31 +130,12 @@ post_install do |installer|
         # Ensure mixed C++ headers compile under gnu++17 and Swift 5
         cfg.build_settings['CLANG_CXX_LANGUAGE_STANDARD'] ||= 'gnu++17'
         cfg.build_settings['SWIFT_VERSION'] ||= '5.0'
-
         # Bump any low deployment targets to avoid "IPHONEOS_DEPLOYMENT_TARGET" errors.
         min_target = Gem::Version.new('18.0')
         current = Gem::Version.new(cfg.build_settings['IPHONEOS_DEPLOYMENT_TARGET'] || '0')
         cfg.build_settings['IPHONEOS_DEPLOYMENT_TARGET'] = min_target.to_s if current < min_target
-
-        # ReactCommon's TurboModule core needs bridging headers like <react/bridging/EventEmitter.h>
-        if t.name == 'ReactCommon'
-          # Allow <react/…> includes to resolve without header maps
-          paths = Array(cfg.build_settings['HEADER_SEARCH_PATHS'] || '$(inherited)')
-          paths += [
-            '$(PODS_ROOT)/Headers/Public/ReactCommon',
-            '$(PODS_ROOT)/Headers/Private/ReactCommon',
-            '$(PODS_TARGET_SRCROOT)',
-            '$(PODS_TARGET_SRCROOT)/react',
-            '$(PODS_TARGET_SRCROOT)/react/bridging',
-            # Reach into node_modules for bridging headers when not copied into the sandbox
-            # Node modules live one level above ios/, so we need ../../ to reach them
-            '$(PODS_ROOT)/../../node_modules/react-native/ReactCommon',
-            '$(PODS_ROOT)/../../node_modules/react-native/ReactCommon/react/bridging'
-          ]
-          cfg.build_settings['HEADER_SEARCH_PATHS'] = paths.uniq
-          # Disable header maps so the compiler consults our explicit search paths
-          cfg.build_settings['USE_HEADERMAP'] = 'NO'
-        end
+        cfg.build_settings['USE_HEADERMAP'] = 'YES'
+        cfg.build_settings['ALWAYS_SEARCH_USER_PATHS'] = 'NO'
       end
     end
     proj.save

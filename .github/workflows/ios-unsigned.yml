@@ -57,20 +57,22 @@ jobs:
 
       - name: Run Robust Build Script
         run: bash build.sh
-
-      - name: Parse Build Results
-        run: node tools/xcresult-parser.js "${BUILD_DIR}/MyOfflineLLMApp.xcresult"
+      - name: Generate diagnosis reports
+        if: always()
+        run: |
+          mkdir -p build
+          test -f build/xcodebuild.log || (echo "(no xcodebuild.log found)" > build/xcodebuild.log)
+          CODEX_LOG_PATH=build/xcodebuild.log \
+          CODEX_XCRESULT_PATH=build/MyOfflineLLMApp.xcresult \
+          npm run codex:analyze
 
       - name: Commit reports to repo
         if: always()
         run: |
-          ALLOW_DIRTY=1 npm run reports:commit || true
-          git config user.name "github-actions[bot]"
-          git config user.email "github-actions[bot]@users.noreply.github.com"
-          git add -A
-          if ! git diff --cached --quiet; then
-            git commit -m "chore(reports): update CI reports [skip ci]"
-            git push
-          else
-            echo "No report changes to commit."
-          fi
+          git config user.name "ci-bot"
+          git config user.email "ci@example.invalid"
+          mkdir -p reports
+          cp -f reports/REPORT.md REPORT.md || true
+          cp -f reports/report_agent.md report_agent.md || true
+          git add reports/ REPORT.md report_agent.md || true
+          git diff --staged --quiet || git commit -m "chore(ci): update iOS build reports [skip ci]" || true
