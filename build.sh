@@ -44,23 +44,19 @@ echo "📦 Installing Ruby dependencies for CocoaPods..."
 (cd "$IOS_PROJECT_DIR" && bundle install)
 
 echo "📱 Generating Xcode project and installing CocoaPods..."
-(
-  cd "$IOS_PROJECT_DIR" &&
-  xcodegen generate &&
-  bundle exec pod update hermes-engine --no-repo-update &&
-  bundle exec pod install --repo-update
-)
+(cd "$IOS_PROJECT_DIR" && \
+  xcodegen generate && \
+  bundle exec pod update hermes-engine --no-repo-update && \
+  bundle exec pod install --repo-update)
 
 # Ensure the Xcode workspace exists before attempting to build. If it's
 # missing, retry CocoaPods install once and exit if it still doesn't appear.
 ensure_workspace() {
   if [ ! -e "$WORKSPACE" ]; then
     echo "⚠️ Workspace not found at $WORKSPACE; rerunning CocoaPods install..."
-    (
-      cd "$IOS_PROJECT_DIR" &&
-      bundle exec pod update hermes-engine --no-repo-update &&
-      bundle exec pod install --repo-update
-    )
+    (cd "$IOS_PROJECT_DIR" && \
+      bundle exec pod update hermes-engine --no-repo-update && \
+      bundle exec pod install --repo-update)
   fi
 
   if [ ! -e "$WORKSPACE" ]; then
