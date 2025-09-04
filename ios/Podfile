@@ -84,10 +84,14 @@ post_install do |installer|
     end
   end
 
-  # Pods project(s)
+  # Collect all Pods and user projects
   pods_projects = [installer.pods_project]
   pods_projects += Array(installer.generated_projects) if installer.respond_to?(:generated_projects)
-  pods_projects.each do |proj|
+  user_projects = installer.aggregate_targets.map(&:user_project).compact
+  all_projects = (pods_projects + user_projects).uniq { |p| p.path.to_s }
+
+  # Scrub CI-unfriendly settings from every target
+  all_projects.each do |proj|
     proj.targets.each do |t|
       scrub_cp_filelists_from_target(t)
       t.build_configurations.each do |cfg|
@@ -104,7 +108,6 @@ post_install do |installer|
         cfg.build_settings['CLANG_CXX_LANGUAGE_STANDARD'] ||= 'gnu++17'
         cfg.build_settings['SWIFT_VERSION'] ||= '5.0'
 
-        # Pods like `glog` still declare iOS 9.0 which trips modern Xcode.
         # Bump any low deployment targets to avoid "IPHONEOS_DEPLOYMENT_TARGET" errors.
         min_target = Gem::Version.new('12.0')
         current = Gem::Version.new(cfg.build_settings['IPHONEOS_DEPLOYMENT_TARGET'] || '0')
@@ -135,8 +138,6 @@ post_install do |installer|
   end
 
   # Remove Hermes "Replace Hermes" script phases from all projects
-  all_projects = (pods_projects + installer.aggregate_targets.map(&:user_project).compact)
-    .uniq { |p| p.path.to_s }
   all_projects.each { |proj| strip_hermes_replacement_scripts!(proj) }
 
   # Mark [CP] phases without I/O as always out-of-date to silence warnings
