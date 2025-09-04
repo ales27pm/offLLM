@@ -78,6 +78,8 @@ post_install do |installer|
       begin
         phase.input_paths = [] if phase.respond_to?(:input_paths=)
         phase.output_paths = [] if phase.respond_to?(:output_paths=)
+        phase.input_file_list_paths = [] if phase.respond_to?(:input_file_list_paths=)
+        phase.output_file_list_paths = [] if phase.respond_to?(:output_file_list_paths=)
       rescue => e
         puts "WARN: Skipping scrub for phase #{phase.name}: #{e}"
       end
