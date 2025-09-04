@@ -10,6 +10,7 @@
 - Errors: **1**
 - Warnings: **41**
 - Hermes script mentions: **1**
+- PhaseScriptExecution failures: **1**
 - Deployment target mismatches: **1**
 
 ## Pointers
