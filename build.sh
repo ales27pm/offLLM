@@ -44,19 +44,17 @@ cd ios && bundle install && cd ..
 echo "📱 Generating Xcode project and installing CocoaPods..."
 cd ios && xcodegen generate && bundle exec pod install --repo-update && cd ..
 
-# Step 4: Run the Xcode build
-echo "📦 Archiving the application (unsigned)..."
-xcodebuild archive \
+# Step 4: Run the Xcode build (Simulator, unsigned)
+echo "📦 Building for iOS Simulator (unsigned)..."
+xcodebuild build \
   -workspace "$WORKSPACE" \
   -scheme "$SCHEME" \
   -configuration Release \
-  -destination 'generic/platform=iOS' \
-  -archivePath "$BUILD_DIR/${SCHEME}.xcarchive" \
+  -destination 'generic/platform=iOS Simulator' \
+  -derivedDataPath "$BUILD_DIR/DerivedData" \
   -resultBundlePath "$BUILD_DIR/${SCHEME}.xcresult" \
   CODE_SIGNING_ALLOWED=NO \
   CODE_SIGNING_REQUIRED=NO \
-  ONLY_ACTIVE_ARCH=NO \
-  ARCHS=arm64 \
   | tee "$BUILD_DIR/xcodebuild.log"
 
 echo "✅ Build script completed."
