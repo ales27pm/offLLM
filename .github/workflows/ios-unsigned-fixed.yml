@@ -26,6 +26,16 @@ jobs:
           node-version: 20
           cache: npm
 
+      - name: Select Xcode 16.2
+        uses: maxim-lobanov/setup-xcode@v1
+        with:
+          xcode-version: "16.2"
+
+      - name: Show Xcode
+        run: |
+          xcodebuild -version
+          xcode-select -p
+
       - name: Install Node.js dependencies
         run: npm ci
 
