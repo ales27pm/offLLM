@@ -6,8 +6,8 @@ This file is generated from `REPORT.md` + `report_agent.md` heuristics.
 
 ## Build Diagnosis (Condensed)
 
-- Errors: 1, Warnings: 50
-- Signals: Pods with too-low IPHONEOS_DEPLOYMENT_TARGET (e.g., 9.0).
+- Errors: 0, Warnings: 0
+- Signals: No singular dominant failure; inspect errors & warnings.
 
 ### Next actions (high-level)
 - Remove '[Hermes] Replace Hermes' script phases (Pods + user projects).
