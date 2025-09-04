@@ -8,7 +8,7 @@
 #   error "Turbo headers not found: <ReactCommon/TurboModule.h>. Check HEADER_SEARCH_PATHS / Pods setup."
 # endif
 
-extern "C" void __turbo_header_probe(void) {
+extern "C" void turbo_header_probe(void) {
   // no-op; just ensure we compile & link a TU including Turbo headers
 }
 #endif // DEBUG
