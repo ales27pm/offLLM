@@ -8,7 +8,7 @@
 require 'pathname'
 require 'xcodeproj'
 
-ROOT = Pathname.new(File.expand_path('../../..', __FILE__))
+ROOT = Pathname.new(File.expand_path('../..', __dir__))
 IOS_DIR = ROOT + 'ios'
 PODS_XCODEPROJ = IOS_DIR + 'Pods/Pods.xcodeproj'
 APP_XCODEPROJ  = IOS_DIR + 'MyOfflineLLMApp.xcodeproj'
