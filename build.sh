@@ -57,4 +57,20 @@ xcodebuild build \
   CODE_SIGNING_REQUIRED=NO \
   | tee "$BUILD_DIR/xcodebuild.log"
 
+# … previous xcodebuild step …
+
+echo "📦 Packaging simulator build as artifact..."
+APP_DIR="$BUILD_DIR/DerivedData/Build/Products/Release-iphonesimulator"
+APP_PATH="$(/usr/bin/find "$APP_DIR" -maxdepth 1 -name "${SCHEME}.app" -print -quit)"
+if [[ -z "$APP_PATH" ]]; then
+  echo "❌ Error: Built .app not found in $APP_DIR"
+  exit 1
+fi
+PAYLOAD_DIR="$BUILD_DIR/Payload"
+rm -rf "$PAYLOAD_DIR"
+mkdir -p "$PAYLOAD_DIR"
+cp -R "$APP_PATH" "$PAYLOAD_DIR/"
+(cd "$BUILD_DIR" && zip -qr offLLM-unsigned-ipa.zip Payload)
+echo "✅ Artifact created at $BUILD_DIR/offLLM-unsigned-ipa.zip"
+
 echo "✅ Build script completed."
