@@ -89,10 +89,11 @@ jobs:
           ls -l "$RUNNER_TEMP/ipa"
 
       - name: Upload IPA artifact
-        uses: actions/upload-artifact@v3
+        uses: actions/upload-artifact@v4
         with:
           name: MyOfflineLLMApp
           path: ${{ runner.temp }}/ipa/*.ipa
+          if-no-files-found: error
 
       - name: Cleanup keychain and certificates
         if: always()
