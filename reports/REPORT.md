@@ -1,16 +1,14 @@
 # iOS CI Diagnosis
 
 ## Most likely root cause
-```Hermes '[CP-User] Replace Hermes...' script phase is still present; scrub it post-install/post-integrate.```
+```One or more Pods declare iOS 9.0; raise to 12+ or set `IPHONEOS_DEPLOYMENT_TARGET` via post_install overrides.```
 
 ## Top XCResult issues
 - (no structured issues captured from xcresulttool)
 
 ## Log stats
 - Errors: **1**
-- Warnings: **41**
-- Hermes script mentions: **1**
-- PhaseScriptExecution failures: **1**
+- Warnings: **50**
 - Deployment target mismatches: **1**
 
 ## Pointers
