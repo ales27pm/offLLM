@@ -2,7 +2,7 @@
 #include? "Auto/MLXFlags.xcconfig"
 
 // Local additions (kept minimal — most comes from Pods)
-HEADER_SEARCH_PATHS = $(inherited) $(SRCROOT)/build/generated/ios \
+HEADER_SEARCH_PATHS = "$(inherited)" "$(SRCROOT)/build/generated/ios" \
   "$(PODS_CONFIGURATION_BUILD_DIR)/ReactCommon/ReactCommon.framework/Headers" \
   "$(PODS_ROOT)/Headers/Public/ReactCommon" \
   "$(PODS_ROOT)/Headers/Public/React-Codegen" \
