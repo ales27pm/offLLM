@@ -51,7 +51,19 @@ target app_target do
 end
 
 # ---- Hermes Fix 2: Remove "Replace Hermes" script phases everywhere ----
-forbidden_markers = ['Replace Hermes', 'Replace Hermes for the right configuration']
+FORBIDDEN_HERMES_MARKERS = ['Replace Hermes', 'Replace Hermes for the right configuration'].freeze
+
+def strip_hermes_replacement_scripts!(project)
+  project.targets.each do |t|
+    t.build_phases
+      .select do |p|
+        p.isa == 'PBXShellScriptBuildPhase' &&
+          FORBIDDEN_HERMES_MARKERS.any? { |m| (p.name || '').include?(m) || (p.shell_script || '').include?(m) }
+      end
+      .each { |p| t.build_phases.delete(p) }
+  end
+  project.save
+end
 
 post_install do |installer|
   react_native_post_install(installer) if defined?(react_native_post_install)
@@ -128,17 +140,9 @@ post_install do |installer|
   end
 
   # Remove Hermes "Replace Hermes" script phases from all projects
-  if ENV['CI'] == 'true'
-    scrub = lambda { |proj|
-      proj.targets.each do |t|
-        t.build_phases.select { |p|
-          p.isa == 'PBXShellScriptBuildPhase' && p.name && forbidden_markers.any? { |m| p.name.include?(m) }
-        }.each { |p| t.build_phases.delete(p) }
-      end
-      proj.save
-    }
-    scrub.call(installer.pods_project)
-    installer.aggregate_targets.each { |agg| scrub.call(agg.user_project) if agg.user_project }
+  strip_hermes_replacement_scripts!(installer.pods_project)
+  installer.aggregate_targets.each do |agg|
+    strip_hermes_replacement_scripts!(agg.user_project) if agg.user_project
   end
 
   # Mark [CP] phases without I/O as always out-of-date to silence warnings
@@ -162,17 +166,9 @@ post_integrate do |installer|
   pods_project = installer.pods_project
 
   # --- Remove the forbidden Hermes script (all pods, all user targets)
-  if ENV['CI'] == 'true'
-    scrub = lambda { |proj|
-      proj.targets.each do |t|
-        t.build_phases.select { |p|
-          p.isa == 'PBXShellScriptBuildPhase' && p.name && forbidden_markers.any? { |m| p.name.include?(m) }
-        }.each { |p| t.build_phases.delete(p) }
-      end
-      proj.save
-    }
-    scrub.call(pods_project)
-    installer.aggregate_targets.each { |agg| scrub.call(agg.user_project) }
+  strip_hermes_replacement_scripts!(pods_project)
+  installer.aggregate_targets.each do |agg|
+    strip_hermes_replacement_scripts!(agg.user_project) if agg.user_project
   end
 
   # Collect real Xcode projects (user app)
@@ -194,7 +190,7 @@ post_integrate do |installer|
   end
 
   # --- Guard: fail if any Hermes replacement script remains
-  if ENV['CI'] == 'true'
+  if ENV['CI']
     offending = []
     ([pods_project] + user_projects).each do |proj|
       proj.targets.each do |t|
