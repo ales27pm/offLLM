@@ -59,5 +59,9 @@ if (process.argv[1] === fileURLToPath(import.meta.url)) {
   const target =
     process.argv[2] || path.join("build", "MyOfflineLLMApp.xcresult");
   const res = parseXCResult(target);
+  if (!res.ok) {
+    console.error(JSON.stringify(res, null, 2));
+    process.exit(1);
+  }
   console.log(JSON.stringify(res, null, 2));
 }

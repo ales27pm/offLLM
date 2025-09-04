@@ -30,9 +30,9 @@ echo "✅ Node.js version $CURRENT_NODE_VERSION is compatible."
 
 # Step 2: Clean all caches and dependencies
 echo "🧹 Cleaning all dependencies and caches..."
-rm -rf node_modules package-lock.json
-rm -rf "${PROJECT_DIR}/Pods" "${PROJECT_DIR}/Podfile.lock" "${PROJECT_DIR}/build"
-rm -rf ~/Library/Developer/Xcode/DerivedData
+rm -rf node_modules
+rm -rf "$BUILD_DIR" "${PROJECT_DIR}/build"
+mkdir -p "$BUILD_DIR"
 
 # Step 3: Reinstall dependencies
 echo "📦 Installing Node.js dependencies..."

@@ -34,8 +34,23 @@ jobs:
       - name: Set up Ruby & Bundler (for CocoaPods)
         uses: ruby/setup-ruby@v1
         with:
+          ruby-version: "3.2"
           bundler-cache: true
           working-directory: ios
+
+      - name: Cache Pods
+        uses: actions/cache@v4
+        with:
+          path: ios/Pods
+          key: ${{ runner.os }}-pods-${{ hashFiles('ios/Podfile.lock') }}
+          restore-keys: ${{ runner.os }}-pods-
+
+      - name: Cache DerivedData
+        uses: actions/cache@v4
+        with:
+          path: ~/Library/Developer/Xcode/DerivedData
+          key: ${{ runner.os }}-derived-${{ hashFiles('ios/Podfile.lock') }}
+          restore-keys: ${{ runner.os }}-derived-
 
       - name: Install iOS tooling
         run: brew install xcodegen
