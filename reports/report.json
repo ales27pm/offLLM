@@ -8,12 +8,11 @@
     "phaseScriptFailures": [],
     "deploymentTargetNotes": [],
     "internalInconsistency": [],
-    "logPath": "build/xcodebuild.log"
+    "logPath": "/Users/runner/work/offLLM/offLLM/build/xcodebuild.log"
   },
   "xcresult": {
     "ok": false,
-    "error": "xcresulttool failed",
-    "stderr": "Error: This command is deprecated and will be removed in a future release, --legacy flag is required to use it.\nUsage: xcresulttool get object [--legacy] --path <path> [--id <id>] [--version <version>] [--format <format>]\n  See 'xcresulttool get object --help' for more information.\n",
-    "path": "/Users/runner/work/offLLM/offLLM/build/MyOfflineLLMApp.xcresult"
+    "path": "/Users/runner/work/offLLM/offLLM/build/MyOfflineLLMApp.xcresult",
+    "issues": []
   }
 }

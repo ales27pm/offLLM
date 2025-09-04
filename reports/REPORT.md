@@ -9,5 +9,5 @@
 ## Log stats
 
 ## Pointers
-- Full log: `build/xcodebuild.log`
+- Full log: `/Users/runner/work/offLLM/offLLM/build/xcodebuild.log`
 - Result bundle: `/Users/runner/work/offLLM/offLLM/build/MyOfflineLLMApp.xcresult`
