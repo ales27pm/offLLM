@@ -141,7 +141,8 @@ post_install do |installer|
   end
 
   # Remove Hermes "Replace Hermes" script phases from all projects
-  all_projects = pods_projects + installer.aggregate_targets.map(&:user_project).compact
+  all_projects = (pods_projects + installer.aggregate_targets.map(&:user_project).compact)
+    .uniq { |p| p.path.to_s }
   all_projects.each { |proj| strip_hermes_replacement_scripts!(proj) }
 
   # Mark [CP] phases without I/O as always out-of-date to silence warnings
