@@ -87,6 +87,12 @@ jobs:
           cd ios
           pod install
 
+      - name: Set Swift Optimization Level for Debug
+        run: |
+          cd ios
+          # Set SWIFT_OPTIMIZATION_LEVEL to -Onone for Debug builds
+          xcrun xcodebuild -workspace MyOfflineLLMApp.xcworkspace -scheme MyOfflineLLMApp -configuration Debug SWIFT_OPTIMIZATION_LEVEL=-Onone
+
       - name: Build iOS
         run: |
           cd ios
