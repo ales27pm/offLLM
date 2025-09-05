@@ -9,7 +9,13 @@ on:
 
 jobs:
   build-unsigned:
-    runs-on: macos-14
+    # Try macos-15 first (newer Xcode), then macos-14 if needed
+    strategy:
+      fail-fast: false
+      matrix:
+        runner: [macos-15, macos-14]
+    runs-on: ${{ matrix.runner }}
+
     env:
       RCT_NEW_ARCH_ENABLED: "1"
       USE_HERMES: "true"
@@ -18,13 +24,31 @@ jobs:
       BUILD_DIR: build
 
     steps:
-      - uses: actions/checkout@v4
+      - name: Checkout
+        uses: actions/checkout@v4
 
-      # ⬇️ Move to Xcode 16.4 to fix libc++ `using_if_exists` errors seen on 16.2
-      - name: Select Xcode 16.4
+      - name: Show installed Xcodes
+        run: |
+          ls -1 /Applications | grep -E '^Xcode' || true
+
+      # Try Xcode 16.4; if missing on this runner, fall back to 16.2
+      - name: Select Xcode 16.4 (attempt)
+        id: xcode164
+        continue-on-error: true
         uses: maxim-lobanov/setup-xcode@v1
         with:
           xcode-version: "16.4"
+
+      - name: Select Xcode 16.2 (fallback)
+        if: steps.xcode164.outcome == 'failure'
+        uses: maxim-lobanov/setup-xcode@v1
+        with:
+          xcode-version: "16.2"
+
+      - name: Confirm Xcode selection
+        run: |
+          xcodebuild -version
+          xcodebuild -showsdks || true
 
       - name: Setup Node
         uses: actions/setup-node@v4
@@ -58,7 +82,6 @@ jobs:
           bundle install
           bundle exec pod install --repo-update
 
-      # ⬇️ Keep our hardening (C++20, libc++ include path, legacy typedefs for Folly)
       - name: Apply post-install hardening
         run: |
           gem install xcodeproj
@@ -90,6 +113,7 @@ jobs:
           (cd "$APP_DIR" && zip -qry "$PWD/../../$SCHEME.app.zip" "$SCHEME.app")
 
       - name: Upload IPA
+        if: success()
         uses: actions/upload-artifact@v4
         with:
           name: ios-unsigned-ipa
