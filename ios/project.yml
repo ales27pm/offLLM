@@ -9,9 +9,6 @@ targets:
     platform: iOS
     deploymentTarget: "18.0"
 
-    # Use the existing React Native iOS app folder.
-    # Your repo already has ios/MyOfflineLLMApp/* (Info.plist, AppDelegate, etc.).
-    # XcodeGen runs from the ios/ directory, so this points to ios/MyOfflineLLMApp.
     sources:
       - path: MyOfflineLLMApp
         excludes:
@@ -24,14 +21,15 @@ targets:
         PRODUCT_BUNDLE_IDENTIFIER: com.27pm.monGARS
         INFOPLIST_FILE: MyOfflineLLMApp/Info.plist
         SWIFT_VERSION: 5.0
-
-        # Ensure the unsigned, device-target build does not require signing in CI
         CODE_SIGNING_ALLOWED: NO
         CODE_SIGNING_REQUIRED: NO
         CODE_SIGN_IDENTITY: ""
         DEVELOPMENT_TEAM: ""
 
-        # Typical RN include paths; keep them lenient
+        # 👇 ensure C++ compatibility with libc++ on iOS 18 toolchains
+        CLANG_CXX_LANGUAGE_STANDARD: gnu++20
+        OTHER_CPLUSPLUSFLAGS: $(inherited) -D_LIBCPP_ENABLE_CXX20_REMOVED_TYPEDEF_MACROS
+
         HEADER_SEARCH_PATHS:
           - $(inherited)
           - $(SRCROOT)/../node_modules/react-native/React
