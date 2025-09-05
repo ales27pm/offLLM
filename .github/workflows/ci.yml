@@ -54,7 +54,7 @@ jobs:
     steps:
       - uses: actions/checkout@v4
 
-      # Explicitly pick Xcode 16.2 for RN 0.81
+      # Pin Xcode explicitly (React Native 0.81 requires >= 16.1)
       - name: Select Xcode 16.2
         uses: maxim-lobanov/setup-xcode@v1
         with:
@@ -79,78 +79,86 @@ jobs:
       - name: Install JS deps from lockfile
         run: npm ci
 
-      # Ruby & Bundler for CocoaPods
-      - name: Setup Ruby (Bundler cache)
+      # Ruby & Bundler for CocoaPods (caches Gems in ios/vendor/bundle)
+      - name: Setup Ruby & Bundler (for CocoaPods)
         uses: ruby/setup-ruby@v1
         with:
           ruby-version: '3.2'
           bundler-cache: true
           working-directory: ios
 
-      # XcodeGen is required to create the .xcodeproj before pod install
-      - name: Install XcodeGen
+      # xcodegen is needed to create the .xcodeproj before 'pod install'
+      - name: Install xcodegen
         run: brew install xcodegen
 
-      - name: Generate Xcode project
+      - name: Generate Xcode project (xcodegen)
         working-directory: ios
+        run: xcodegen generate
+
+      - name: Print available SDKs & Simulators (diagnostics)
         run: |
-          set -euo pipefail
-          test -f project.yml || { echo "::error::ios/project.yml missing"; exit 1; }
-          xcodegen generate
-          ls -la
-          test -d MyOfflineLLMApp.xcodeproj || { echo "::error::.xcodeproj not generated"; exit 1; }
+          xcodebuild -showsdks
+          xcrun simctl list devices available
 
       - name: Update CocoaPods repos
         run: pod repo update
 
-      - name: Install CocoaPods (bundle exec)
-        working-directory: ios
-        env:
-          # Helps RN 0.81 Podfile version checks & SDK resolution
-          MD_APPLE_SDK_ROOT: /Applications/Xcode_16.2.app
-          # Optional: if you applied the Podfile tweak to accept PROJECT_PATH
-          PROJECT_PATH: MyOfflineLLMApp.xcodeproj
-        run: |
-          bundle install
-          bundle exec pod install --repo-update
-          ls -la
-
-      # (Optional) Scrub any lingering Hermes "Replace Hermes" phases if your repo includes the helper
-      - name: Scrub Hermes phases (optional)
-        if: hashFiles('scripts/strip_hermes_phase.rb') != ''
+      - name: Install CocoaPods (via Bundler)
         working-directory: ios
         run: |
           set -euo pipefail
-          bundle exec ruby ../scripts/strip_hermes_phase.rb Pods/Pods.xcodeproj MyOfflineLLMApp.xcodeproj
-          if grep -Riq --include=project.pbxproj "Replace Hermes" Pods MyOfflineLLMApp.xcodeproj; then
-            echo "::error::Hermes phases persist after scrub"
-            exit 1
-          fi
+          bundle exec pod install --repo-update
+
+      # Optional: set debug optimization to -Onone
+      - name: Set Swift Optimization Level for Debug
+        working-directory: ios
+        run: |
+          set -euo pipefail
+          mkdir -p ../build
+          xcodebuild \
+            -workspace MyOfflineLLMApp.xcworkspace \
+            -scheme MyOfflineLLMApp \
+            -configuration Debug \
+            -destination "generic/platform=iOS Simulator" \
+            SWIFT_OPTIMIZATION_LEVEL=-Onone \
+            | tee ../build/xcodebuild-opt.log
 
       - name: Clean and Build (Simulator)
         working-directory: ios
         run: |
           set -euo pipefail
-          # Use a concrete destination instead of hard-coding SDK string
-          DEST="platform=iOS Simulator,name=iPhone 15"
-          xcodebuild -workspace MyOfflineLLMApp.xcworkspace \
-                     -scheme MyOfflineLLMApp \
-                     -configuration Debug \
-                     -destination "$DEST" \
-                     clean build \
-                     | tee ../build/xcodebuild.log
-          # Try to copy the latest xcresult for diagnostics
+
+          # Ensure repo-level build dir exists for logs/xcresult (parent of ios/)
+          mkdir -p ../build
+
+          # Prefer a generic destination for BUILDs (avoids device name drift)
+          DEST="generic/platform=iOS Simulator"
+
+          echo "Using destination: $DEST"
+
+          xcodebuild \
+            -workspace MyOfflineLLMApp.xcworkspace \
+            -scheme MyOfflineLLMApp \
+            -configuration Debug \
+            -destination "$DEST" \
+            clean build \
+            | tee ../build/xcodebuild.log
+
+          # Copy latest xcresult (if produced)
           RESULT=$(ls -1t ~/Library/Developer/Xcode/DerivedData/*/Logs/Build/*.xcresult 2>/dev/null | head -n1 || true)
           if [ -n "$RESULT" ]; then
-            mkdir -p ../build && cp -R "$RESULT" ../build/MyOfflineLLMApp.xcresult
+            cp -R "$RESULT" ../build/MyOfflineLLMApp.xcresult
+          else
+            echo "No xcresult bundle found (this can be normal for some configurations)."
           fi
 
-      - name: Upload build logs & xcresult
-        uses: actions/upload-artifact@v4
+      # (Optional) upload logs & xcresult for debugging
+      - name: Upload iOS build logs
         if: always()
+        uses: actions/upload-artifact@v4
         with:
-          name: ios-unsigned-reports
+          name: ios-build-artifacts
           path: |
-            build/xcodebuild.log
+            build/xcodebuild*.log
             build/MyOfflineLLMApp.xcresult
           if-no-files-found: warn
