@@ -7,7 +7,7 @@
 - (no structured issues captured from xcresulttool)
 
 ## Log stats
-- Errors: **40**
+- Errors: **20**
 - Warnings: **51**
 
 ## Pointers
