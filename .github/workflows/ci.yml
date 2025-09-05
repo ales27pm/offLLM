@@ -17,6 +17,7 @@ jobs:
     runs-on: ubuntu-latest
     env:
       NODE_OPTIONS: --max_old_space_size=4096
+
     steps:
       - uses: actions/checkout@v4
 
@@ -46,7 +47,7 @@ jobs:
         run: npm run lint:ci
 
   ios-ci:
-    runs-on: macos-15
+    runs-on: macos-14
     env:
       NODE_OPTIONS: --max_old_space_size=4096
 
@@ -65,54 +66,47 @@ jobs:
           case "$VER" in
             16.*) echo "✅ OK";;
             *) echo "❌ Wrong Xcode version, requires 16.x"; exit 1;;
-              echo "Selected Xcode: $VER"
-              MAJOR=${VER%%.*}
-              MINOR=${VER#*.}; MINOR=${MINOR%%.*}
-              [ -z "$MAJOR" ] && MAJOR=0
-              [ -z "$MINOR" ] && MINOR=0
-              if [ "$MAJOR" -eq 16 ] && [ "$MINOR" -ge 1 ]; then
-                echo "✅ OK"
-              else
-                echo "❌ Wrong Xcode version, requires >= 16.1"
-                exit 1
-              fi
+          esac
+
+      - name: Setup Node (with npm cache)
+        uses: actions/setup-node@v4
+        with:
           node-version: 20.19.4
           cache: npm
 
       - name: Install JS deps from lockfile
         run: npm ci
 
-      # ⬇️ Critical fix: set up Ruby **in ios/** so Bundler sees ios/Gemfile
+      # ✅ FIXED: working-directory only valid in run steps
       - name: Setup Ruby (Bundler cache from ios/Gemfile.lock)
         uses: ruby/setup-ruby@v1
-        working-directory: ios
         with:
-          ruby-version: '3.2'        # matches your lockfile expectations
-          bundler-cache: true        # installs + caches gems from ios/Gemfile.lock
+          ruby-version: '3.2'
+          bundler-cache: true
+        env:
+          BUNDLE_GEMFILE: ios/Gemfile
 
-      # Optional: update pods repo outside bundler (ok either way)
-      - name: Update CocoaPods specs repo
+      - name: Update CocoaPods repo
         run: pod repo update
 
-      - name: Install CocoaPods (via Bundler)
-        working-directory: ios
-        run: bundle exec pod install --repo-update
-
-      # Hardening/passive fixes executed under Bundler (so cocoapods/xcodeproj are available)
-      - name: Apply hardening scripts
-        working-directory: ios
+      - name: Install CocoaPods
         run: |
+          cd ios
+          bundle exec pod install --repo-update
+
+      - name: Apply hardening scripts
+        run: |
+          cd ios
           bundle exec ruby ../scripts/ci/strip_hermes_phase.rb
           bundle exec ruby ../scripts/ci/enforce_pods_deployment_target.rb
-          # Assert no Hermes phases remain
           if grep -Riq --include=project.pbxproj "Replace Hermes" Pods MyOfflineLLMApp.xcodeproj; then
             echo "::error::Hermes 'Replace Hermes' phase still present after scrub"
             exit 1
           fi
 
       - name: Set Swift Optimization Level for Debug
-        working-directory: ios
         run: |
+          cd ios
           xcrun xcodebuild \
             -workspace MyOfflineLLMApp.xcworkspace \
             -scheme MyOfflineLLMApp \
@@ -120,16 +114,13 @@ jobs:
             SWIFT_OPTIMIZATION_LEVEL=-Onone
 
       - name: Clean and Build (Simulator)
-        working-directory: ios
         run: |
+          cd ios
           set -euo pipefail
-          # Clean
           xcodebuild clean \
             -workspace MyOfflineLLMApp.xcworkspace \
             -scheme MyOfflineLLMApp \
             -configuration Debug
-
-          # Build on an available device (picked from your logs)
           xcodebuild \
             -workspace MyOfflineLLMApp.xcworkspace \
             -scheme MyOfflineLLMApp \
