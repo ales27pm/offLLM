@@ -52,7 +52,7 @@ jobs:
     steps:
       - uses: actions/checkout@v4
 
-      # --- Xcode selection & guard (RN 0.81 needs >=16.1) ---
+      # --- Xcode selection & guard ---
       - name: Select Xcode 16.2
         uses: maxim-lobanov/setup-xcode@v1
         with:
@@ -65,7 +65,7 @@ jobs:
           echo "Selected Xcode: $VER"
           [[ "$VER" =~ ^16\. ]] || { echo "❌ Requires Xcode 16.x"; exit 1; }
 
-      # --- Node & JS deps BEFORE pods (codegen may create headers) ---
+      # --- Node & JS deps BEFORE pods ---
       - name: Setup Node (with npm cache)
         uses: actions/setup-node@v4
         with:
@@ -82,7 +82,7 @@ jobs:
           export TEMPLATE_SRC_DIR="${TEMPLATE_SRC_DIR:-$(pwd)/src/specs}"
           npm run codegen || true
 
-      # --- Ensure an .xcodeproj exists (harmless if not using XcodeGen) ---
+      # --- Ensure an .xcodeproj exists (harmless if project.yml absent) ---
       - name: Install XcodeGen
         run: brew install xcodegen || true
 
@@ -93,7 +93,7 @@ jobs:
             (cd ios && xcodegen generate)
           fi
 
-      # --- CocoaPods (no Bundler to avoid 3.3 gemset mismatch) ---
+      # --- CocoaPods (no Bundler to avoid Ruby 3.3 gemset mismatch) ---
       - name: CocoaPods repo update (best-effort)
         run: pod repo update || true
 
@@ -103,81 +103,92 @@ jobs:
           cd ios
           pod install --repo-update
 
-      # --- Patch script phases to add output paths & remove Hermes "Replace Hermes" ---
+      # --- Patch script phases (outputs) & scrub Hermes ---
       - name: Harden script phases & scrub Hermes
         run: |
           set -euo pipefail
           cd ios
           # ensure xcodeproj gem is present
           ruby -e "begin; require 'xcodeproj'; rescue LoadError; system('gem install xcodeproj -v \"~>1.27\" --no-document'); require 'xcodeproj'; end"
-
           ruby - <<'RUBY'
             require 'xcodeproj'
-
-            def harden(project_path)
-              return unless File.exist?(project_path)
-              proj = Xcodeproj::Project.open(project_path)
-              proj.targets.each do |t|
-                t.shell_script_build_phases.each do |p|
-                  # Add a harmless derived output to silence "will run every build" warnings
-                  if (p.output_paths.nil? || p.output_paths.empty?) && (p.files_references.nil? || p.files_references.empty?)
-                    safe = (p.name || 'Phase').gsub(/\W/,'_')
-                    p.output_paths = ["$(DERIVED_FILE_DIR)/#{safe}.touch"]
+            def harden(path)
+              return unless File.exist?(path)
+              p = Xcodeproj::Project.open(path)
+              p.targets.each do |t|
+                t.shell_script_build_phases.each do |phase|
+                  if (phase.output_paths.nil? || phase.output_paths.empty?) &&
+                     (phase.files_references.nil? || phase.files_references.empty?)
+                    safe = (phase.name || 'Phase').gsub(/\W/,'_')
+                    phase.output_paths = ["$(DERIVED_FILE_DIR)/#{safe}.touch"]
                   end
-                  # Prefer outputs-driven execution
-                  p.always_out_of_date = '0' if p.respond_to?(:always_out_of_date)
+                  phase.always_out_of_date = '0' if phase.respond_to?(:always_out_of_date)
                 end
-
-                # Remove Hermes "Replace Hermes" phases if any
                 t.shell_script_build_phases
-                  .select { |p| (p.name || '') =~ /\[Hermes\]\s*Replace Hermes/i }
-                  .each { |p| t.build_phases.delete(p) }
+                  .select { |ph| (ph.name || '') =~ /\[Hermes\]\s*Replace Hermes/i }
+                  .each { |ph| t.build_phases.delete(ph) }
               end
-              proj.save
+              p.save
             end
-
             harden('Pods/Pods.xcodeproj')
             harden('MyOfflineLLMApp.xcodeproj')
           RUBY
-
-          # Assert Hermes phase is gone
           if grep -Riq --include=project.pbxproj "Replace Hermes" Pods MyOfflineLLMApp.xcodeproj; then
             echo "::error::Hermes 'Replace Hermes' phase still present after hardening"
             exit 1
           fi
 
-      # --- Debug build on a simulator that exists on the runner ---
-      - name: Show available simulator destinations (debug aid)
+      # --- Create/boot a real simulator & build to its UDID ---
+      - name: Prepare simulator (iPhone 16 Pro · iOS 18.2)
+        id: sim
         run: |
-          xcodebuild -workspace ios/MyOfflineLLMApp.xcworkspace \
-                     -scheme MyOfflineLLMApp \
-                     -configuration Debug \
-                     -showdestinations || true
+          set -euo pipefail
+          RUNTIME="iOS 18.2"
+          NAME="CI-iPhone-16-Pro"
+          # find runtime identifier
+          RUNTIME_ID=$(xcrun simctl list runtimes | awk -v r="$RUNTIME" -F '[()]' '$0 ~ r {print $2; exit}')
+          if [ -z "${RUNTIME_ID:-}" ]; then
+            echo "::warning::iOS 18.2 runtime not found; will fall back to latest available."
+            DEST=$(
+              xcodebuild -workspace ios/MyOfflineLLMApp.xcworkspace -scheme MyOfflineLLMApp -configuration Debug -showdestinations \
+              | awk -F'[{}]' '/platform:iOS Simulator/ && /name:iPhone 16 Pro/ {print $2; exit}'
+            )
+            echo "udid=" >> "$GITHUB_OUTPUT"
+            echo "destination={$DEST}" >> "$GITHUB_OUTPUT"
+            exit 0
+          fi
+          # reuse or create the device
+          UDID=$(xcrun simctl list devices | awk -v n="$NAME" -v r="$RUNTIME" -F '[()]' '$0 ~ n && $0 ~ r {print $2; exit}')
+          if [ -z "${UDID:-}" ]; then
+            UDID=$(xcrun simctl create "$NAME" "iPhone 16 Pro" "$RUNTIME_ID")
+          fi
+          xcrun simctl bootstatus "$UDID" -b || xcrun simctl boot "$UDID"
+          echo "udid=$UDID" >> "$GITHUB_OUTPUT"
+          echo "destination=id=$UDID" >> "$GITHUB_OUTPUT"
 
-      - name: Clean & Build (Debug, iPhone 16 Pro / iOS 18.2)
+      - name: Clean & Build (Debug, Simulator)
         run: |
           set -euo pipefail
           mkdir -p build
           cd ios
-
           xcodebuild clean \
             -workspace MyOfflineLLMApp.xcworkspace \
             -scheme MyOfflineLLMApp \
             -configuration Debug
-
-          # In case the scheme treats warnings as errors, explicitly turn it off here
+          DEST="${{ steps.sim.outputs.destination }}"
+          if [ -z "$DEST" ]; then
+            DEST="id=${{ steps.sim.outputs.udid }}"
+          fi
           xcodebuild \
             -workspace MyOfflineLLMApp.xcworkspace \
             -scheme MyOfflineLLMApp \
             -configuration Debug \
             -sdk iphonesimulator \
-            -destination 'platform=iOS Simulator,name=iPhone 16 Pro,OS=18.2' \
+            -destination "$DEST" \
             GCC_TREAT_WARNINGS_AS_ERRORS=NO \
             -resultBundlePath ../build/MyOfflineLLMApp.xcresult \
-            build \
-            | tee ../build/xcodebuild.log
+            build | tee ../build/xcodebuild.log
 
-      # --- Upload artifacts for diagnosis ---
       - name: Upload build logs & result bundle
         uses: actions/upload-artifact@v4
         with:
@@ -248,12 +259,10 @@ jobs:
           set -euo pipefail
           mkdir -p build
           cd ios
-
           xcodebuild clean \
             -workspace MyOfflineLLMApp.xcworkspace \
             -scheme MyOfflineLLMApp \
             -configuration Release
-
           ARCHIVE_PATH="../build/MyOfflineLLMApp.xcarchive"
           xcodebuild archive \
             -workspace MyOfflineLLMApp.xcworkspace \
