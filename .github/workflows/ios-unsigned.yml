@@ -20,10 +20,11 @@ jobs:
     steps:
       - uses: actions/checkout@v4
 
-      - name: Select Xcode 16.2
+      # ⬇️ Move to Xcode 16.4 to fix libc++ `using_if_exists` errors seen on 16.2
+      - name: Select Xcode 16.4
         uses: maxim-lobanov/setup-xcode@v1
         with:
-          xcode-version: "16.2"
+          xcode-version: "16.4"
 
       - name: Setup Node
         uses: actions/setup-node@v4
@@ -57,6 +58,7 @@ jobs:
           bundle install
           bundle exec pod install --repo-update
 
+      # ⬇️ Keep our hardening (C++20, libc++ include path, legacy typedefs for Folly)
       - name: Apply post-install hardening
         run: |
           gem install xcodeproj
