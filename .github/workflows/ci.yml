@@ -235,7 +235,9 @@ jobs:
           echo "udid=$UDID" >> "$GITHUB_OUTPUT"
           echo "destination=id=$UDID" >> "$GITHUB_OUTPUT"
 
+      # --- Resilient build + detailed error extraction ---
       - name: Clean & Build (Debug, Simulator)
+        id: buildsim
         run: |
           set -euo pipefail
           mkdir -p build
@@ -247,16 +249,57 @@ jobs:
             -configuration Debug
 
           DEST="id=${{ steps.sim.outputs.udid }}"
+
+          set +e
           xcodebuild \
             -workspace MyOfflineLLMApp.xcworkspace \
             -scheme MyOfflineLLMApp \
             -configuration Debug \
             -sdk iphonesimulator \
             -destination "$DEST" \
+            -arch arm64 \
+            -onlyActiveArchitecture YES \
+            -skipPackagePluginValidation YES \
+            -skipMacroValidation YES \
             GCC_TREAT_WARNINGS_AS_ERRORS=NO \
             OTHER_CFLAGS="-DOBJC_OLD_DISPATCH_PROTOTYPES=0" \
             -resultBundlePath ../build/MyOfflineLLMApp.xcresult \
             build | tee ../build/xcodebuild.log
+          STATUS=$?
+          echo "status=$STATUS" >> "$GITHUB_OUTPUT"
+          exit $STATUS
+
+      - name: Print first error from xcresult
+        if: failure() && steps.buildsim.outputs.status != '0'
+        run: |
+          set -euo pipefail
+          RB="build/MyOfflineLLMApp.xcresult"
+          if [ -d "$RB" ]; then
+            echo "Found result bundle at: $RB"
+            xcrun xcresulttool get --format json --path "$RB" > build/xcresult.json
+            node - <<'JS'
+              const fs = require('fs');
+              const j = JSON.parse(fs.readFileSync('build/xcresult.json','utf8'));
+              const actions = j.actions?._values || [];
+              for (const a of actions){
+                const issues = a?.actionResult?.issues;
+                const errs = issues?.errorSummaries?._values || [];
+                if (errs.length){
+                  const e = errs[0];
+                  console.log('----- First build error from xcresult -----');
+                  console.log(e?.message?._value || '(no message)');
+                  if (e?.documentLocationInCreatingWorkspace?.url?._value){
+                    console.log('at', e.documentLocationInCreatingWorkspace.url._value);
+                  }
+                  console.log('-------------------------------------------');
+                  process.exit(0);
+                }
+              }
+              console.log('No error summaries found in xcresult (check xcodebuild.log).');
+            JS
+          else
+            echo "No .xcresult bundle found."
+          fi
 
       - name: Upload build logs & result bundle
         uses: actions/upload-artifact@v4
