@@ -49,7 +49,7 @@ jobs:
         run: npm run lint:ci
 
   ios-ci:
-    runs-on: macos-14-arm64
+    runs-on: macos-14
     env:
       NODE_OPTIONS: --max_old_space_size=4096
 
