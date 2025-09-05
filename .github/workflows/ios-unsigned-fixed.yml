@@ -55,7 +55,7 @@ jobs:
 
       - name: Install CocoaPods
         working-directory: ios
-        run: bundle install && bundle exec pod install --repo-update
+        run: bundle install && bundle exec pod update hermes-engine --no-repo-update && bundle exec pod install --repo-update
 
       - name: Install xcodeproj gem for post-pod hardening
         run: gem install xcodeproj

@@ -67,8 +67,8 @@ USE_HERMES="${USE_HERMES:-true}"
    log "bundle install…"
    (cd "$IOS_DIR" && bundle install)
 
-   log "pod install (bundler)…"
-   (cd "$IOS_DIR" && bundle exec pod install --repo-update)
+  log "pod install (bundler)…"
+  (cd "$IOS_DIR" && bundle exec pod update hermes-engine --no-repo-update && bundle exec pod install --repo-update)
  else
    log "Skipping installs (NO_INSTALL=1)"
  fi
