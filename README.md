@@ -139,10 +139,9 @@ async function requestCameraAccess() {
 ## Troubleshooting
 
 - **npm ERESOLVE**: installs ignore peers via `.npmrc` or `npm run ci:install`.
-- **Pod install failures**: run `bundle exec pod update hermes-engine --no-repo-update && bundle exec pod install --repo-update`.
+- **Pod install failures**: run `bundle exec pod update hermes-engine --no-repo-update && bundle exec pod install --repo-update`. Clean Pods and retry: `rm -rf ios/Pods ios/Podfile.lock && (cd ios && xcodegen generate && bundle exec pod update hermes-engine --no-repo-update && bundle exec pod install --repo-update)`.
 - **Xcode version mismatch**: ensure Xcode 16.x via `xcode-select -switch`.
-- **Simulator arch errors**: Apple Silicon users should not exclude `arm64`. Intel hosts can set `EXCLUDED_ARCHS=arm64`. To detect CPU: `uname -m | grep -q x86_64 && export EXCLUDED_ARCHS=arm64`. Clean Pods and retry: `rm -rf ios/Pods ios/Podfile.lock && (cd ios && pod repo update && pod install)`.
-  Clean Pods and retry: `rm -rf ios/Pods ios/Podfile.lock && (cd ios && pod repo update && pod update hermes-engine --no-repo-update && pod install)`.
+- **Simulator arch errors**: Apple Silicon users should not exclude `arm64`. Intel hosts can set `EXCLUDED_ARCHS=arm64`. To detect CPU: `uname -m | grep -q x86_64 && export EXCLUDED_ARCHS=arm64`.
 
 ## Contributing / License
 

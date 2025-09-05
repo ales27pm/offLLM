@@ -14,7 +14,10 @@ popd >/dev/null
 # Step 3: Reinstall all dependencies
 npm install
 pushd ios >/dev/null
-pod update hermes-engine --no-repo-update && pod install --repo-update
+bundle install
+xcodegen generate
+bundle exec pod update hermes-engine --no-repo-update
+bundle exec pod install --repo-update
 popd >/dev/null
 
 # Step 4: Reset the React Native bundler cache
