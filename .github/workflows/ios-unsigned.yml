@@ -9,13 +9,7 @@ on:
 
 jobs:
   build-unsigned:
-    # Try macos-15 first (newer Xcode), then macos-14 if needed
-    strategy:
-      fail-fast: false
-      matrix:
-        runner: [macos-15, macos-14]
-    runs-on: ${{ matrix.runner }}
-
+    runs-on: macos-15   # newer image likely has Xcode 16.4; we still fallback below
     env:
       RCT_NEW_ARCH_ENABLED: "1"
       USE_HERMES: "true"
@@ -28,10 +22,9 @@ jobs:
         uses: actions/checkout@v4
 
       - name: Show installed Xcodes
-        run: |
-          ls -1 /Applications | grep -E '^Xcode' || true
+        run: ls -1 /Applications | grep -E '^Xcode' || true
 
-      # Try Xcode 16.4; if missing on this runner, fall back to 16.2
+      # Try 16.4 first, fallback to 16.2 on this same runner
       - name: Select Xcode 16.4 (attempt)
         id: xcode164
         continue-on-error: true
@@ -45,10 +38,13 @@ jobs:
         with:
           xcode-version: "16.2"
 
-      - name: Confirm Xcode selection
+      - name: Confirm Xcode
+        id: xcodever
         run: |
+          set -e
           xcodebuild -version
-          xcodebuild -showsdks || true
+          SEL=$(xcodebuild -version | head -n1 | awk '{print $2}')
+          echo "xcode=$SEL" >> "$GITHUB_OUTPUT"
 
       - name: Setup Node
         uses: actions/setup-node@v4
@@ -101,31 +97,74 @@ jobs:
             CODE_SIGNING_ALLOWED=NO CODE_SIGNING_REQUIRED=NO CODE_SIGN_IDENTITY="" \
             | tee "$BUILD_DIR/xcodebuild.log"
 
-      - name: Package unsigned IPA + zip .app
+      # New: summarize xcresult errors right after build, even if the build failed
+      - name: Summarize build errors
+        if: always()
         run: |
-          set -euo pipefail
+          set -e
+          if [ -d "$BUILD_DIR/monGARS.xcresult" ]; then
+            xcrun xcresulttool get --path "$BUILD_DIR/monGARS.xcresult" --format json > "$BUILD_DIR/monGARS.xcresult.json" || true
+            python3 - << 'PY'
+import json,sys
+p="build/monGARS.xcresult.json"
+try:
+    j=json.load(open(p))
+    issues=j.get('issues',{})
+    errs=issues.get('errorSummaries',[])
+    warns=issues.get('warningSummaries',[])
+    def show(kind, arr, n=10):
+        if arr:
+            print(f"\n==== {kind.upper()} (showing up to {n}) ====")
+            for i,e in enumerate(arr[:n],1):
+                msg=e.get('message','').strip()
+                doc=e.get('documentLocationInCreatingWorkspace',{}).get('url','')
+                print(f"{i}. {msg}")
+                if doc: print(f"   @ {doc}")
+    show('errors', errs)
+    show('warnings', warns)
+except Exception as e:
+    print("xcresult parse skipped:",e)
+PY
+          else
+            echo "No .xcresult found to summarize."
+          fi
+
+      - name: Package unsigned IPA + zip .app
+        if: always()   # run even on build failure so we can see what's in the folder
+        run: |
+          set -e
           APP_DIR="$BUILD_DIR/DerivedData/Build/Products/$CONFIGURATION-iphoneos"
           APP_PATH="$APP_DIR/$SCHEME.app"
-          [ -d "$APP_PATH" ] || { echo "❌ Not found: $APP_PATH"; ls -la "$APP_DIR" || true; exit 1; }
-          rm -rf "$BUILD_DIR/Payload"; mkdir -p "$BUILD_DIR/Payload"
-          cp -R "$APP_PATH" "$BUILD_DIR/Payload/"
-          (cd "$BUILD_DIR" && zip -qry offLLM-unsigned.ipa Payload)
-          (cd "$APP_DIR" && zip -qry "$PWD/../../$SCHEME.app.zip" "$SCHEME.app")
+          if [ ! -d "$APP_PATH" ]; then
+            echo "❌ Not found: $APP_PATH"
+            ls -la "$APP_DIR" || true
+          else
+            rm -rf "$BUILD_DIR/Payload"; mkdir -p "$BUILD_DIR/Payload"
+            cp -R "$APP_PATH" "$BUILD_DIR/Payload/"
+            (cd "$BUILD_DIR" && zip -qry offLLM-unsigned.ipa Payload)
+            (cd "$APP_DIR" && zip -qry "$PWD/../../$SCHEME.app.zip" "$SCHEME.app")
+          fi
 
+      # Unique names + overwrite to avoid 409 conflicts on re-runs
       - name: Upload IPA
-        if: success()
+        if: always()
         uses: actions/upload-artifact@v4
         with:
-          name: ios-unsigned-ipa
+          name: ios-unsigned-ipa-xcode-${{ steps.xcodever.outputs.xcode }}
           path: |
             build/offLLM-unsigned.ipa
             build/monGARS.app.zip
+          if-no-files-found: ignore
+          overwrite: true
 
       - name: Upload logs & xcresult
         if: always()
         uses: actions/upload-artifact@v4
         with:
-          name: ios-unsigned-reports
+          name: ios-unsigned-reports-xcode-${{ steps.xcodever.outputs.xcode }}
           path: |
             build/xcodebuild.log
             build/monGARS.xcresult
+            build/monGARS.xcresult.json
+          if-no-files-found: warn
+          overwrite: true
