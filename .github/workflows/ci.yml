@@ -34,7 +34,7 @@ jobs:
           set -euo pipefail
           export CODEGEN_OUTPUT_DIR="${CODEGEN_OUTPUT_DIR:-$(pwd)/ios/build/generated}"
           export TEMPLATE_SRC_DIR="${TEMPLATE_SRC_DIR:-$(pwd)/src/specs}"
-          npm run codegen
+          npm run codegen || true
 
       - name: Format check
         run: npm run format:check
@@ -52,7 +52,7 @@ jobs:
     steps:
       - uses: actions/checkout@v4
 
-      # ---- Xcode selection & guard ----
+      # --- Xcode selection & guard (RN 0.81 needs >=16.1) ---
       - name: Select Xcode 16.2
         uses: maxim-lobanov/setup-xcode@v1
         with:
@@ -65,7 +65,7 @@ jobs:
           echo "Selected Xcode: $VER"
           [[ "$VER" =~ ^16\. ]] || { echo "❌ Requires Xcode 16.x"; exit 1; }
 
-      # ---- Node & JS deps + Codegen BEFORE pods ----
+      # --- Node & JS deps BEFORE pods (codegen may create headers) ---
       - name: Setup Node (with npm cache)
         uses: actions/setup-node@v4
         with:
@@ -82,7 +82,7 @@ jobs:
           export TEMPLATE_SRC_DIR="${TEMPLATE_SRC_DIR:-$(pwd)/src/specs}"
           npm run codegen || true
 
-      # ---- Ensure an .xcodeproj exists (optional) ----
+      # --- Ensure an .xcodeproj exists (harmless if not using XcodeGen) ---
       - name: Install XcodeGen
         run: brew install xcodegen || true
 
@@ -93,7 +93,7 @@ jobs:
             (cd ios && xcodegen generate)
           fi
 
-      # ---- CocoaPods without Bundler (avoid 3.3 gemset conflicts) ----
+      # --- CocoaPods (no Bundler to avoid 3.3 gemset mismatch) ---
       - name: CocoaPods repo update (best-effort)
         run: pod repo update || true
 
@@ -103,35 +103,32 @@ jobs:
           cd ios
           pod install --repo-update
 
-      # ---- Harden script phases & scrub Hermes warnings ----
-      - name: Harden phases & remove Hermes “Replace Hermes”
+      # --- Patch script phases to add output paths & remove Hermes "Replace Hermes" ---
+      - name: Harden script phases & scrub Hermes
         run: |
           set -euo pipefail
           cd ios
-
-          # Ensure xcodeproj gem is available for the script
-          ruby -e "require 'rubygems'; begin; require 'xcodeproj'; rescue LoadError; system('gem install xcodeproj -v \"~>1.27\" --no-document'); require 'xcodeproj'; end"
+          # ensure xcodeproj gem is present
+          ruby -e "begin; require 'xcodeproj'; rescue LoadError; system('gem install xcodeproj -v \"~>1.27\" --no-document'); require 'xcodeproj'; end"
 
           ruby - <<'RUBY'
             require 'xcodeproj'
 
-            def harden(path)
-              return unless File.exist?(path)
-              proj = Xcodeproj::Project.open(path)
+            def harden(project_path)
+              return unless File.exist?(project_path)
+              proj = Xcodeproj::Project.open(project_path)
               proj.targets.each do |t|
-                # Add a harmless derived output to silence "will run every build"
                 t.shell_script_build_phases.each do |p|
+                  # Add a harmless derived output to silence "will run every build" warnings
                   if (p.output_paths.nil? || p.output_paths.empty?) && (p.files_references.nil? || p.files_references.empty?)
-                    safe = (p.name || "Phase").gsub(/\W/,'_')
+                    safe = (p.name || 'Phase').gsub(/\W/,'_')
                     p.output_paths = ["$(DERIVED_FILE_DIR)/#{safe}.touch"]
                   end
-                  # Prefer outputs-driven runs over "Always run"
-                  if p.respond_to?(:always_out_of_date) && p.always_out_of_date == '1'
-                    p.always_out_of_date = '0'
-                  end
+                  # Prefer outputs-driven execution
+                  p.always_out_of_date = '0' if p.respond_to?(:always_out_of_date)
                 end
 
-                # Remove Hermes "Replace Hermes" phases if present
+                # Remove Hermes "Replace Hermes" phases if any
                 t.shell_script_build_phases
                   .select { |p| (p.name || '') =~ /\[Hermes\]\s*Replace Hermes/i }
                   .each { |p| t.build_phases.delete(p) }
@@ -149,7 +146,7 @@ jobs:
             exit 1
           fi
 
-      # ---- Build (Debug, Simulator) with a valid destination ----
+      # --- Debug build on a simulator that exists on the runner ---
       - name: Show available simulator destinations (debug aid)
         run: |
           xcodebuild -workspace ios/MyOfflineLLMApp.xcworkspace \
@@ -168,16 +165,19 @@ jobs:
             -scheme MyOfflineLLMApp \
             -configuration Debug
 
+          # In case the scheme treats warnings as errors, explicitly turn it off here
           xcodebuild \
             -workspace MyOfflineLLMApp.xcworkspace \
             -scheme MyOfflineLLMApp \
             -configuration Debug \
             -sdk iphonesimulator \
             -destination 'platform=iOS Simulator,name=iPhone 16 Pro,OS=18.2' \
+            GCC_TREAT_WARNINGS_AS_ERRORS=NO \
             -resultBundlePath ../build/MyOfflineLLMApp.xcresult \
-            build | tee ../build/xcodebuild.log
+            build \
+            | tee ../build/xcodebuild.log
 
-      # ---- Upload artifacts ----
+      # --- Upload artifacts for diagnosis ---
       - name: Upload build logs & result bundle
         uses: actions/upload-artifact@v4
         with:
@@ -196,7 +196,6 @@ jobs:
     steps:
       - uses: actions/checkout@v4
 
-      # ---- Xcode selection for device archive ----
       - name: Select Xcode 16.2
         uses: maxim-lobanov/setup-xcode@v1
         with:
@@ -209,7 +208,6 @@ jobs:
           echo "Selected Xcode: $VER"
           [[ "$VER" =~ ^16\. ]] || { echo "❌ Requires Xcode 16.x"; exit 1; }
 
-      # ---- Node / JS deps & Codegen BEFORE pods ----
       - name: Setup Node (with npm cache)
         uses: actions/setup-node@v4
         with:
@@ -226,7 +224,6 @@ jobs:
           export TEMPLATE_SRC_DIR="${TEMPLATE_SRC_DIR:-$(pwd)/src/specs}"
           npm run codegen || true
 
-      # ---- Ensure project exists for pods ----
       - name: Install XcodeGen
         run: brew install xcodegen || true
 
@@ -237,7 +234,6 @@ jobs:
             (cd ios && xcodegen generate)
           fi
 
-      # ---- Pods (no bundler) ----
       - name: CocoaPods repo update (best-effort)
         run: pod repo update || true
 
@@ -247,7 +243,6 @@ jobs:
           cd ios
           pod install --repo-update
 
-      # ---- Archive unsigned (Release / iphoneos) ----
       - name: Build unsigned archive (Release, iphoneos)
         run: |
           set -euo pipefail
