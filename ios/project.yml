@@ -1,59 +1,41 @@
 name: monGARS
-options:
-  bundleIdPrefix: com.27pm  # (Use team domain as prefix for bundle identifiers)
 
-packages:
-  MLX:
-    url: https://github.com/ml-explore/mlx-swift.git
-    from: 0.25.6    # Use "from" for version requirement (XcodeGen uses up-to-next-major)
-  MLXLibraries:
-    url: https://github.com/ml-explore/mlx-swift-examples
-    from: 2.25.6    # (Exact version pins caused XcodeGen errors; using "from" is safer [oai_citation:0‡file-a2tak9soxx5p7ndhjycogu](file://file-A2tak9soXx5P7ndhjycoGU#:~:text=1,The%20error%20%20%E2%80%9CUnknown))
+options:
+  bundleIdPrefix: com.27pm
 
 targets:
   monGARS:
     type: application
     platform: iOS
-    deploymentTarget: "18.0"  # Match React Native’s iOS minimum (18.0)
-    configFiles:
-      Debug: Config/monGARS.Debug.xcconfig
-      Release: Config/monGARS.Release.xcconfig
+    deploymentTarget: "18.0"
+
+    # Use the existing React Native iOS app folder.
+    # Your repo already has ios/MyOfflineLLMApp/* (Info.plist, AppDelegate, etc.).
+    # XcodeGen runs from the ios/ directory, so this points to ios/MyOfflineLLMApp.
     sources:
-      - path: monGARS
+      - path: MyOfflineLLMApp
         excludes:
+          - "../node_modules/**"
+          - "../build/**"
           - "Pods/**"
-      - path: build/generated/ios
-        optional: true
+
     settings:
       base:
         PRODUCT_BUNDLE_IDENTIFIER: com.27pm.monGARS
-        CODE_SIGN_STYLE: Automatic
-        DEVELOPMENT_TEAM: ""           # Team ID left blank for unsigned builds
-        CLANG_ENABLE_MODULES: YES
-        SWIFT_OBJC_BRIDGING_HEADER: $(SRCROOT)/monGARS/monGARS-Bridging-Header.h
+        INFOPLIST_FILE: MyOfflineLLMApp/Info.plist
+        SWIFT_VERSION: 5.0
+
+        # Ensure the unsigned, device-target build does not require signing in CI
+        CODE_SIGNING_ALLOWED: NO
+        CODE_SIGNING_REQUIRED: NO
+        CODE_SIGN_IDENTITY: ""
+        DEVELOPMENT_TEAM: ""
+
+        # Typical RN include paths; keep them lenient
         HEADER_SEARCH_PATHS:
           - $(inherited)
-          - $(SRCROOT)/build/generated/ios
-          - $(PODS_ROOT)/Headers/Public/**
-          - $(PODS_CONFIGURATION_BUILD_DIR)/ReactCommon/**
-          - $(SRCROOT)/../node_modules/react-native/ReactCommon/**
-        SWIFT_INCLUDE_PATHS:
-          - $(SRCROOT)/build/generated/ios
-    dependencies:
-      - package: MLX
-        product: MLX
-      - package: MLXLibraries
-        product: MLXLLM    # Include MLX and MLXLLM products as target dependencies
-    scripts:
-      - name: Create Symlinks to Header Folders
-        script: echo "Symlinks handled by CocoaPods"
-        outputFiles:
-          - "${DERIVED_FILE_DIR}/create_symlinks_to_header_folders.stamp"
-        runOnlyForDeploymentPostprocessing: false
-        alwaysOutOfDate: true
-      - name: "[CP] Copy XCFrameworks"
-        script: echo "Copy XCFrameworks handled by CocoaPods"
-        outputFiles:
-          - "${DERIVED_FILE_DIR}/copy_xcframeworks.stamp"
+          - $(SRCROOT)/../node_modules/react-native/React
+          - $(SRCROOT)/../node_modules/react-native/React/**
+
     scheme:
       testTargets: []
