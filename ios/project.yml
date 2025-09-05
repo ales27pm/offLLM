@@ -25,9 +25,10 @@ targets:
         CODE_SIGN_IDENTITY: ""
         DEVELOPMENT_TEAM: ""
 
-        # libc++ compatibility for Folly / RN on iOS 18 toolchains
+        # C++ toolchain hardening for iOS 18 SDKs
+        CLANG_CXX_LIBRARY: libc++
         CLANG_CXX_LANGUAGE_STANDARD: gnu++20
-        OTHER_CPLUSPLUSFLAGS: $(inherited) -D_LIBCPP_ENABLE_CXX20_REMOVED_TYPEDEF_MACROS
+        OTHER_CPLUSPLUSFLAGS: $(inherited) -D_LIBCPP_ENABLE_CXX20_REMOVED_TYPEDEF_MACROS -isystem $(SDKROOT)/usr/include/c++/v1
 
         HEADER_SEARCH_PATHS:
           - $(inherited)
