@@ -17,7 +17,6 @@ jobs:
     runs-on: ubuntu-latest
     env:
       NODE_OPTIONS: --max_old_space_size=4096
-
     steps:
       - uses: actions/checkout@v4
 
@@ -68,22 +67,32 @@ jobs:
             *) echo "❌ Wrong Xcode version, requires 16.x"; exit 1;;
           esac
 
-      - name: Setup Node
+      - name: Setup Node (with npm cache)
         uses: actions/setup-node@v4
         with:
           node-version: 20.19.4
           cache: npm
 
-      - name: Install deps from lockfile
+      - name: Install JS deps from lockfile
         run: npm ci
 
-      - name: Update CocoaPods repos
+      # ⬇️ Critical fix: set up Ruby **in ios/** so Bundler sees ios/Gemfile
+      - name: Setup Ruby (Bundler cache from ios/Gemfile.lock)
+        uses: ruby/setup-ruby@v1
+        working-directory: ios
+        with:
+          ruby-version: '3.2'        # matches your lockfile expectations
+          bundler-cache: true        # installs + caches gems from ios/Gemfile.lock
+
+      # Optional: update pods repo outside bundler (ok either way)
+      - name: Update CocoaPods specs repo
         run: pod repo update
 
-      - name: Install CocoaPods
+      - name: Install CocoaPods (via Bundler)
         working-directory: ios
         run: bundle exec pod install --repo-update
 
+      # Hardening/passive fixes executed under Bundler (so cocoapods/xcodeproj are available)
       - name: Apply hardening scripts
         working-directory: ios
         run: |
@@ -98,10 +107,27 @@ jobs:
       - name: Set Swift Optimization Level for Debug
         working-directory: ios
         run: |
-          xcrun xcodebuild -workspace MyOfflineLLMApp.xcworkspace -scheme MyOfflineLLMApp -configuration Debug SWIFT_OPTIMIZATION_LEVEL=-Onone
+          xcrun xcodebuild \
+            -workspace MyOfflineLLMApp.xcworkspace \
+            -scheme MyOfflineLLMApp \
+            -configuration Debug \
+            SWIFT_OPTIMIZATION_LEVEL=-Onone
 
-      - name: Clean and Build
+      - name: Clean and Build (Simulator)
         working-directory: ios
         run: |
-          xcodebuild clean -workspace MyOfflineLLMApp.xcworkspace -scheme MyOfflineLLMApp -configuration Debug
-          xcodebuild -workspace MyOfflineLLMApp.xcworkspace -scheme MyOfflineLLMApp -sdk iphonesimulator -configuration Debug -destination 'platform=iOS Simulator,name=iPhone 16 Pro,OS=18.2'
+          set -euo pipefail
+          # Clean
+          xcodebuild clean \
+            -workspace MyOfflineLLMApp.xcworkspace \
+            -scheme MyOfflineLLMApp \
+            -configuration Debug
+
+          # Build on an available device (picked from your logs)
+          xcodebuild \
+            -workspace MyOfflineLLMApp.xcworkspace \
+            -scheme MyOfflineLLMApp \
+            -configuration Debug \
+            -sdk iphonesimulator \
+            -destination 'platform=iOS Simulator,name=iPhone 16 Pro,OS=18.2' \
+            build | tee ../build/xcodebuild.log
