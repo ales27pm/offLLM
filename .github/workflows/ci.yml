@@ -36,12 +36,11 @@ jobs:
           export TEMPLATE_SRC_DIR="${TEMPLATE_SRC_DIR:-$(pwd)/src/specs}"
           npm run codegen || true
 
-      # Prettier check that skips CI config files
       - name: Format check (exclude .github/**)
         run: |
           set -euo pipefail
           TMP_IGNORE=".prettierignore.ci"
-          [ -f .prettierignore ] && cp .prettierignore "$TMP_IGNORE" || :
+          [ -f .prettierignore ] && cp .prettierignore "$TMP_IGNORE" || true
           printf "\n# Added by CI\n.github/**\n" >> "$TMP_IGNORE"
           npx prettier --check . --ignore-path "$TMP_IGNORE"
 
@@ -109,82 +108,72 @@ jobs:
           cd ios
           pod install --repo-update
 
-      # --- Patch SocketRocket & RCT-Folly for Xcode 16 (OBJC_OLD_DISPATCH_PROTOTYPES=0 etc.) ---
-      - name: Patch Pods: SocketRocket & RCT-Folly for Xcode 16
+      # --- Write tiny Ruby patch scripts to avoid YAML heredoc issues ---
+      - name: Write patch scripts
         run: |
           set -euo pipefail
-          cd ios
-          ruby -e "begin; require 'xcodeproj'; rescue LoadError; system('gem install xcodeproj -v \"~>1.27\" --no-document'); require 'xcodeproj'; end"
-          ruby - <<'RUBY'
-            require 'xcodeproj'
-            pods = Xcodeproj::Project.open('Pods/Pods.xcodeproj')
-            pods.targets.each do |t|
-              next unless t.name.include?('SocketRocket') || t.name.include?('RCT-Folly')
+          mkdir -p ios/.ci-scripts
+
+          # SocketRocket & RCT-Folly patch (OBJC_OLD_DISPATCH_PROTOTYPES=0 etc.)
+          cat > ios/.ci-scripts/patch_pods_socketrocket_folly.rb <<'RUBY'
+          require 'xcodeproj'
+          proj = Xcodeproj::Project.open('Pods/Pods.xcodeproj')
+          proj.targets.each do |t|
+            next unless t.name.include?('SocketRocket') || t.name.include?('RCT-Folly')
+            t.build_configurations.each do |cfg|
+              bs = cfg.build_settings
+              defs = Array(bs['GCC_PREPROCESSOR_DEFINITIONS']) + ['$(inherited)', 'OBJC_OLD_DISPATCH_PROTOTYPES=0']
+              bs['GCC_PREPROCESSOR_DEFINITIONS'] = defs.uniq
+              bs['CLANG_ENABLE_MODULES'] = 'YES'
+              bs['GCC_TREAT_WARNINGS_AS_ERRORS'] = 'NO'
+            end
+          end
+          proj.save
+          RUBY
+
+          # Harden phases, remove Hermes phase, enforce libc++ precedence
+          cat > ios/.ci-scripts/harden_and_libcpp.rb <<'RUBY'
+          require 'xcodeproj'
+          def tweak(project_path)
+            return unless File.exist?(project_path)
+            proj = Xcodeproj::Project.open(project_path)
+            proj.targets.each do |t|
+              # Silence "will run every build"
+              t.shell_script_build_phases.each do |p|
+                if (p.output_paths.nil? || p.output_paths.empty?) &&
+                   (p.files_references.nil? || p.files_references.empty?)
+                  safe = (p.name || 'Phase').gsub(/\W/, '_')
+                  p.output_paths = ["$(DERIVED_FILE_DIR)/#{safe}.touch"]
+                end
+                p.always_out_of_date = '0' if p.respond_to?(:always_out_of_date)
+              end
+              # Remove Hermes "Replace Hermes"
+              t.shell_script_build_phases
+                .select { |p| (p.name || '') =~ /\[Hermes\]\s*Replace Hermes/i }
+                .each { |p| t.build_phases.delete(p) }
+              # libc++ and header precedence
               t.build_configurations.each do |cfg|
                 bs = cfg.build_settings
-                defs = Array(bs['GCC_PREPROCESSOR_DEFINITIONS']) + ['$(inherited)', 'OBJC_OLD_DISPATCH_PROTOTYPES=0']
-                bs['GCC_PREPROCESSOR_DEFINITIONS'] = defs.uniq
-                bs['CLANG_ENABLE_MODULES'] = 'YES'
+                bs['CLANG_CXX_LIBRARY'] = 'libc++'
+                bs['CLANG_CXX_LANGUAGE_STANDARD'] = 'gnu++20'
                 bs['GCC_TREAT_WARNINGS_AS_ERRORS'] = 'NO'
+                sys = '$(SDKROOT)/usr/include $(SDKROOT)/usr/include/c++/v1'
+                bs['SYSTEM_HEADER_SEARCH_PATHS'] = [sys, bs['SYSTEM_HEADER_SEARCH_PATHS']].compact.join(' ')
               end
             end
-            pods.save
+            proj.save
+          end
+          tweak('Pods/Pods.xcodeproj')
+          tweak('MyOfflineLLMApp.xcodeproj')
           RUBY
 
-      # --- ENFORCE SDK libc++ precedence + silence warnings + remove Hermes ---
-      - name: Patch build settings (SDK libc++ first) & harden phases
+      - name: Ensure xcodeproj gem & run patches
         run: |
           set -euo pipefail
           cd ios
-          # Ensure xcodeproj gem is present
           ruby -e "begin; require 'xcodeproj'; rescue LoadError; system('gem install xcodeproj -v \"~>1.27\" --no-document'); require 'xcodeproj'; end"
-
-          ruby - <<'RUBY'
-            require 'xcodeproj'
-
-            def tweak(project_path)
-              return unless File.exist?(project_path)
-              proj = Xcodeproj::Project.open(project_path)
-
-              proj.targets.each do |t|
-                # 1) Silence "run every build" by adding a harmless derived output
-                t.shell_script_build_phases.each do |p|
-                  if (p.output_paths.nil? || p.output_paths.empty?) &&
-                     (p.files_references.nil? || p.files_references.empty?)
-                    safe = (p.name || 'Phase').gsub(/\W/,'_')
-                    p.output_paths = ["$(DERIVED_FILE_DIR)/#{safe}.touch"]
-                  end
-                  p.always_out_of_date = '0' if p.respond_to?(:always_out_of_date)
-                end
-
-                # 2) Remove stray Hermes "Replace Hermes" phases if any
-                t.shell_script_build_phases
-                  .select { |p| (p.name || '') =~ /\[Hermes\]\s*Replace Hermes/i }
-                  .each { |p| t.build_phases.delete(p) }
-
-                # 3) Enforce libc++ headers from the SDK to come first
-                t.build_configurations.each do |cfg|
-                  bs = cfg.build_settings
-                  bs['CLANG_CXX_LIBRARY'] = 'libc++'
-                  bs['CLANG_CXX_LANGUAGE_STANDARD'] = 'gnu++20'
-                  bs['GCC_TREAT_WARNINGS_AS_ERRORS'] = 'NO'
-                  sys_paths = '$(SDKROOT)/usr/include $(SDKROOT)/usr/include/c++/v1'
-                  if bs['SYSTEM_HEADER_SEARCH_PATHS'].to_s.strip.empty?
-                    bs['SYSTEM_HEADER_SEARCH_PATHS'] = sys_paths
-                  else
-                    bs['SYSTEM_HEADER_SEARCH_PATHS'] = "#{sys_paths} #{bs['SYSTEM_HEADER_SEARCH_PATHS']}"
-                  end
-                end
-              end
-
-              proj.save
-            end
-
-            tweak('Pods/Pods.xcodeproj')
-            tweak('MyOfflineLLMApp.xcodeproj')
-          RUBY
-
-          # Assert Hermes phase is gone
+          ruby .ci-scripts/patch_pods_socketrocket_folly.rb
+          ruby .ci-scripts/harden_and_libcpp.rb
           if grep -Riq --include=project.pbxproj "Replace Hermes" Pods MyOfflineLLMApp.xcodeproj; then
             echo "::error::Hermes 'Replace Hermes' phase still present after patch"
             exit 1
@@ -199,15 +188,13 @@ jobs:
 
           # Extract runtime identifier like com.apple.CoreSimulator.SimRuntime.iOS-18-2
           get_runtime_id() {
-            xcrun simctl list runtimes | \
-              awk -v want="$1" '
-                /com\.apple\.CoreSimulator\.SimRuntime\.iOS-/ {
-                  if ($0 ~ want) {
-                    match($0, /com\.apple\.CoreSimulator\.SimRuntime\.[A-Za-z0-9\.-]+/);
-                    if (RSTART) { print substr($0,RSTART,RLENGTH); exit }
-                  }
+            xcrun simctl list runtimes | awk -v want="$1" '
+              /com\.apple\.CoreSimulator\.SimRuntime\.iOS-/ {
+                if ($0 ~ want) {
+                  match($0, /com\.apple\.CoreSimulator\.SimRuntime\.[A-Za-z0-9\.-]+/);
+                  if (RSTART) { print substr($0,RSTART,RLENGTH); exit }
                 }
-              '
+              }'
           }
 
           RUNTIME_ID="$(get_runtime_id "$WANT_LABEL")"
@@ -218,8 +205,7 @@ jobs:
                 match($0, /com\.apple\.CoreSimulator\.SimRuntime\.[A-Za-z0-9\.-]+/);
                 id = substr($0,RSTART,RLENGTH);
               }
-              END { if (id != "") print id }
-            ')"
+              END { if (id != "") print id }')"
           fi
 
           if [ -z "$RUNTIME_ID" ]; then
