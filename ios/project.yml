@@ -1,75 +1,49 @@
-name: MyOfflineLLMApp
-
+name: monGARS
 options:
-  bundleIdPrefix: com.offllm
-  # Ensure standard configs exist for XcodeGen
-  configs:
-    Debug: debug
-    Release: release
-  createIntermediateGroups: true
-  minimumXcodeGenVersion: 2.40.0
-
-settings:
-  base:
-    # React Native 0.81.x mandates iOS 18.0+. Keep this in sync with RN's
-    # minimum supported version to avoid build or CocoaPods issues.
-    IPHONEOS_DEPLOYMENT_TARGET: 18.0
-    SWIFT_VERSION: 5.10
-    HEADER_SEARCH_PATHS: "$(inherited)"
-    LIBRARY_SEARCH_PATHS: "$(inherited)"
-    "EXCLUDED_ARCHS[sdk=iphonesimulator*]": "x86_64" # force arm64-only simulator builds
-    ENABLE_USER_SCRIPT_SANDBOXING: NO
+  bundleIdPrefix: com.27pm  # (Use team domain as prefix for bundle identifiers)
 
 packages:
   MLX:
     url: https://github.com/ml-explore/mlx-swift.git
-    exactVersion: 0.25.6
+    from: 0.25.6    # Use "from" for version requirement (XcodeGen uses up-to-next-major)
   MLXLibraries:
     url: https://github.com/ml-explore/mlx-swift-examples
-    exactVersion: 2.25.6 # exposes the MLXLLM product
+    from: 2.25.6    # (Exact version pins caused XcodeGen errors; using "from" is safer [oai_citation:0‡file-a2tak9soxx5p7ndhjycogu](file://file-A2tak9soXx5P7ndhjycoGU#:~:text=1,The%20error%20%20%E2%80%9CUnknown))
 
 targets:
-  MyOfflineLLMApp:
+  monGARS:
     type: application
     platform: iOS
-    # Make Xcode use our stub xcconfigs that include the Pods-generated ones
+    deploymentTarget: "18.0"  # Match React Native’s iOS minimum (18.0)
     configFiles:
-      Debug: Config/MyOfflineLLMApp.Debug.xcconfig
-      Release: Config/MyOfflineLLMApp.Release.xcconfig
-      # (Optional) If you have other configs like Profile, add them here pointing
-      # to stubs that include the matching Pods .xcconfig
-    # Match the project's deployment target to React Native's minimum (18.0)
-    # so generated pods do not demand a higher iOS version.
-    deploymentTarget: "18.0"
+      Debug: Config/monGARS.Debug.xcconfig
+      Release: Config/monGARS.Release.xcconfig
     sources:
-      - path: MyOfflineLLMApp
+      - path: monGARS
         excludes:
           - "Pods/**"
-          - MLXTurboModule.mm # remove brittle ObjC++ bridge
       - path: build/generated/ios
         optional: true
     settings:
       base:
-        PRODUCT_BUNDLE_IDENTIFIER: com.offllm.myofflinellmapp
+        PRODUCT_BUNDLE_IDENTIFIER: com.27pm.monGARS
         CODE_SIGN_STYLE: Automatic
-        DEVELOPMENT_TEAM: ""
+        DEVELOPMENT_TEAM: ""           # Team ID left blank for unsigned builds
         CLANG_ENABLE_MODULES: YES
-        # Swift <-> ObjC: keep bridging header path stable
-        SWIFT_OBJC_BRIDGING_HEADER: $(SRCROOT)/MyOfflineLLMApp/MyOfflineLLMApp-Bridging-Header.h
+        SWIFT_OBJC_BRIDGING_HEADER: $(SRCROOT)/monGARS/monGARS-Bridging-Header.h
         HEADER_SEARCH_PATHS:
           - $(inherited)
           - $(SRCROOT)/build/generated/ios
           - $(PODS_ROOT)/Headers/Public/**
           - $(PODS_CONFIGURATION_BUILD_DIR)/ReactCommon/**
           - $(SRCROOT)/../node_modules/react-native/ReactCommon/**
-        # USE_HEADERMAP/ALWAYS_SEARCH_USER_PATHS are set globally via Podfile post_install
         SWIFT_INCLUDE_PATHS:
           - $(SRCROOT)/build/generated/ios
     dependencies:
       - package: MLX
         product: MLX
       - package: MLXLibraries
-        product: MLXLLM
+        product: MLXLLM    # Include MLX and MLXLLM products as target dependencies
     scripts:
       - name: Create Symlinks to Header Folders
         script: echo "Symlinks handled by CocoaPods"
