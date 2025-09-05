@@ -40,9 +40,8 @@ jobs:
       - name: Format check (exclude .github/**)
         run: |
           set -euo pipefail
-          # Build a CI-only ignore file that adds .github/** (while preserving any repo .prettierignore)
           TMP_IGNORE=".prettierignore.ci"
-          [ -f .prettierignore ] && cp .prettierignore "$TMP_IGNORE" || : 
+          [ -f .prettierignore ] && cp .prettierignore "$TMP_IGNORE" || :
           printf "\n# Added by CI\n.github/**\n" >> "$TMP_IGNORE"
           npx prettier --check . --ignore-path "$TMP_IGNORE"
 
@@ -154,7 +153,7 @@ jobs:
           set -euo pipefail
           WANT_LABEL="iOS 18.2"
 
-          # Pull a *runtime identifier* like com.apple.CoreSimulator.SimRuntime.iOS-18-2
+          # Extract runtime identifier like com.apple.CoreSimulator.SimRuntime.iOS-18-2
           get_runtime_id() {
             xcrun simctl list runtimes | \
               awk -v want="$1" '
@@ -170,7 +169,6 @@ jobs:
           RUNTIME_ID="$(get_runtime_id "$WANT_LABEL")"
           if [ -z "$RUNTIME_ID" ]; then
             echo "::warning::Preferred runtime '$WANT_LABEL' not found; using newest available iOS runtime."
-            # pick newest available iOS runtime id (last match)
             RUNTIME_ID="$(xcrun simctl list runtimes | awk '
               /com\.apple\.CoreSimulator\.SimRuntime\.iOS-/ {
                 match($0, /com\.apple\.CoreSimulator\.SimRuntime\.[A-Za-z0-9\.-]+/);
@@ -186,7 +184,6 @@ jobs:
           fi
 
           DEVICE_NAME="CI-iPhone-16-Pro"
-          # reuse or create a device on that runtime
           UDID="$(xcrun simctl list devices | awk -v n="$DEVICE_NAME" -F'[()]' '$0 ~ n {print $2; exit}')"
           if [ -z "${UDID:-}" ]; then
             UDID="$(xcrun simctl create "$DEVICE_NAME" "iPhone 16 Pro" "$RUNTIME_ID")"
