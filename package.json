@@ -3,6 +3,7 @@
   "version": "2.0.0",
   "description": "Offline LLM application with advanced optimizations",
   "main": "index.js",
+  "type": "module",
   "scripts": {
     "android": "react-native run-android",
     "ios": "react-native run-ios",
