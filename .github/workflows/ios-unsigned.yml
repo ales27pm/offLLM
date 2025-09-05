@@ -1,40 +1,41 @@
-name: iOS Unsigned Build
+name: iOS Unsigned Build (monGARS)
 
 on:
   workflow_dispatch:
   push:
-    branches: [main]
+    branches: [ main ]
   pull_request:
-    branches: [main]
+    branches: [ main ]
 
 jobs:
-  build:
-    runs-on: macos-14  # Use macOS 14 runner (supports Xcode 16.x)
+  build-unsigned:
+    runs-on: macos-14
     env:
       RCT_NEW_ARCH_ENABLED: "1"
       USE_HERMES: "true"
       SCHEME: "monGARS"
       CONFIGURATION: "Release"
       BUILD_DIR: build
+
     steps:
-      - name: Checkout source
+      - name: Checkout
         uses: actions/checkout@v4
 
-      - name: Select Xcode 16.2
+      - name: Select Xcode 16.2 (stable)
         uses: maxim-lobanov/setup-xcode@v1
         with:
-          xcode-version: "16.2"  # Pin a stable Xcode version for consistency
+          xcode-version: "16.2"
 
-      - name: Set up Node.js (Cache npm)
+      - name: Setup Node
         uses: actions/setup-node@v4
         with:
           node-version: "20"
           cache: "npm"
 
-      - name: Install JS dependencies
+      - name: Install JS deps
         run: npm ci
 
-      - name: Set up Ruby (for CocoaPods)
+      - name: Setup Ruby for CocoaPods
         uses: ruby/setup-ruby@v1
         with:
           ruby-version: "3.2"
@@ -44,54 +45,53 @@ jobs:
       - name: Install XcodeGen
         run: brew install xcodegen
 
-      - name: Generate Xcode project
+      - name: Generate Xcode project (XcodeGen)
         working-directory: ios
         run: xcodegen generate
 
       - name: Verify project generation
         run: |
-          ls -R ios | grep -m1 '\.xcodeproj$' \
-            || (echo "❌ No .xcodeproj generated!" && exit 1)
+          test -d ios/monGARS.xcodeproj || { echo "❌ monGARS.xcodeproj not generated"; exit 1; }
 
-      - name: Install CocoaPods dependencies
+      - name: Install CocoaPods
         working-directory: ios
         run: |
           bundle install
-          bundle exec pod update hermes-engine --no-repo-update
           bundle exec pod install --repo-update
 
-      - name: Apply post-install hardening
-        # Ensure xcodeproj gem is available for the script
+      - name: Build (unsigned, device)
         run: |
-          gem install xcodeproj
-          ruby scripts/ci/post_install_hardening_hook.rb
-
-      - name: Build app (unsigned, device target)
-        run: |
-          xcodebuild -workspace ios/monGARS.xcworkspace \
-            -scheme "$SCHEME" -configuration "$CONFIGURATION" \
-            -sdk iphoneos -destination 'generic/platform=iOS' \
+          set -euo pipefail
+          xcodebuild \
+            -workspace ios/monGARS.xcworkspace \
+            -scheme "$SCHEME" \
+            -configuration "$CONFIGURATION" \
+            -sdk iphoneos \
+            -destination 'generic/platform=iOS' \
             -derivedDataPath "$BUILD_DIR/DerivedData" \
             -resultBundlePath "$BUILD_DIR/$SCHEME.xcresult" \
             CODE_SIGNING_ALLOWED=NO CODE_SIGNING_REQUIRED=NO CODE_SIGN_IDENTITY="" \
-            | tee $BUILD_DIR/xcodebuild.log
+            | tee "$BUILD_DIR/xcodebuild.log"
 
-      - name: Package unsigned .ipa and app
-        if: ${{ success() }}
+      - name: Package unsigned IPA + zip .app
         run: |
-          APP_PATH="$BUILD_DIR/DerivedData/Build/Products/$CONFIGURATION-iphoneos/$SCHEME.app"
+          set -euo pipefail
+          APP_DIR="$BUILD_DIR/DerivedData/Build/Products/$CONFIGURATION-iphoneos"
+          APP_PATH="$APP_DIR/$SCHEME.app"
           if [ ! -d "$APP_PATH" ]; then
-            echo "App not found at $APP_PATH" && exit 1
+            echo "❌ Not found: $APP_PATH"
+            ls -la "$APP_DIR" || true
+            exit 1
           fi
-          # Prepare Payload and package as .ipa
-          rm -rf "$BUILD_DIR/Payload" && mkdir -p "$BUILD_DIR/Payload"
-          cp -R "$APP_PATH" "$BUILD_DIR/Payload/"
-          (cd "$BUILD_DIR" && zip -qry offLLM-unsigned.ipa Payload)
-          # Also package the .app itself for inspection
-          (cd "$(dirname "$APP_PATH")" && zip -qry "$BUILD_DIR/$SCHEME.app.zip" "$(basename "$APP_PATH")")
 
-      - name: Upload unsigned IPA artifact
-        if: ${{ success() }}
+          rm -rf "$BUILD_DIR/Payload"
+          mkdir -p "$BUILD_DIR/Payload"
+          cp -R "$APP_PATH" "$BUILD_DIR/Payload/"
+
+          (cd "$BUILD_DIR" && zip -qry offLLM-unsigned.ipa Payload)
+          (cd "$APP_DIR" && zip -qry "$PWD/../../$SCHEME.app.zip" "$SCHEME.app")
+
+      - name: Upload IPA artifact
         uses: actions/upload-artifact@v4
         with:
           name: ios-unsigned-ipa
@@ -99,20 +99,11 @@ jobs:
             build/offLLM-unsigned.ipa
             build/monGARS.app.zip
 
-      - name: Generate diagnostic reports (Codex)
-        if: always()
-        run: |
-          node scripts/codex/index.mjs analyze \
-            --log $BUILD_DIR/xcodebuild.log \
-            --xcresult $BUILD_DIR/$SCHEME.xcresult \
-            --out reports || echo "Codex analysis failed or not applicable."
-
-      - name: Upload build logs and results
+      - name: Upload logs & xcresult
         if: always()
         uses: actions/upload-artifact@v4
         with:
           name: ios-unsigned-reports
           path: |
-            reports/**
             build/xcodebuild.log
             build/monGARS.xcresult
