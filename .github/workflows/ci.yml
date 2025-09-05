@@ -17,7 +17,6 @@ jobs:
     runs-on: ubuntu-latest
     env:
       NODE_OPTIONS: --max_old_space_size=4096
-
     steps:
       - uses: actions/checkout@v4
 
@@ -50,11 +49,10 @@ jobs:
     runs-on: macos-14
     env:
       NODE_OPTIONS: --max_old_space_size=4096
-
     steps:
       - uses: actions/checkout@v4
 
-      # --- Xcode selection & guard ---
+      # ---- Xcode selection & guard ----
       - name: Select Xcode 16.2
         uses: maxim-lobanov/setup-xcode@v1
         with:
@@ -65,12 +63,9 @@ jobs:
           set -euo pipefail
           VER=$(xcodebuild -version | awk '/Xcode/ {print $2}')
           echo "Selected Xcode: $VER"
-          case "$VER" in
-            16.*) echo "✅ OK";;
-            *) echo "❌ Wrong Xcode version, requires 16.x"; exit 1;;
-          esac
+          [[ "$VER" =~ ^16\. ]] || { echo "❌ Requires Xcode 16.x"; exit 1; }
 
-      # --- Node & JS deps ---
+      # ---- Node & JS deps + Codegen BEFORE pods ----
       - name: Setup Node (with npm cache)
         uses: actions/setup-node@v4
         with:
@@ -80,29 +75,43 @@ jobs:
       - name: Install JS deps from lockfile
         run: npm ci
 
-      # --- Ruby / Bundler scoped to ios/Gemfile ---
-      - name: Setup Ruby (Bundler cache)
-        uses: ruby/setup-ruby@v1
-        with:
-          ruby-version: '3.2'
-          bundler-cache: true
-        env:
-          BUNDLE_GEMFILE: ios/Gemfile
+      - name: Generate Turbo headers (no-op if none)
+        run: |
+          set -euo pipefail
+          export CODEGEN_OUTPUT_DIR="${CODEGEN_OUTPUT_DIR:-$(pwd)/ios/build/generated}"
+          export TEMPLATE_SRC_DIR="${TEMPLATE_SRC_DIR:-$(pwd)/src/specs}"
+          npm run codegen || true
 
-      - name: Update CocoaPods repo (best-effort)
+      # ---- Ensure an .xcodeproj exists (optional) ----
+      - name: Install XcodeGen
+        run: brew install xcodegen || true
+
+      - name: Generate Xcode project (if project.yml exists)
+        run: |
+          set -euo pipefail
+          if [ -f ios/project.yml ]; then
+            (cd ios && xcodegen generate)
+          fi
+
+      # ---- CocoaPods without Bundler (avoid 3.3 gemset conflicts) ----
+      - name: CocoaPods repo update (best-effort)
         run: pod repo update || true
 
       - name: Pod install
         run: |
           set -euo pipefail
           cd ios
-          bundle exec pod install --repo-update
+          pod install --repo-update
 
-      # --- Silence “will run every build” warnings & scrub Hermes phases ---
-      - name: Harden script phases (outputs + dependency analysis) & scrub Hermes
+      # ---- Harden script phases & scrub Hermes warnings ----
+      - name: Harden phases & remove Hermes “Replace Hermes”
         run: |
           set -euo pipefail
           cd ios
+
+          # Ensure xcodeproj gem is available for the script
+          ruby -e "require 'rubygems'; begin; require 'xcodeproj'; rescue LoadError; system('gem install xcodeproj -v \"~>1.27\" --no-document'); require 'xcodeproj'; end"
+
           ruby - <<'RUBY'
             require 'xcodeproj'
 
@@ -110,19 +119,19 @@ jobs:
               return unless File.exist?(path)
               proj = Xcodeproj::Project.open(path)
               proj.targets.each do |t|
+                # Add a harmless derived output to silence "will run every build"
                 t.shell_script_build_phases.each do |p|
-                  # Add a harmless, derived output to avoid "will run every build" warnings
                   if (p.output_paths.nil? || p.output_paths.empty?) && (p.files_references.nil? || p.files_references.empty?)
-                    safe_name = (p.name || "Phase").gsub(/\W/, '_')
-                    p.output_paths = ["$(DERIVED_FILE_DIR)/#{safe_name}.touch"]
+                    safe = (p.name || "Phase").gsub(/\W/,'_')
+                    p.output_paths = ["$(DERIVED_FILE_DIR)/#{safe}.touch"]
                   end
-                  # If marked “Always run”, prefer outputs-driven execution
+                  # Prefer outputs-driven runs over "Always run"
                   if p.respond_to?(:always_out_of_date) && p.always_out_of_date == '1'
                     p.always_out_of_date = '0'
                   end
                 end
 
-                # Remove Hermes "Replace Hermes" phases if any survived pod scripts
+                # Remove Hermes "Replace Hermes" phases if present
                 t.shell_script_build_phases
                   .select { |p| (p.name || '') =~ /\[Hermes\]\s*Replace Hermes/i }
                   .each { |p| t.build_phases.delete(p) }
@@ -140,12 +149,20 @@ jobs:
             exit 1
           fi
 
-      # --- Build (Debug simulator) with stable destination & logs to build/ ---
-      - name: Clean & Build (Debug, Simulator)
+      # ---- Build (Debug, Simulator) with a valid destination ----
+      - name: Show available simulator destinations (debug aid)
+        run: |
+          xcodebuild -workspace ios/MyOfflineLLMApp.xcworkspace \
+                     -scheme MyOfflineLLMApp \
+                     -configuration Debug \
+                     -showdestinations || true
+
+      - name: Clean & Build (Debug, iPhone 16 Pro / iOS 18.2)
         run: |
           set -euo pipefail
           mkdir -p build
           cd ios
+
           xcodebuild clean \
             -workspace MyOfflineLLMApp.xcworkspace \
             -scheme MyOfflineLLMApp \
@@ -157,18 +174,10 @@ jobs:
             -configuration Debug \
             -sdk iphonesimulator \
             -destination 'platform=iOS Simulator,name=iPhone 16 Pro,OS=18.2' \
+            -resultBundlePath ../build/MyOfflineLLMApp.xcresult \
             build | tee ../build/xcodebuild.log
 
-      # --- Generate diagnosis reports (Codex) ---
-      - name: Generate CI diagnosis reports
-        run: |
-          set -euo pipefail
-          node ./scripts/codex/index.mjs analyze \
-            --log build/xcodebuild.log \
-            --xcresult build/MyOfflineLLMApp.xcresult \
-            --out reports
-
-      # --- Upload artifacts ---
+      # ---- Upload artifacts ----
       - name: Upload build logs & result bundle
         uses: actions/upload-artifact@v4
         with:
@@ -179,24 +188,15 @@ jobs:
           if-no-files-found: warn
           compression-level: 6
 
-      - name: Upload diagnosis reports (REPORT.md + agent summary)
-        uses: actions/upload-artifact@v4
-        with:
-          name: ios-diagnosis-reports
-          path: |
-            reports/**
-          if-no-files-found: warn
-          compression-level: 6
-
   ios-ipa:
     runs-on: macos-14
+    needs: ios-ci
     env:
       NODE_OPTIONS: --max_old_space_size=4096
-
     steps:
       - uses: actions/checkout@v4
 
-      # --- Xcode selection for device build (iphoneos) ---
+      # ---- Xcode selection for device archive ----
       - name: Select Xcode 16.2
         uses: maxim-lobanov/setup-xcode@v1
         with:
@@ -207,12 +207,9 @@ jobs:
           set -euo pipefail
           VER=$(xcodebuild -version | awk '/Xcode/ {print $2}')
           echo "Selected Xcode: $VER"
-          case "$VER" in
-            16.*) echo "✅ OK";;
-            *) echo "❌ Wrong Xcode version, requires 16.x"; exit 1;;
-          esac
+          [[ "$VER" =~ ^16\. ]] || { echo "❌ Requires Xcode 16.x"; exit 1; }
 
-      # --- Node & JS deps ---
+      # ---- Node / JS deps & Codegen BEFORE pods ----
       - name: Setup Node (with npm cache)
         uses: actions/setup-node@v4
         with:
@@ -222,36 +219,35 @@ jobs:
       - name: Install JS deps from lockfile
         run: npm ci
 
-      # --- Ruby / Bundler scoped to ios/Gemfile ---
-      - name: Setup Ruby (Bundler cache)
-        uses: ruby/setup-ruby@v1
-        with:
-          ruby-version: '3.2'
-          bundler-cache: true
-        env:
-          BUNDLE_GEMFILE: ios/Gemfile
+      - name: Generate Turbo headers (no-op if none)
+        run: |
+          set -euo pipefail
+          export CODEGEN_OUTPUT_DIR="${CODEGEN_OUTPUT_DIR:-$(pwd)/ios/build/generated}"
+          export TEMPLATE_SRC_DIR="${TEMPLATE_SRC_DIR:-$(pwd)/src/specs}"
+          npm run codegen || true
 
-      - name: Update CocoaPods repo (best-effort)
-        run: pod repo update || true
-
-      # Optional: Generate project with XcodeGen (safe if not used)
+      # ---- Ensure project exists for pods ----
       - name: Install XcodeGen
         run: brew install xcodegen || true
 
-      - name: Generate Xcode project (optional)
+      - name: Generate Xcode project (if project.yml exists)
         run: |
           set -euo pipefail
           if [ -f ios/project.yml ]; then
             (cd ios && xcodegen generate)
           fi
 
+      # ---- Pods (no bundler) ----
+      - name: CocoaPods repo update (best-effort)
+        run: pod repo update || true
+
       - name: Pod install
         run: |
           set -euo pipefail
           cd ios
-          bundle exec pod install --repo-update
+          pod install --repo-update
 
-      # --- Archive for iphoneos with signing disabled ---
+      # ---- Archive unsigned (Release / iphoneos) ----
       - name: Build unsigned archive (Release, iphoneos)
         run: |
           set -euo pipefail
@@ -264,7 +260,6 @@ jobs:
             -configuration Release
 
           ARCHIVE_PATH="../build/MyOfflineLLMApp.xcarchive"
-
           xcodebuild archive \
             -workspace MyOfflineLLMApp.xcworkspace \
             -scheme MyOfflineLLMApp \
@@ -277,9 +272,10 @@ jobs:
             PROVISIONING_PROFILE_SPECIFIER="" \
             DEVELOPMENT_TEAM="" \
             SKIP_INSTALL=NO \
-            BUILD_LIBRARY_FOR_DISTRIBUTION=NO | tee ../build/xcodebuild_ipa.log
+            BUILD_LIBRARY_FOR_DISTRIBUTION=NO \
+            -resultBundlePath ../build/MyOfflineLLMApp_ipa.xcresult \
+            | tee ../build/xcodebuild_ipa.log
 
-      # --- Package IPA from archive (unsigned) ---
       - name: Package unsigned IPA
         run: |
           set -euo pipefail
@@ -289,17 +285,12 @@ jobs:
             echo "::error::App not found at $APP_PATH"
             exit 1
           fi
-
-          # Create Payload and zip to .ipa
           rm -rf Payload
           mkdir -p Payload
           cp -R "$APP_PATH" Payload/
           /usr/bin/zip -qry offLLM-unsigned.ipa Payload
-
-          # Optional: also provide zipped .app for convenience
           /usr/bin/zip -qry MyOfflineLLMApp.app.zip "$APP_PATH"
 
-      # --- Upload unsigned IPA & logs ---
       - name: Upload unsigned IPA & logs
         uses: actions/upload-artifact@v4
         with:
@@ -309,5 +300,6 @@ jobs:
             build/MyOfflineLLMApp.app.zip
             build/xcodebuild_ipa.log
             build/MyOfflineLLMApp.xcarchive
+            build/MyOfflineLLMApp_ipa.xcresult
           if-no-files-found: error
           compression-level: 6
