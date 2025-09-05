@@ -109,20 +109,23 @@ jobs:
           cd ios
           pod install --repo-update
 
-      # --- Patch script phases to add output paths & remove Hermes "Replace Hermes" ---
-      - name: Harden script phases & scrub Hermes
+      # --- ENFORCE SDK libc++ precedence + silence warnings + remove Hermes ---
+      - name: Patch build settings (SDK libc++ first) & harden phases
         run: |
           set -euo pipefail
           cd ios
-          # ensure xcodeproj gem is present
+          # Ensure xcodeproj gem is present
           ruby -e "begin; require 'xcodeproj'; rescue LoadError; system('gem install xcodeproj -v \"~>1.27\" --no-document'); require 'xcodeproj'; end"
 
           ruby - <<'RUBY'
             require 'xcodeproj'
-            def harden(project_path)
+
+            def tweak(project_path)
               return unless File.exist?(project_path)
               proj = Xcodeproj::Project.open(project_path)
+
               proj.targets.each do |t|
+                # 1) Silence "run every build" by adding a harmless derived output
                 t.shell_script_build_phases.each do |p|
                   if (p.output_paths.nil? || p.output_paths.empty?) &&
                      (p.files_references.nil? || p.files_references.empty?)
@@ -131,22 +134,45 @@ jobs:
                   end
                   p.always_out_of_date = '0' if p.respond_to?(:always_out_of_date)
                 end
+
+                # 2) Remove stray Hermes "Replace Hermes" phases if any
                 t.shell_script_build_phases
                   .select { |p| (p.name || '') =~ /\[Hermes\]\s*Replace Hermes/i }
                   .each { |p| t.build_phases.delete(p) }
+
+                # 3) Enforce libc++ headers from the SDK to come first
+                t.build_configurations.each do |cfg|
+                  bs = cfg.build_settings
+                  # Make sure we use libc++ with a modern dialect
+                  bs['CLANG_CXX_LIBRARY'] = 'libc++'
+                  bs['CLANG_CXX_LANGUAGE_STANDARD'] = 'gnu++20'
+                  bs['GCC_TREAT_WARNINGS_AS_ERRORS'] = 'NO'
+
+                  # Prepend SDK system header paths (so libc++ C headers beat any user include paths)
+                  sys_paths = '$(SDKROOT)/usr/include $(SDKROOT)/usr/include/c++/v1'
+                  if bs['SYSTEM_HEADER_SEARCH_PATHS'].to_s.strip.empty?
+                    bs['SYSTEM_HEADER_SEARCH_PATHS'] = sys_paths
+                  else
+                    # Prepend while keeping any existing value
+                    bs['SYSTEM_HEADER_SEARCH_PATHS'] = "#{sys_paths} #{bs['SYSTEM_HEADER_SEARCH_PATHS']}"
+                  end
+                end
               end
+
               proj.save
             end
-            harden('Pods/Pods.xcodeproj')
-            harden('MyOfflineLLMApp.xcodeproj')
+
+            tweak('Pods/Pods.xcodeproj')
+            tweak('MyOfflineLLMApp.xcodeproj')
           RUBY
 
+          # Assert Hermes phase is gone
           if grep -Riq --include=project.pbxproj "Replace Hermes" Pods MyOfflineLLMApp.xcodeproj; then
-            echo "::error::Hermes 'Replace Hermes' phase still present after hardening"
+            echo "::error::Hermes 'Replace Hermes' phase still present after patch"
             exit 1
           fi
 
-      # --- Create/boot a real simulator & build to its UDID (fixed runtime parsing) ---
+      # --- Create/boot a real simulator & build to its UDID ---
       - name: Prepare simulator (prefer iOS 18.2)
         id: sim
         run: |
@@ -199,10 +225,12 @@ jobs:
           set -euo pipefail
           mkdir -p build
           cd ios
+
           xcodebuild clean \
             -workspace MyOfflineLLMApp.xcworkspace \
             -scheme MyOfflineLLMApp \
             -configuration Debug
+
           DEST="id=${{ steps.sim.outputs.udid }}"
           xcodebuild \
             -workspace MyOfflineLLMApp.xcworkspace \
@@ -284,10 +312,12 @@ jobs:
           set -euo pipefail
           mkdir -p build
           cd ios
+
           xcodebuild clean \
             -workspace MyOfflineLLMApp.xcworkspace \
             -scheme MyOfflineLLMApp \
             -configuration Release
+
           ARCHIVE_PATH="../build/MyOfflineLLMApp.xcarchive"
           xcodebuild archive \
             -workspace MyOfflineLLMApp.xcworkspace \
