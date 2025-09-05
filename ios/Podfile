@@ -129,7 +129,8 @@ post_install do |installer|
         cfg.build_settings['CLANG_CXX_LANGUAGE_STANDARD'] ||= 'gnu++17'
         cfg.build_settings['SWIFT_VERSION'] ||= '5.0'
         # Bump any low deployment targets to avoid "IPHONEOS_DEPLOYMENT_TARGET" errors.
-        min_target = Gem::Version.new('12.0')
+        # Repo policy: ensure all Pods match the app’s minimum iOS 18.0 target.
+        min_target = Gem::Version.new('18.0')
         current = Gem::Version.new(cfg.build_settings['IPHONEOS_DEPLOYMENT_TARGET'] || '0')
         cfg.build_settings['IPHONEOS_DEPLOYMENT_TARGET'] = min_target.to_s if current < min_target
         cfg.build_settings['USE_HEADERMAP'] = 'YES'
