@@ -64,7 +64,9 @@ jobs:
 
       - name: Install Pods
         working-directory: ios
-        run: bundle exec pod install --repo-update
+        run: |
+          bundle exec pod update hermes-engine --no-repo-update
+          bundle exec pod install --repo-update
       - name: Run Robust Build Script
         run: bash build.sh
       - name: Upload unsigned IPA artifact

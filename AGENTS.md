@@ -17,7 +17,7 @@
   npm ci
   (cd ios && xcodegen generate && bundle install)
   npm run codegen
-  (cd ios && bundle exec pod install --repo-update)
+  (cd ios && bundle exec pod update hermes-engine --no-repo-update && bundle exec pod install --repo-update)
   ```
 - **Deterministic CI**
   ```bash
@@ -29,7 +29,7 @@
 - Specs live in [src/specs/](src/specs/).
 - After changing specs:
   - Run `npm run codegen`.
-  - Re-run `bundle exec pod install` for iOS.
+  - Re-run `bundle exec pod update hermes-engine --no-repo-update && bundle exec pod install` for iOS.
 
 ## TurboModules Rules
 
@@ -41,7 +41,7 @@
 
 - Build with Xcode 16.x (command line tools installed).
 - Deployment target stays **18.0** in [`ios/project.yml`](ios/project.yml), [`ios/MyOfflineLLMApp/project.yml`](ios/MyOfflineLLMApp/project.yml), and `Podfile` post_install.
-- When editing these files, update comments and re-run `bundle exec pod install --repo-update`.
+- When editing these files, update comments and re-run `bundle exec pod update hermes-engine --no-repo-update && bundle exec pod install --repo-update`.
 - **Do not enable CocoaPods input/output file lists** with static pods (`:disable_input_output_paths => true` stays). Set `ENABLE_USER_SCRIPT_SANDBOXING` to `NO` in `post_install` for CI stability.
 - When editing project.yml or Podfile, ensure no legacy .xcfilelist references or invalid Podfile hooks are reintroduced.
 

@@ -102,7 +102,9 @@ jobs:
       - name: Install Pods (bundler)
         working-directory: ios
         shell: bash
-        run: bundle exec pod install --repo-update
+        run: |
+          bundle exec pod update hermes-engine --no-repo-update
+          bundle exec pod install --repo-update
 
       # Optional: verify sandbox is in sync (auto-heal if needed)
       - name: Verify Pods sandbox in sync
@@ -113,6 +115,7 @@ jobs:
           if ! bundle exec pod check >/dev/null 2>&1; then
             echo "::warning::Pods sandbox not in sync; reinstalling…"
             rm -f Pods/Manifest.lock
+            bundle exec pod update hermes-engine --no-repo-update
             bundle exec pod install --repo-update
           fi
 

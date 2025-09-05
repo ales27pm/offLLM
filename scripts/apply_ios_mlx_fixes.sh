@@ -126,5 +126,5 @@ else
 fi
 
 echo "Done. Next steps:"
-echo "  1) cd ios && bundle exec pod install --repo-update"
+echo "  1) cd ios && bundle exec pod update hermes-engine --no-repo-update && bundle exec pod install --repo-update"
 echo "  2) git add -A && git commit -m 'iOS: MLX Swift bridge + SPM, bridging header, RN types bump, Pod targets 18.0'"

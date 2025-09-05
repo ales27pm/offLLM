@@ -43,7 +43,7 @@ npm install
 # Step 4: Install native dependencies
 echo "📱 Installing iOS native dependencies..."
 cd ios
-pod install --repo-update
+pod update hermes-engine --no-repo-update && pod install --repo-update
 cd ..
 
 # Step 5: Kill the bundler and perform a clean build
