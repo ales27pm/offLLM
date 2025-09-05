@@ -47,3 +47,45 @@ jobs:
 
       - name: Run ESLint (no warnings allowed)
         run: npm run lint:ci
+
+  ios-ci:
+    runs-on: macos-14-arm64
+    env:
+      NODE_OPTIONS: --max_old_space_size=4096
+
+    steps:
+      - uses: actions/checkout@v4
+
+      - name: Select Xcode 16.4
+        run: |
+          sudo xcode-select -s /Applications/Xcode_16.4.app
+          xcodebuild -version
+          xcodebuild -showsdks
+
+      - name: Verify Xcode is >= 16.1
+        run: |
+          VER=$(xcodebuild -version | awk '/Xcode/ {print $2}')
+          echo "Selected Xcode: $VER"
+          case "$VER" in
+            16.*) echo "✅ OK";;
+            *) echo "❌ Wrong Xcode version, requires 16.x"; exit 1;;
+          esac
+
+      - name: Setup Node (with npm cache)
+        uses: actions/setup-node@v4
+        with:
+          node-version: 20
+          cache: npm
+
+      - name: Install deps from lockfile
+        run: npm ci
+
+      - name: Install CocoaPods
+        run: |
+          cd ios
+          pod install
+
+      - name: Build iOS
+        run: |
+          cd ios
+          xcodebuild -workspace MyOfflineLLMApp.xcworkspace -scheme MyOfflineLLMApp -sdk iphonesimulator -configuration Debug
