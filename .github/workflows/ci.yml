@@ -109,6 +109,28 @@ jobs:
           cd ios
           pod install --repo-update
 
+      # --- Patch SocketRocket & RCT-Folly for Xcode 16 (OBJC_OLD_DISPATCH_PROTOTYPES=0 etc.) ---
+      - name: Patch Pods: SocketRocket & RCT-Folly for Xcode 16
+        run: |
+          set -euo pipefail
+          cd ios
+          ruby -e "begin; require 'xcodeproj'; rescue LoadError; system('gem install xcodeproj -v \"~>1.27\" --no-document'); require 'xcodeproj'; end"
+          ruby - <<'RUBY'
+            require 'xcodeproj'
+            pods = Xcodeproj::Project.open('Pods/Pods.xcodeproj')
+            pods.targets.each do |t|
+              next unless t.name.include?('SocketRocket') || t.name.include?('RCT-Folly')
+              t.build_configurations.each do |cfg|
+                bs = cfg.build_settings
+                defs = Array(bs['GCC_PREPROCESSOR_DEFINITIONS']) + ['$(inherited)', 'OBJC_OLD_DISPATCH_PROTOTYPES=0']
+                bs['GCC_PREPROCESSOR_DEFINITIONS'] = defs.uniq
+                bs['CLANG_ENABLE_MODULES'] = 'YES'
+                bs['GCC_TREAT_WARNINGS_AS_ERRORS'] = 'NO'
+              end
+            end
+            pods.save
+          RUBY
+
       # --- ENFORCE SDK libc++ precedence + silence warnings + remove Hermes ---
       - name: Patch build settings (SDK libc++ first) & harden phases
         run: |
@@ -143,17 +165,13 @@ jobs:
                 # 3) Enforce libc++ headers from the SDK to come first
                 t.build_configurations.each do |cfg|
                   bs = cfg.build_settings
-                  # Make sure we use libc++ with a modern dialect
                   bs['CLANG_CXX_LIBRARY'] = 'libc++'
                   bs['CLANG_CXX_LANGUAGE_STANDARD'] = 'gnu++20'
                   bs['GCC_TREAT_WARNINGS_AS_ERRORS'] = 'NO'
-
-                  # Prepend SDK system header paths (so libc++ C headers beat any user include paths)
                   sys_paths = '$(SDKROOT)/usr/include $(SDKROOT)/usr/include/c++/v1'
                   if bs['SYSTEM_HEADER_SEARCH_PATHS'].to_s.strip.empty?
                     bs['SYSTEM_HEADER_SEARCH_PATHS'] = sys_paths
                   else
-                    # Prepend while keeping any existing value
                     bs['SYSTEM_HEADER_SEARCH_PATHS'] = "#{sys_paths} #{bs['SYSTEM_HEADER_SEARCH_PATHS']}"
                   end
                 end
@@ -239,6 +257,7 @@ jobs:
             -sdk iphonesimulator \
             -destination "$DEST" \
             GCC_TREAT_WARNINGS_AS_ERRORS=NO \
+            OTHER_CFLAGS="-DOBJC_OLD_DISPATCH_PROTOTYPES=0" \
             -resultBundlePath ../build/MyOfflineLLMApp.xcresult \
             build | tee ../build/xcodebuild.log
 
@@ -332,6 +351,7 @@ jobs:
             DEVELOPMENT_TEAM="" \
             SKIP_INSTALL=NO \
             BUILD_LIBRARY_FOR_DISTRIBUTION=NO \
+            OTHER_CFLAGS="-DOBJC_OLD_DISPATCH_PROTOTYPES=0" \
             -resultBundlePath ../build/MyOfflineLLMApp_ipa.xcresult \
             | tee ../build/xcodebuild_ipa.log
 
