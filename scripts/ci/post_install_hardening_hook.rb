@@ -1,76 +1,66 @@
 #!/usr/bin/env ruby
-# Harden Xcode projects post `pod install` without editing Podfile:
-# - Raise too-low IPHONEOS_DEPLOYMENT_TARGET (<12.0) in Pods targets
-# - Disable ENABLE_USER_SCRIPT_SANDBOXING for CI stability
-# - Clear CocoaPods [CP] script IO file lists (safer with static pods)
-# - Remove stray Hermes "Replace Hermes" phases in Pods + App projects
+# Purpose: Patch Pods + app project with safe C++ flags for libc++ C++23 removals
+# - Fix Folly / RCT-Folly includes that still use ::FILE by re-enabling old typedef macros
+# - Ensure C++20 across all native targets so RN / Folly compile cleanly
 
-require 'pathname'
 require 'xcodeproj'
 
-# Resolve repository root relative to this script
-ROOT = Pathname.new(__dir__).parent.parent
-IOS_DIR = ROOT + 'ios'
-PODS_XCODEPROJ = IOS_DIR + 'Pods/Pods.xcodeproj'
-APP_XCODEPROJ  = IOS_DIR + 'MyOfflineLLMApp.xcodeproj'
+IOS_DIR = File.expand_path(File.join(__dir__, '..', '..', 'ios'))
+PODS_PROJ_PATH = File.join(IOS_DIR, 'Pods', 'Pods.xcodeproj')
+APP_PROJ_PATH  = File.join(IOS_DIR, 'monGARS.xcodeproj')
 
-def info(msg)  $stdout.puts "[post_install_hardening] #{msg}" end
-def warn(msg)  $stderr.puts "[post_install_hardening][WARN] #{msg}" end
+CPP_MACRO = '-D_LIBCPP_ENABLE_CXX20_REMOVED_TYPEDEF_MACROS'
+CXX_STD   = 'gnu++20'
 
-def raise_deployment_target_and_disable_sandboxing(proj)
+def patch_project(proj_path, targets_filter: nil)
+  unless File.exist?(proj_path)
+    puts "⚠️  Skipping missing project: #{proj_path}"
+    return
+  end
+
+  proj = Xcodeproj::Project.open(proj_path)
   proj.targets.each do |t|
+    next if targets_filter && !targets_filter.call(t)
+
     t.build_configurations.each do |cfg|
-      # Lift ancient pod settings (9.0/10.x/11.x) to at least 12.0
-      cur = (cfg.build_settings['IPHONEOS_DEPLOYMENT_TARGET'] || '0').to_s
-      if cur.empty? || cur < '12.0'
-        cfg.build_settings['IPHONEOS_DEPLOYMENT_TARGET'] = '12.0'
-      end
-      # Disable user script sandboxing for CI ([CP] phases + static pods)
-      cfg.build_settings['ENABLE_USER_SCRIPT_SANDBOXING'] = 'NO'
-    end
-  end
-end
+      bs = cfg.build_settings
 
-def clear_cp_io_file_lists_and_remove_hermes(phases_container)
-  phases_container.targets.each do |t|
-    t.build_phases.each do |phase|
-      next unless phase.isa == 'PBXShellScriptBuildPhase'
-      name = (phase.name || '').to_s
-      script = (phase.shell_script || '').to_s
-      # Clear CP IO file lists
-      if phase.respond_to?(:input_file_list_paths)
-        phase.input_file_list_paths = []
+      # OTHER_CPLUSPLUSFLAGS
+      flags = bs['OTHER_CPLUSPLUSFLAGS']
+      if flags.nil? || flags.empty?
+        flags = '$(inherited)'
+      elsif flags.is_a?(Array)
+        flags = flags.join(' ')
       end
-      if phase.respond_to?(:output_file_list_paths)
-        phase.output_file_list_paths = []
+      unless flags.include?(CPP_MACRO)
+        flags = "#{flags} #{CPP_MACRO}"
       end
-      # Remove stray Hermes "Replace Hermes" phases if present
-      if name.include?('Replace Hermes') || name.include?('[Hermes]') || script.include?('Replace Hermes')
-        t.build_phases.delete(phase)
-        info "Removed Hermes replacement phase from target #{t.name}"
+      bs['OTHER_CPLUSPLUSFLAGS'] = flags.strip
+
+      # CLANG_CXX_LANGUAGE_STANDARD
+      bs['CLANG_CXX_LANGUAGE_STANDARD'] = CxxStdNormalize(bs['CLANG_CXX_LANGUAGE_STANDARD'] || CXX_STD)
+
+      # Also help some pods that set C++17 explicitly
+      if (bs['GCC_C_LANGUAGE_STANDARD'] || '').empty?
+        bs['GCC_C_LANGUAGE_STANDARD'] = 'gnu11'
       end
     end
   end
-end
 
-projects = []
-if File.exist?(PODS_XCODEPROJ.to_s)
-  projects << Xcodeproj::Project.open(PODS_XCODEPROJ.to_s)
-else
-  warn "Pods project not found at #{PODS_XCODEPROJ}"
-end
-if File.exist?(APP_XCODEPROJ.to_s)
-  projects << Xcodeproj::Project.open(APP_XCODEPROJ.to_s)
-else
-  warn "App project not found at #{APP_XCODEPROJ}"
-end
-
-projects.each do |proj|
-  info "Hardening #{proj.path}"
-  raise_deployment_target_and_disable_sandboxing(proj)
-  clear_cp_io_file_lists_and_remove_hermes(proj)
   proj.save
+  puts "✅ Patched #{proj_path}"
 end
 
-info "Done."
+# normalize helper
+def CxxStdNormalize(current)
+  # Always promote to gnu++20 unless already >= gnu++20
+  return 'gnu++20' if current !~ /(?:c\+\+|gnu\+\+)(\d{2})/
+  ver = current[/(\d{2})/, 1].to_i
+  ver >= 20 ? current : 'gnu++20'
+end
 
+# 1) Patch Pods project (all targets incl. Folly/RCT-Folly)
+patch_project(PODS_PROJ_PATH)
+
+# 2) Patch app project target (monGARS) as well
+patch_project(APP_PROJ_PATH, targets_filter: ->(t) { t.name == 'monGARS' })
