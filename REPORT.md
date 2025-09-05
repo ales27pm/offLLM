@@ -1,14 +1,12 @@
 # iOS CI Diagnosis
 
 ## Most likely root cause
-```Build contains errors in xcodebuild.log; see the Errors section for specifics.```
+```No obvious single root cause detected; inspect warnings and CI environment.```
 
 ## Top XCResult issues
 - (no structured issues captured from xcresulttool)
 
 ## Log stats
-- Errors: **20**
-- Warnings: **51**
 
 ## Pointers
 - Full log: `/Users/runner/work/offLLM/offLLM/build/xcodebuild.log`

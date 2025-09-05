@@ -1,6 +1,6 @@
 ## Build Diagnosis (Condensed)
 
-- Errors: 20, Warnings: 51
+- Errors: 0, Warnings: 0
 - Signals: No singular dominant failure; inspect errors & warnings.
 
 ### Next actions (high-level)
