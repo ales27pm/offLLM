@@ -55,63 +55,74 @@ jobs:
             npm ci
           fi
 
-      - name: Generate Xcode project (XcodeGen) and install pods
+      - name: Install XcodeGen
         run: |
           set -euo pipefail
-
-          # XcodeGen (install if missing)
           if ! command -v xcodegen >/dev/null 2>&1; then
             brew install xcodegen
           fi
 
-          # Seed XcodeGen spec if missing
-          if [ ! -f ios/project.yml ]; then
-            echo "No ios/project.yml found — seeding a minimal XcodeGen spec."
-            mkdir -p ios
-            cat > ios/project.yml <<'YML'
-name: monGARS
-options:
-  bundleIdPrefix: com.example
-  deploymentTarget:
-    iOS: "18.0"
-targets:
-  monGARS:
-    type: application
-    platform: iOS
-    sources:
-      - path: ..
-        excludes:
-          - ios/**/*
-          - android/**/*
-          - node_modules/**/*
-    settings:
-      PRODUCT_BUNDLE_IDENTIFIER: com.example.monGARS
-      INFOPLIST_FILE: ios/Info.plist
-YML
+      - name: Seed minimal iOS files (project.yml, Info.plist) if missing
+        run: |
+          set -euo pipefail
+          node -e "
+          const fs = require('fs');
+          fs.mkdirSync('ios', { recursive: true });
 
-            if [ ! -f ios/Info.plist ]; then
-              cat > ios/Info.plist <<'PLIST'
-<?xml version="1.0" encoding="UTF-8"?>
-<!DOCTYPE plist PUBLIC "-//Apple//DTD PLIST 1.0//EN" "http://www.apple.com/DTDs/PropertyList-1.0.dtd">
-<plist version="1.0">
-<dict>
-  <key>CFBundleName</key><string>monGARS</string>
-  <key>CFBundleIdentifier</key><string>com.example.monGARS</string>
-  <key>CFBundleExecutable</key><string>$(EXECUTABLE_NAME)</string>
-  <key>CFBundlePackageType</key><string>APPL</string>
-  <key>UISupportedInterfaceOrientations</key>
-  <array><string>UIInterfaceOrientationPortrait</string></array>
-  <key>LSRequiresIPhoneOS</key><true/>
-</dict>
-</plist>
-PLIST
-            fi
-          fi
+          if (!fs.existsSync('ios/project.yml')) {
+            const projectYml = [
+              'name: monGARS',
+              'options:',
+              '  bundleIdPrefix: com.example',
+              '  deploymentTarget:',
+              '    iOS: \"18.0\"',
+              'targets:',
+              '  monGARS:',
+              '    type: application',
+              '    platform: iOS',
+              '    sources:',
+              '      - path: ..',
+              '        excludes:',
+              '          - ios/**/*',
+              '          - android/**/*',
+              '          - node_modules/**/*',
+              '    settings:',
+              '      PRODUCT_BUNDLE_IDENTIFIER: com.example.monGARS',
+              '      INFOPLIST_FILE: ios/Info.plist',
+              ''
+            ].join('\\n');
+            fs.writeFileSync('ios/project.yml', projectYml);
+          }
 
-          # Generate .xcodeproj next to Podfile so CocoaPods can find it
+          if (!fs.existsSync('ios/Info.plist')) {
+            const plist = [
+              '<?xml version=\"1.0\" encoding=\"UTF-8\"?>',
+              '<!DOCTYPE plist PUBLIC \"-//Apple//DTD PLIST 1.0//EN\" \"http://www.apple.com/DTDs/PropertyList-1.0.dtd\">',
+              '<plist version=\"1.0\">',
+              '<dict>',
+              '  <key>CFBundleName</key><string>monGARS</string>',
+              '  <key>CFBundleIdentifier</key><string>com.example.monGARS</string>',
+              '  <key>CFBundleExecutable</key><string>$(EXECUTABLE_NAME)</string>',
+              '  <key>CFBundlePackageType</key><string>APPL</string>',
+              '  <key>UISupportedInterfaceOrientations</key>',
+              '  <array><string>UIInterfaceOrientationPortrait</string></array>',
+              '  <key>LSRequiresIPhoneOS</key><true/>',
+              '</dict>',
+              '</plist>',
+              ''
+            ].join('\\n');
+            fs.writeFileSync('ios/Info.plist', plist);
+          }
+          "
+
+      - name: Generate .xcodeproj
+        run: |
+          set -euo pipefail
           xcodegen generate --spec ios/project.yml --project ios/monGARS.xcodeproj
 
-          # CocoaPods
+      - name: Install CocoaPods
+        run: |
+          set -euo pipefail
           gem install cocoapods -N
           cd ios
           pod install --repo-update --verbose
@@ -148,7 +159,7 @@ PLIST
         uses: actions/upload-artifact@v4
         with:
           name: ipa-unsigned
-          path: build/monGARS-unsigned.ipa
+          path: "build/monGARS-unsigned.ipa"
           if-no-files-found: error
           retention-days: 7
 
@@ -156,14 +167,14 @@ PLIST
         uses: actions/upload-artifact@v4
         with:
           name: xcodebuild-log
-          path: build/xcodebuild.log
+          path: "build/xcodebuild.log"
           if-no-files-found: warn
           retention-days: 7
 
       - name: Upload products (for debugging)
         uses: actions/upload-artifact@v4
         with:
-          name: products-${{ env.CONFIGURATION }}-iphoneos
-          path: build/DerivedData/Build/Products/${{ env.CONFIGURATION }}-iphoneos/**
+          name: "products-${{ env.CONFIGURATION }}-iphoneos"
+          path: "build/DerivedData/Build/Products/${{ env.CONFIGURATION }}-iphoneos/**"
           if-no-files-found: warn
           retention-days: 7
