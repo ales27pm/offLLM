@@ -117,45 +117,49 @@ jobs:
           if [ ! -f ios/project.yml ]; then
             echo "No ios/project.yml found — seeding a minimal XcodeGen spec."
             mkdir -p ios
-            cat > ios/project.yml <<'YML'
-            name: monGARS
-            options:
-              bundleIdPrefix: com.example
-              deploymentTarget:
-                iOS: "18.0"
-            targets:
-              monGARS:
-                type: application
-                platform: iOS
-                sources:
-                  - path: .
-                    excludes:
-                      - ios/**/*
-                      - android/**/*
-                      - node_modules/**/*
-                settings:
-                  PRODUCT_BUNDLE_IDENTIFIER: com.example.monGARS
-                  INFOPLIST_FILE: ios/Info.plist
-            YML
+
+cat > ios/project.yml <<'YML'
+name: monGARS
+options:
+  bundleIdPrefix: com.example
+  deploymentTarget:
+    iOS: "18.0"
+targets:
+  monGARS:
+    type: application
+    platform: iOS
+    sources:
+      - path: .
+        excludes:
+          - ios/**/*
+          - android/**/*
+          - node_modules/**/*
+    settings:
+      PRODUCT_BUNDLE_IDENTIFIER: com.example.monGARS
+      INFOPLIST_FILE: ios/Info.plist
+YML
+
             # Also seed a very basic Info.plist if missing
             if [ ! -f ios/Info.plist ]; then
-              cat > ios/Info.plist <<'PLIST'
-              <?xml version="1.0" encoding="UTF-8"?>
-              <!DOCTYPE plist PUBLIC "-//Apple//DTD PLIST 1.0//EN" "http://www.apple.com/DTDs/PropertyList-1.0.dtd">
-              <plist version="1.0">
-              <dict>
-                <key>CFBundleName</key><string>monGARS</string>
-                <key>CFBundleIdentifier</key><string>com.example.monGARS</string>
-                <key>CFBundleExecutable</key><string>$(EXECUTABLE_NAME)</string>
-                <key>CFBundlePackageType</key><string>APPL</string>
-                <key>UILaunchStoryboardName</key><string></string>
-                <key>UIMainStoryboardFile</key><string></string>
-                <key>UISupportedInterfaceOrientations</key>
-                <array><string>UIInterfaceOrientationPortrait</string></array>
-                <key>LSRequiresIPhoneOS</key><true/>
-              </dict>
-              </plist>
-              PLIST
+
+cat > ios/Info.plist <<'PLIST'
+<?xml version="1.0" encoding="UTF-8"?>
+<!DOCTYPE plist PUBLIC "-//Apple//DTD PLIST 1.0//EN" "http://www.apple.com/DTDs/PropertyList-1.0.dtd">
+<plist version="1.0">
+<dict>
+  <key>CFBundleName</key><string>monGARS</string>
+  <key>CFBundleIdentifier</key><string>com.example.monGARS</string>
+  <key>CFBundleExecutable</key><string>$(EXECUTABLE_NAME)</string>
+  <key>CFBundlePackageType</key><string>APPL</string>
+  <key>UILaunchStoryboardName</key><string></string>
+  <key>UIMainStoryboardFile</key><string></string>
+  <key>UISupportedInterfaceOrientations</key>
+  <array><string>UIInterfaceOrientationPortrait</string></array>
+  <key>LSRequiresIPhoneOS</key><true/>
+</dict>
+</plist>
+PLIST
+
             fi
           fi
 
