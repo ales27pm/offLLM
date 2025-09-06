@@ -44,64 +44,59 @@ jobs:
           cache: 'npm'
       - run: npm ci
 
-      # If your repo already has ios/*.xcodeproj and Info.plist, this step is skipped.
-      - name: Seed minimal XcodeGen spec (if missing)
+      - name: Ensure ios/project.yml exists
         run: |
-          set -euo pipefail
           if [ ! -f ios/project.yml ]; then
-            echo "No ios/project.yml found — seeding a minimal XcodeGen spec."
+            echo "Seeding ios/project.yml"
             mkdir -p ios
-            cat > ios/project.yml <<'YML'
-name: monGARS
-options:
-  bundleIdPrefix: com.example
-  deploymentTarget:
-    iOS: "18.0"
-targets:
-  monGARS:
-    type: application
-    platform: iOS
-    sources:
-      - path: .
-        excludes:
-          - ios/**/*
-          - android/**/*
-          - node_modules/**/*
-    settings:
-      PRODUCT_BUNDLE_IDENTIFIER: com.example.monGARS
-      INFOPLIST_FILE: ios/Info.plist
-YML
-            if [ ! -f ios/Info.plist ]; then
-              cat > ios/Info.plist <<'PLIST'
-<?xml version="1.0" encoding="UTF-8"?>
-<!DOCTYPE plist PUBLIC "-//Apple//DTD PLIST 1.0//EN" "http://www.apple.com/DTDs/PropertyList-1.0.dtd">
-<plist version="1.0">
-<dict>
-  <key>CFBundleName</key><string>monGARS</string>
-  <key>CFBundleIdentifier</key><string>com.example.monGARS</string>
-  <key>CFBundleExecutable</key><string>$(EXECUTABLE_NAME)</string>
-  <key>CFBundlePackageType</key><string>APPL</string>
-  <key>UISupportedInterfaceOrientations</key>
-  <array><string>UIInterfaceOrientationPortrait</string></array>
-  <key>LSRequiresIPhoneOS</key><true/>
-</dict>
-</plist>
-PLIST
-            fi
+            echo "name: monGARS" > ios/project.yml
+            echo "options:" >> ios/project.yml
+            echo "  bundleIdPrefix: com.example" >> ios/project.yml
+            echo "  deploymentTarget:" >> ios/project.yml
+            echo "    iOS: \"18.0\"" >> ios/project.yml
+            echo "targets:" >> ios/project.yml
+            echo "  monGARS:" >> ios/project.yml
+            echo "    type: application" >> ios/project.yml
+            echo "    platform: iOS" >> ios/project.yml
+            echo "    sources:" >> ios/project.yml
+            echo "      - path: ." >> ios/project.yml
+            echo "        excludes:" >> ios/project.yml
+            echo "          - ios/**/*" >> ios/project.yml
+            echo "          - android/**/*" >> ios/project.yml
+            echo "          - node_modules/**/*" >> ios/project.yml
+            echo "    settings:" >> ios/project.yml
+            echo "      PRODUCT_BUNDLE_IDENTIFIER: com.example.monGARS" >> ios/project.yml
+            echo "      INFOPLIST_FILE: ios/Info.plist" >> ios/project.yml
           fi
 
-      - name: Generate .xcodeproj with XcodeGen (only when project.yml exists)
+          if [ ! -f ios/Info.plist ]; then
+            echo "Creating ios/Info.plist"
+            mkdir -p ios
+            {
+              echo "<?xml version=\"1.0\" encoding=\"UTF-8\"?>"
+              echo "<!DOCTYPE plist PUBLIC \"-//Apple//DTD PLIST 1.0//EN\" \"http://www.apple.com/DTDs/PropertyList-1.0.dtd\">"
+              echo "<plist version=\"1.0\">"
+              echo "<dict>"
+              echo "  <key>CFBundleName</key><string>monGARS</string>"
+              echo "  <key>CFBundleIdentifier</key><string>com.example.monGARS</string>"
+              echo "  <key>CFBundleExecutable</key><string>\$(EXECUTABLE_NAME)</string>"
+              echo "  <key>CFBundlePackageType</key><string>APPL</string>"
+              echo "  <key>UISupportedInterfaceOrientations</key>"
+              echo "  <array><string>UIInterfaceOrientationPortrait</string></array>"
+              echo "  <key>LSRequiresIPhoneOS</key><true/>"
+              echo "</dict>"
+              echo "</plist>"
+            } > ios/Info.plist
+          fi
+
+      - name: Generate .xcodeproj with XcodeGen
         run: |
           set -euo pipefail
-          if [ -f ios/project.yml ]; then
-            pushd ios >/dev/null
-            rm -rf monGARS.xcodeproj
-            xcodegen generate --spec project.yml
-            test -d monGARS.xcodeproj && echo "✅ Generated ios/monGARS.xcodeproj"
-            popd >/dev/null
-          else
-            echo "ios/project.yml not present — skipping XcodeGen (using existing Xcode project/workspace)"
-          fi
+          pushd ios >/dev/null
+          rm -rf monGARS.xcodeproj
+          xcodegen generate --spec project.yml
+          test -d monGARS.xcodeproj && echo "✅ Generated ios/monGARS.xcodeproj"
+          popd >/dev/null
 
       - name: Setup Ruby
         uses: ruby/setup-ruby@v1
@@ -117,30 +112,21 @@ PLIST
           pod repo update
           pod install --verbose
 
-      # 🔧 Key fix for your error:
-      # Force-generate glog's src/config.h after pod install.
-      - name: Generate glog config.h
+      - name: Fix glog config.h
         run: |
           set -euo pipefail
-          if [ -d ios/Pods/glog ]; then
-            pushd ios/Pods/glog >/dev/null
-            if [ ! -f src/config.h ]; then
-              echo "Running ./configure to generate glog/src/config.h"
-              chmod +x ./configure || true
-              ./configure
-            fi
-            if [ ! -f src/config.h ]; then
-              echo "❌ glog/src/config.h still missing after configure"
-              ls -la .
-              ls -la src || true
-              exit 1
+          SRC_DIR="ios/Pods/glog/src"
+          mkdir -p "$SRC_DIR"
+          if [ ! -f "$SRC_DIR/config.h" ]; then
+            echo "Generating glog/config.h"
+            (cd ios/Pods/glog && ./configure || true)
+            FOUND="$(/usr/bin/find ios/Pods -name config.h -path '*/glog/*' | head -n1 || true)"
+            if [ -n "${FOUND:-}" ]; then
+              cp "$FOUND" "$SRC_DIR/config.h"
+              echo "✅ Copied $FOUND -> $SRC_DIR/config.h"
             else
-              echo "✅ Found glog/src/config.h"
+              echo "❌ glog config.h still missing!"
             fi
-            popd >/dev/null
-          else
-            echo "❌ ios/Pods/glog directory not found; did pods install succeed?"
-            exit 1
           fi
 
       - name: Build (xcodebuild)
@@ -149,28 +135,22 @@ PLIST
           LOG="$BUILD_DIR/xcodebuild.log"
           mkdir -p "$BUILD_DIR"
 
-          # Clean
           xcodebuild \
             -workspace ios/monGARS.xcworkspace \
             -scheme "$SCHEME" \
             -configuration "$CONFIGURATION" \
             -destination 'generic/platform=iOS' \
-            -quiet \
             clean
 
-          # Build (pipefail ensures failure propagates through tee)
-          set -o pipefail
           xcodebuild \
             -workspace ios/monGARS.xcworkspace \
             -scheme "$SCHEME" \
             -configuration "$CONFIGURATION" \
             -destination 'generic/platform=iOS' \
             -derivedDataPath "$BUILD_DIR/DerivedData" \
-            -quiet \
             build \
             | tee "$LOG"
 
-          # Verify success using fixed-string grep (no regex)
           grep -Fq "** BUILD SUCCEEDED **" "$LOG"
 
       - name: Package .app → .ipa (unsigned)
@@ -189,11 +169,9 @@ PLIST
         run: |
           set -euo pipefail
           XCRESULT_DIR="$(/usr/bin/find "$BUILD_DIR" -name '*.xcresult' -maxdepth 3 -print -quit || true)"
-          if [ -z "${XCRESULT_DIR:-}" ]; then
-            echo "No xcresult found"; exit 0
+          if [ -n "${XCRESULT_DIR:-}" ]; then
+            /usr/bin/xcrun xcresulttool get --legacy --path "$XCRESULT_DIR" --format json > "$BUILD_DIR/monGARS.xcresult.json" || true
           fi
-          mkdir -p "$BUILD_DIR"
-          /usr/bin/xcrun xcresulttool get --legacy --path "$XCRESULT_DIR" --format json > "$BUILD_DIR/monGARS.xcresult.json" || true
 
       - name: Upload artifacts
         uses: actions/upload-artifact@v4
