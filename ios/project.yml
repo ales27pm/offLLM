@@ -1,4 +1,5 @@
 name: monGARS
+
 options:
   bundleIdPrefix: com.27pm
 
@@ -8,6 +9,8 @@ targets:
     platform: iOS
     deploymentTarget: "18.0"
 
+    # Your existing RN iOS app lives here (Info.plist, AppDelegate, etc.)
+    # XcodeGen runs from ios/, so this path is relative to ios/
     sources:
       - path: MyOfflineLLMApp
         excludes:
@@ -20,19 +23,35 @@ targets:
         PRODUCT_BUNDLE_IDENTIFIER: com.27pm.monGARS
         INFOPLIST_FILE: MyOfflineLLMApp/Info.plist
         SWIFT_VERSION: 5.0
+
+        # Unsigned/device builds in CI
         CODE_SIGNING_ALLOWED: NO
         CODE_SIGNING_REQUIRED: NO
         CODE_SIGN_IDENTITY: ""
         DEVELOPMENT_TEAM: ""
 
-        # C++ toolchain hardening for iOS 18 SDKs
+        # Toolchain hardening for RN/Folly on iOS 18 SDKs
         CLANG_CXX_LIBRARY: libc++
         CLANG_CXX_LANGUAGE_STANDARD: gnu++20
         OTHER_CPLUSPLUSFLAGS: $(inherited) -D_LIBCPP_ENABLE_CXX20_REMOVED_TYPEDEF_MACROS -isystem $(SDKROOT)/usr/include/c++/v1
 
+        # Common RN headers
         HEADER_SEARCH_PATHS:
           - $(inherited)
           - $(SRCROOT)/../node_modules/react-native/React
           - $(SRCROOT)/../node_modules/react-native/React/**
+
+    # Script phases (kept minimal & non-fatal)
+    scripts:
+      - name: Create Symlinks to Header Folders
+        script: |
+          echo "Symlinks handled by CocoaPods"
+          # Always succeed to avoid poisoning exit codes in CI
+          exit 0
+        outputFiles:
+          - "${DERIVED_FILE_DIR}/create_symlinks_to_header_folders.stamp"
+        runOnlyForDeploymentPostprocessing: false
+        alwaysOutOfDate: true
+
     scheme:
       testTargets: []
