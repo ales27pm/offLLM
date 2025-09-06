@@ -2,12 +2,14 @@ name: iOS CI
 
 on:
   push:
-    branches: [ main ]
+    branches: [ main, master ]
   pull_request:
+    branches: [ main, master ]
 
 jobs:
   build-ios:
     runs-on: macos-14
+
     env:
       DEVELOPER_DIR: /Applications/Xcode_16.2.app/Contents/Developer
       XCODE_SCHEME: monGARS
@@ -18,145 +20,110 @@ jobs:
       - name: Checkout
         uses: actions/checkout@v4
 
-      - name: Show Xcode version
-        run: |
-          xcodebuild -version
-          xcode-select -p
-
-      - name: Setup Node
+      - name: Set up Node
         uses: actions/setup-node@v4
         with:
           node-version: 18
+
+      - name: Cache node_modules
+        uses: actions/cache@v4
+        with:
+          path: |
+            node_modules
+            ios/Pods
+            ~/Library/Caches/CocoaPods
+            ~/.cocoapods
+          key: ${{ runner.os }}-pods-${{ hashFiles('**/Podfile.lock') }}-node-${{ hashFiles('package-lock.json','yarn.lock','pnpm-lock.yaml') }}
 
       - name: Install JS deps
         run: |
           if [ -f yarn.lock ]; then
             corepack enable
-            yarn --version
             yarn install --frozen-lockfile
-          elif [ -f package-lock.json ]; then
-            npm ci
+          elif [ -f pnpm-lock.yaml ]; then
+            corepack enable
+            pnpm i --frozen-lockfile
           else
-            echo "No yarn.lock or package-lock.json found, skipping JS install"
+            npm ci
           fi
 
-      - name: Setup Ruby
+      - name: Show iOS tree
+        run: |
+          echo "ios/ contents:"
+          ls -la ios
+          echo "Find .xcodeproj:"
+          find ios -maxdepth 2 -name "*.xcodeproj" -print || true
+
+      - name: Verify Xcode project exists
+        run: |
+          if [ ! -d "ios/monGARS.xcodeproj" ]; then
+            echo "::error title=Missing Xcode project::ios/monGARS.xcodeproj not found. Check Podfile 'project' line or commit the project."
+            exit 1
+          fi
+
+      - name: Set up Ruby and CocoaPods
         uses: ruby/setup-ruby@v1
         with:
           ruby-version: '3.2'
-          bundler-cache: true
+          bundler-cache: false
 
-      - name: Install CocoaPods (if not using Bundler)
-        if: ${{ !hashFiles('Gemfile') }}
-        run: |
-          gem install cocoapods -N
-          pod --version
-
-      - name: Pod cache
-        uses: actions/cache@v4
-        with:
-          path: |
-            ios/Pods
-            ~/Library/Caches/CocoaPods
-            ~/Library/Developer/Xcode/DerivedData
-          key: pods-${{ runner.os }}-${{ env.DEVELOPER_DIR }}-${{ hashFiles('ios/Podfile.lock') }}
-          restore-keys: |
-            pods-${{ runner.os }}-${{ env.DEVELOPER_DIR }}-
-
-      - name: Install pods
+      - name: Install CocoaPods
         working-directory: ios
         run: |
+          set -euo pipefail
           if [ -f ../Gemfile ]; then
+            bundle install --path vendor/bundle
             bundle exec pod install --repo-update
           else
             pod install --repo-update
           fi
 
-      # ---- FIX: make sure glog's src/config.h exists on CI ----
-      - name: Configure glog for iOS (generate config.h)
+      - name: Patch glog config.h (CI safety net)
         run: |
           set -euo pipefail
-          SRC_DIR="ios/Pods/glog/src"
-          GLOG_DIR="ios/Pods/glog"
-
-          mkdir -p "$SRC_DIR"
-
-          # 1) Preferred: RN helper script (same as local CocoaPods post-install)
-          if [ ! -f "$SRC_DIR/config.h" ]; then
-            if [ -f node_modules/react-native/scripts/ios-configure-glog.sh ]; then
-              echo "Running RN ios-configure-glog.sh"
-              bash node_modules/react-native/scripts/ios-configure-glog.sh || true
-            else
-              echo "RN helper script not found, skipping to fallback"
+          GLOG_SRC="ios/Pods/glog/src"
+          if [ -d "$GLOG_SRC" ]; then
+            if [ ! -f "$GLOG_SRC/config.h" ]; then
+              if [ -f "$GLOG_SRC/config_ios.h" ]; then
+                cp "$GLOG_SRC/config_ios.h" "$GLOG_SRC/config.h"
+                echo "Patched glog: config_ios.h -> config.h"
+              elif [ -f "$GLOG_SRC/config.h.cmake" ]; then
+                cp "$GLOG_SRC/config.h.cmake" "$GLOG_SRC/config.h"
+                echo "Patched glog: config.h.cmake -> config.h"
+              else
+                echo "::warning::Could not find a glog config template to copy."
+              fi
             fi
-          fi
-
-          # 2) Fallback: autogen/configure inside the glog pod
-          if [ ! -f "$SRC_DIR/config.h" ] && [ -d "$GLOG_DIR" ]; then
-            echo "Trying glog autogen/configure"
-            (
-              cd "$GLOG_DIR"
-              if [ -x ./autogen.sh ]; then ./autogen.sh || true; fi
-              if [ -x ./configure ]; then ./configure || true; fi
-            )
-          fi
-
-          # 3) Last resort: write a tiny iOS-safe stub so the include resolves
-          if [ ! -f "$SRC_DIR/config.h" ]; then
-            echo "Creating minimal iOS config.h stub"
-            F="$SRC_DIR/config.h"
-            : > "$F"
-            echo "/* minimal config for iOS CI */" >> "$F"
-            echo "#define HAVE_PTHREAD 1" >> "$F"
-            echo "#define GLOG_OS_MACOSX 1" >> "$F"
-            echo "#define GLOG_HAVE_STDINT_H 1" >> "$F"
-            echo "#define GLOG_HAVE_SYS_TIME_H 1" >> "$F"
-            echo "#define GLOG_HAVE_UNISTD_H 1" >> "$F"
-            echo "#define GLOG_NDEBUG 1" >> "$F"
-            echo "#define GOOGLE_GLOG_DLL_DECL" >> "$F"
-            echo "#define GOOGLE_GLOG_DLL_DECL_FOR_UNITTESTS" >> "$F"
-            echo "#define GLOG_USE_GLOG_EXPORT 1" >> "$F"
-          fi
-
-          # 4) Verify
-          if [ -f "$SRC_DIR/config.h" ]; then
-            echo "✅ glog src/config.h present."
           else
-            echo "❌ glog src/config.h still missing."
-            exit 1
+            echo "::warning::glog src folder not found at $GLOG_SRC"
           fi
 
       - name: Build (Release, device SDK)
         run: |
           set -euo pipefail
-          mkdir -p build
-          LOG_PATH="build/xcodebuild.log"
-          # Clean
-          xcodebuild -workspace "$XCODE_WORKSPACE" \
-                     -scheme "$XCODE_SCHEME" \
-                     -configuration Release \
-                     -sdk iphoneos \
-                     -derivedDataPath "$DERIVED_DATA" \
-                     clean | tee "$LOG_PATH"
+          xcodebuild \
+            -workspace "$XCODE_WORKSPACE" \
+            -scheme "$XCODE_SCHEME" \
+            -configuration Release \
+            -sdk iphoneos \
+            -arch arm64 \
+            -derivedDataPath "$DERIVED_DATA" \
+            CODE_SIGNING_ALLOWED=NO \
+            build | xcpretty && exit ${PIPESTATUS[0]}
 
-          # Build
-          xcodebuild -workspace "$XCODE_WORKSPACE" \
-                     -scheme "$XCODE_SCHEME" \
-                     -configuration Release \
-                     -sdk iphoneos \
-                     -derivedDataPath "$DERIVED_DATA" \
-                     build | tee -a "$LOG_PATH"
+      - name: Archive artifacts (optional)
+        if: always()
+        run: |
+          mkdir -p artifacts/xcode-log
+          if [ -d "$DERIVED_DATA/Logs/Build" ]; then
+            cp -R "$DERIVED_DATA/Logs/Build" artifacts/xcode-log/
+          fi
+        continue-on-error: true
 
-      - name: Upload xcodebuild log (always)
+      - name: Upload artifacts (optional)
         if: always()
         uses: actions/upload-artifact@v4
         with:
-          name: xcodebuild-log
-          path: build/xcodebuild.log
-
-      - name: Upload .xcarchive (optional if you archive)
-        if: false
-        uses: actions/upload-artifact@v4
-        with:
-          name: ios-archive
-          path: build/DerivedData/Build/Products/*.xcarchive
+          name: xcode-logs
+          path: artifacts/xcode-log
+          if-no-files-found: ignore
