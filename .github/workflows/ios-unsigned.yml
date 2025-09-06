@@ -44,60 +44,64 @@ jobs:
           cache: 'npm'
       - run: npm ci
 
-      - name: Seed minimal XcodeGen spec (if missing) — no heredocs
+      # If your repo already has ios/*.xcodeproj and Info.plist, this step is skipped.
+      - name: Seed minimal XcodeGen spec (if missing)
         run: |
           set -euo pipefail
-          mkdir -p ios
           if [ ! -f ios/project.yml ]; then
-            echo "Seeding ios/project.yml"
-            printf '%s\n' \
-              'name: monGARS' \
-              'options:' \
-              '  bundleIdPrefix: com.example' \
-              '  deploymentTarget:' \
-              '    iOS: "18.0"' \
-              'targets:' \
-              '  monGARS:' \
-              '    type: application' \
-              '    platform: iOS' \
-              '    sources:' \
-              '      - path: .' \
-              '        excludes:' \
-              '          - ios/**/*' \
-              '          - android/**/*' \
-              '          - node_modules/**/*' \
-              '    settings:' \
-              '      PRODUCT_BUNDLE_IDENTIFIER: com.example.monGARS' \
-              '      INFOPLIST_FILE: ios/Info.plist' \
-              > ios/project.yml
-          fi
-          if [ ! -f ios/Info.plist ]; then
-            echo "Seeding ios/Info.plist"
-            printf '%s\n' \
-              '<?xml version="1.0" encoding="UTF-8"?>' \
-              '<!DOCTYPE plist PUBLIC "-//Apple//DTD PLIST 1.0//EN" "http://www.apple.com/DTDs/PropertyList-1.0.dtd">' \
-              '<plist version="1.0">' \
-              '<dict>' \
-              '  <key>CFBundleName</key><string>monGARS</string>' \
-              '  <key>CFBundleIdentifier</key><string>com.example.monGARS</string>' \
-              '  <key>CFBundleExecutable</key><string>$(EXECUTABLE_NAME)</string>' \
-              '  <key>CFBundlePackageType</key><string>APPL</string>' \
-              '  <key>UISupportedInterfaceOrientations</key>' \
-              '  <array><string>UIInterfaceOrientationPortrait</string></array>' \
-              '  <key>LSRequiresIPhoneOS</key><true/>' \
-              '</dict>' \
-              '</plist>' \
-              > ios/Info.plist
+            echo "No ios/project.yml found — seeding a minimal XcodeGen spec."
+            mkdir -p ios
+            cat > ios/project.yml <<'YML'
+name: monGARS
+options:
+  bundleIdPrefix: com.example
+  deploymentTarget:
+    iOS: "18.0"
+targets:
+  monGARS:
+    type: application
+    platform: iOS
+    sources:
+      - path: .
+        excludes:
+          - ios/**/*
+          - android/**/*
+          - node_modules/**/*
+    settings:
+      PRODUCT_BUNDLE_IDENTIFIER: com.example.monGARS
+      INFOPLIST_FILE: ios/Info.plist
+YML
+            if [ ! -f ios/Info.plist ]; then
+              cat > ios/Info.plist <<'PLIST'
+<?xml version="1.0" encoding="UTF-8"?>
+<!DOCTYPE plist PUBLIC "-//Apple//DTD PLIST 1.0//EN" "http://www.apple.com/DTDs/PropertyList-1.0.dtd">
+<plist version="1.0">
+<dict>
+  <key>CFBundleName</key><string>monGARS</string>
+  <key>CFBundleIdentifier</key><string>com.example.monGARS</string>
+  <key>CFBundleExecutable</key><string>$(EXECUTABLE_NAME)</string>
+  <key>CFBundlePackageType</key><string>APPL</string>
+  <key>UISupportedInterfaceOrientations</key>
+  <array><string>UIInterfaceOrientationPortrait</string></array>
+  <key>LSRequiresIPhoneOS</key><true/>
+</dict>
+</plist>
+PLIST
+            fi
           fi
 
-      - name: Generate .xcodeproj with XcodeGen
+      - name: Generate .xcodeproj with XcodeGen (only when project.yml exists)
         run: |
           set -euo pipefail
-          pushd ios >/dev/null
-          rm -rf monGARS.xcodeproj
-          xcodegen generate --spec project.yml
-          test -d monGARS.xcodeproj && echo "✅ Generated ios/monGARS.xcodeproj"
-          popd >/dev/null
+          if [ -f ios/project.yml ]; then
+            pushd ios >/dev/null
+            rm -rf monGARS.xcodeproj
+            xcodegen generate --spec project.yml
+            test -d monGARS.xcodeproj && echo "✅ Generated ios/monGARS.xcodeproj"
+            popd >/dev/null
+          else
+            echo "ios/project.yml not present — skipping XcodeGen (using existing Xcode project/workspace)"
+          fi
 
       - name: Setup Ruby
         uses: ruby/setup-ruby@v1
@@ -113,29 +117,30 @@ jobs:
           pod repo update
           pod install --verbose
 
-      - name: Workaround glog config.h (if missing)
+      # 🔧 Key fix for your error:
+      # Force-generate glog's src/config.h after pod install.
+      - name: Generate glog config.h
         run: |
           set -euo pipefail
-          SRC_DIR="ios/Pods/glog/src"
-          mkdir -p "$SRC_DIR"
-          if [ ! -f "$SRC_DIR/config.h" ]; then
-            FOUND="$(/usr/bin/find ios/Pods -name config.h -path '*/glog/*' | head -n1 || true)"
-            if [ -n "${FOUND:-}" ]; then
-              echo "Copying $FOUND -> $SRC_DIR/config.h"
-              cp "$FOUND" "$SRC_DIR/config.h"
-            else
-              echo "⚠️  glog config.h not found; attempting ./configure"
-              if [ -x ios/Pods/glog/configure ]; then
-                (cd ios/Pods/glog && ./configure || true)
-              fi
-              FOUND2="$(/usr/bin/find ios/Pods -name config.h -path '*/glog/*' | head -n1 || true)"
-              if [ -n "${FOUND2:-}" ]; then
-                echo "Copying $FOUND2 -> $SRC_DIR/config.h"
-                cp "$FOUND2" "$SRC_DIR/config.h"
-              else
-                echo "❌ Still no config.h; continuing, but build may fail."
-              fi
+          if [ -d ios/Pods/glog ]; then
+            pushd ios/Pods/glog >/dev/null
+            if [ ! -f src/config.h ]; then
+              echo "Running ./configure to generate glog/src/config.h"
+              chmod +x ./configure || true
+              ./configure
             fi
+            if [ ! -f src/config.h ]; then
+              echo "❌ glog/src/config.h still missing after configure"
+              ls -la .
+              ls -la src || true
+              exit 1
+            else
+              echo "✅ Found glog/src/config.h"
+            fi
+            popd >/dev/null
+          else
+            echo "❌ ios/Pods/glog directory not found; did pods install succeed?"
+            exit 1
           fi
 
       - name: Build (xcodebuild)
@@ -153,7 +158,8 @@ jobs:
             -quiet \
             clean
 
-          # Build (pipefail preserved; grep uses fixed string)
+          # Build (pipefail ensures failure propagates through tee)
+          set -o pipefail
           xcodebuild \
             -workspace ios/monGARS.xcworkspace \
             -scheme "$SCHEME" \
@@ -164,6 +170,7 @@ jobs:
             build \
             | tee "$LOG"
 
+          # Verify success using fixed-string grep (no regex)
           grep -Fq "** BUILD SUCCEEDED **" "$LOG"
 
       - name: Package .app → .ipa (unsigned)
