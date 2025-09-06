@@ -28,17 +28,15 @@ targets:
         CODE_SIGN_IDENTITY: ""
         DEVELOPMENT_TEAM: ""
 
-        # Keep libc++; standardize to C++17 (stable with RN/Folly)
+        # Stable toolchain for RN/Folly
         CLANG_CXX_LIBRARY: libc++
         CLANG_CXX_LANGUAGE_STANDARD: gnu++17
 
-        # Common RN headers
         HEADER_SEARCH_PATHS:
           - $(inherited)
           - $(SRCROOT)/../node_modules/react-native/React
           - $(SRCROOT)/../node_modules/react-native/React/**
 
-    # Keep this no-op script non-fatal
     scripts:
       - name: Create Symlinks to Header Folders
         script: |
