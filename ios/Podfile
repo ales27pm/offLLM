@@ -1,4 +1,4 @@
-# Ensure pods support iOS 18.0+; the app's deployment target lives in XcodeGen's project.yml too
+# Ensure pods support iOS 18.0+; the app's deployment target also lives in XcodeGen's project.yml
 platform :ios, '18.0'
 ENV['RCT_NEW_ARCH_ENABLED'] = "1" # Enable Fabric/TurboModules
 
