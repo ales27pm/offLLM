@@ -9,8 +9,6 @@ targets:
     platform: iOS
     deploymentTarget: "18.0"
 
-    # Your existing RN iOS app lives here (Info.plist, AppDelegate, etc.)
-    # XcodeGen runs from ios/, so this path is relative to ios/
     sources:
       - path: MyOfflineLLMApp
         excludes:
@@ -30,10 +28,9 @@ targets:
         CODE_SIGN_IDENTITY: ""
         DEVELOPMENT_TEAM: ""
 
-        # Toolchain hardening for RN/Folly on iOS 18 SDKs
+        # Keep libc++; standardize to C++17 (stable with RN/Folly)
         CLANG_CXX_LIBRARY: libc++
-        CLANG_CXX_LANGUAGE_STANDARD: gnu++20
-        OTHER_CPLUSPLUSFLAGS: $(inherited) -D_LIBCPP_ENABLE_CXX20_REMOVED_TYPEDEF_MACROS -isystem $(SDKROOT)/usr/include/c++/v1
+        CLANG_CXX_LANGUAGE_STANDARD: gnu++17
 
         # Common RN headers
         HEADER_SEARCH_PATHS:
@@ -41,12 +38,11 @@ targets:
           - $(SRCROOT)/../node_modules/react-native/React
           - $(SRCROOT)/../node_modules/react-native/React/**
 
-    # Script phases (kept minimal & non-fatal)
+    # Keep this no-op script non-fatal
     scripts:
       - name: Create Symlinks to Header Folders
         script: |
           echo "Symlinks handled by CocoaPods"
-          # Always succeed to avoid poisoning exit codes in CI
           exit 0
         outputFiles:
           - "${DERIVED_FILE_DIR}/create_symlinks_to_header_folders.stamp"
