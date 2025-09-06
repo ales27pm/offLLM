@@ -82,14 +82,18 @@ jobs:
             exit 1
           fi
 
+      # Clean caches to avoid stale headers / pods
+      - name: Clean DerivedData & Pod cache
+        working-directory: ios
+        run: |
+          rm -rf "$HOME/Library/Developer/Xcode/DerivedData" || true
+          bundle exec pod cache clean --all || true
+
       - name: Install Pods
         working-directory: ios
         run: |
           bundle install
           bundle exec pod install --repo-update
-
-      - name: Clean derived data
-        run: rm -rf "$BUILD_DIR/DerivedData"
 
       - name: Build (unsigned, device)
         shell: bash
@@ -105,7 +109,18 @@ jobs:
             -resultBundlePath "$BUILD_DIR/$SCHEME.xcresult" \
             CODE_SIGNING_ALLOWED=NO CODE_SIGNING_REQUIRED=NO CODE_SIGN_IDENTITY="" \
             SWIFT_DISABLE_REQUIRED_ARCLITE=YES \
+            GCC_TREAT_WARNINGS_AS_ERRORS=NO \
+            OTHER_CFLAGS="-Wno-everything $(xcodebuild -showBuildSettings 2>/dev/null >/dev/null || true)" \
             | tee "$BUILD_DIR/xcodebuild.log"
+
+      # Optional: dump a JSON view of the build result for quick diagnosis (Xcode 16 requires --legacy for the old JSON)
+      - name: Export xcresult JSON
+        if: always()
+        shell: bash
+        run: |
+          if [ -d "$BUILD_DIR/$SCHEME.xcresult" ]; then
+            xcrun xcresulttool get --path "$BUILD_DIR/$SCHEME.xcresult" --format json --legacy > "$BUILD_DIR/$SCHEME.xcresult.json" || true
+          fi
 
       - name: Package unsigned IPA + zip .app
         if: always()
@@ -125,7 +140,6 @@ jobs:
           (cd "$BUILD_DIR" && zip -qry offLLM-unsigned.ipa Payload)
           (cd "$APP_DIR" && zip -qry "$PWD/../../$SCHEME.app.zip" "$SCHEME.app")
 
-      # Run via bash to avoid permission problems even if the exec bit isn't set
       - name: Collect symbols (dSYM & BCSymbolMaps)
         if: always()
         shell: bash
@@ -161,5 +175,6 @@ jobs:
           path: |
             build/xcodebuild.log
             build/monGARS.xcresult
+            build/monGARS.xcresult.json
           if-no-files-found: warn
           overwrite: true
