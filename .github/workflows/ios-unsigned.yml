@@ -43,7 +43,7 @@ jobs:
           if [ ! -f ios/project.yml ]; then
             echo "No ios/project.yml found — seeding a minimal XcodeGen spec."
             mkdir -p ios
-cat > ios/project.yml <<'YML'
+          cat > ios/project.yml <<'YML'
 name: monGARS
 options:
   bundleIdPrefix: com.example
