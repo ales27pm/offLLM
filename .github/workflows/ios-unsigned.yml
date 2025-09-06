@@ -35,7 +35,7 @@ jobs:
         run: |
           set -euo pipefail
           brew update
-          brew install xcodegen jq
+          brew install xcodegen jq autoconf automake libtool
 
       - name: Setup Node and install JS deps
         uses: actions/setup-node@v4
@@ -44,31 +44,33 @@ jobs:
           cache: 'npm'
       - run: npm ci
 
-      - name: Ensure ios/project.yml exists
+      - name: Ensure ios/project.yml and Info.plist exist (no heredocs)
         run: |
+          set -euo pipefail
           if [ ! -f ios/project.yml ]; then
             echo "Seeding ios/project.yml"
             mkdir -p ios
-            echo "name: monGARS" > ios/project.yml
-            echo "options:" >> ios/project.yml
-            echo "  bundleIdPrefix: com.example" >> ios/project.yml
-            echo "  deploymentTarget:" >> ios/project.yml
-            echo "    iOS: \"18.0\"" >> ios/project.yml
-            echo "targets:" >> ios/project.yml
-            echo "  monGARS:" >> ios/project.yml
-            echo "    type: application" >> ios/project.yml
-            echo "    platform: iOS" >> ios/project.yml
-            echo "    sources:" >> ios/project.yml
-            echo "      - path: ." >> ios/project.yml
-            echo "        excludes:" >> ios/project.yml
-            echo "          - ios/**/*" >> ios/project.yml
-            echo "          - android/**/*" >> ios/project.yml
-            echo "          - node_modules/**/*" >> ios/project.yml
-            echo "    settings:" >> ios/project.yml
-            echo "      PRODUCT_BUNDLE_IDENTIFIER: com.example.monGARS" >> ios/project.yml
-            echo "      INFOPLIST_FILE: ios/Info.plist" >> ios/project.yml
+            {
+              echo "name: monGARS"
+              echo "options:"
+              echo "  bundleIdPrefix: com.example"
+              echo "  deploymentTarget:"
+              echo "    iOS: \"18.0\""
+              echo "targets:"
+              echo "  monGARS:"
+              echo "    type: application"
+              echo "    platform: iOS"
+              echo "    sources:"
+              echo "      - path: ."
+              echo "        excludes:"
+              echo "          - ios/**/*"
+              echo "          - android/**/*"
+              echo "          - node_modules/**/*"
+              echo "    settings:"
+              echo "      PRODUCT_BUNDLE_IDENTIFIER: com.example.monGARS"
+              echo "      INFOPLIST_FILE: ios/Info.plist"
+            } > ios/project.yml
           fi
-
           if [ ! -f ios/Info.plist ]; then
             echo "Creating ios/Info.plist"
             mkdir -p ios
@@ -112,21 +114,44 @@ jobs:
           pod repo update
           pod install --verbose
 
-      - name: Fix glog config.h
+      - name: Ensure glog config.h exists (generate or copy)
         run: |
           set -euo pipefail
           SRC_DIR="ios/Pods/glog/src"
+          GLOG_DIR="ios/Pods/glog"
+          PRIV_HDR="ios/Pods/Headers/Private/glog/config.h"
+
           mkdir -p "$SRC_DIR"
+
+          # 1) If src/config.h is missing, try configure
           if [ ! -f "$SRC_DIR/config.h" ]; then
-            echo "Generating glog/config.h"
-            (cd ios/Pods/glog && ./configure || true)
-            FOUND="$(/usr/bin/find ios/Pods -name config.h -path '*/glog/*' | head -n1 || true)"
-            if [ -n "${FOUND:-}" ]; then
-              cp "$FOUND" "$SRC_DIR/config.h"
-              echo "✅ Copied $FOUND -> $SRC_DIR/config.h"
-            else
-              echo "❌ glog config.h still missing!"
+            if [ -x "$GLOG_DIR/configure" ]; then
+              echo "Running glog ./configure to generate config.h"
+              (cd "$GLOG_DIR" && ./configure || true)
             fi
+          fi
+
+          # 2) If still missing, copy from any known location (Private headers first)
+          if [ ! -f "$SRC_DIR/config.h" ]; then
+            if [ -f "$PRIV_HDR" ]; then
+              echo "Copying $PRIV_HDR -> $SRC_DIR/config.h"
+              cp "$PRIV_HDR" "$SRC_DIR/config.h"
+            else
+              FOUND="$(/usr/bin/find ios/Pods -name config.h -path '*/glog/*' | head -n1 || true)"
+              if [ -n "${FOUND:-}" ]; then
+                echo "Copying $FOUND -> $SRC_DIR/config.h"
+                cp "$FOUND" "$SRC_DIR/config.h"
+              fi
+            fi
+          fi
+
+          # 3) Final check
+          if [ ! -f "$SRC_DIR/config.h" ]; then
+            echo "❌ glog src/config.h still missing; build will likely fail."
+            ls -la "$SRC_DIR" || true
+            exit 1
+          else
+            echo "✅ glog src/config.h present."
           fi
 
       - name: Build (xcodebuild)
@@ -140,18 +165,30 @@ jobs:
             -scheme "$SCHEME" \
             -configuration "$CONFIGURATION" \
             -destination 'generic/platform=iOS' \
+            -UseModernBuildSystem=YES \
+            -showBuildTimingSummary \
             clean
 
-          xcodebuild \
+          if ! xcodebuild \
             -workspace ios/monGARS.xcworkspace \
             -scheme "$SCHEME" \
             -configuration "$CONFIGURATION" \
             -destination 'generic/platform=iOS' \
             -derivedDataPath "$BUILD_DIR/DerivedData" \
-            build \
-            | tee "$LOG"
+            -UseModernBuildSystem=YES \
+            -showBuildTimingSummary \
+            build | tee "$LOG" ; then
+            echo "------ tail of $LOG ------"
+            tail -n 300 "$LOG" || true
+            exit 65
+          fi
 
-          grep -Fq "** BUILD SUCCEEDED **" "$LOG"
+          # Verify success using fixed-string grep (not regex)
+          if ! grep -Fq "** BUILD SUCCEEDED **" "$LOG"; then
+            echo "Build did not report success."
+            tail -n 300 "$LOG" || true
+            exit 65
+          fi
 
       - name: Package .app → .ipa (unsigned)
         run: |
