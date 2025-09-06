@@ -22,7 +22,7 @@ targets:
         INFOPLIST_FILE: MyOfflineLLMApp/Info.plist
         SWIFT_VERSION: 5.0
 
-        # Unsigned/device builds in CI
+        # Unsigned/device CI
         CODE_SIGNING_ALLOWED: NO
         CODE_SIGNING_REQUIRED: NO
         CODE_SIGN_IDENTITY: ""
