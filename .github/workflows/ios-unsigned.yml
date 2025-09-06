@@ -9,7 +9,7 @@ on:
 
 jobs:
   build-unsigned:
-    runs-on: macos-15
+    runs-on: macos-15  # newer image; still fallback Xcode below
     env:
       RCT_NEW_ARCH_ENABLED: "1"
       USE_HERMES: "true"
@@ -25,7 +25,7 @@ jobs:
         run: |
           ls -1 /Applications | sed -n 's/^Xcode.*/&/p' || true
 
-      # Try 16.4 first; if not available, fall back to 16.2
+      # Prefer Xcode 16.4; if missing, fall back to 16.2
       - name: Select Xcode 16.4 (attempt)
         id: xcode164
         continue-on-error: true
@@ -102,6 +102,7 @@ jobs:
             -derivedDataPath "$BUILD_DIR/DerivedData" \
             -resultBundlePath "$BUILD_DIR/$SCHEME.xcresult" \
             CODE_SIGNING_ALLOWED=NO CODE_SIGNING_REQUIRED=NO CODE_SIGN_IDENTITY="" \
+            SWIFT_DISABLE_REQUIRED_ARCLITE=YES \
             | tee "$BUILD_DIR/xcodebuild.log"
 
       - name: Package unsigned IPA + zip .app
@@ -122,7 +123,7 @@ jobs:
           (cd "$BUILD_DIR" && zip -qry offLLM-unsigned.ipa Payload)
           (cd "$APP_DIR" && zip -qry "$PWD/../../$SCHEME.app.zip" "$SCHEME.app")
 
-      # Unique names and overwrite to avoid 409 conflicts on re-runs
+      # Unique names + overwrite avoid 409 conflicts on re-runs
       - name: Upload IPA
         if: always()
         uses: actions/upload-artifact@v4
