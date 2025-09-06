@@ -28,12 +28,16 @@ jobs:
         with:
           xcode-version: "16.2"
 
-      - name: Print Xcode version
+      - name: Print Xcode version & export paths
         run: |
           set -euo pipefail
           xcodebuild -version
-          echo "DEVELOPER_DIR=$DEVELOPER_DIR" >> "$GITHUB_ENV"
-
+          # Fallback to xcode-select if DEVELOPER_DIR is unset
+          devdir="${DEVELOPER_DIR:-$(xcode-select -p)}"
+          echo "DEVELOPER_DIR=$devdir" >> "$GITHUB_ENV"
+          # MD_APPLE_SDK_ROOT should be the .app, not .../Contents/Developer
+          echo "MD_APPLE_SDK_ROOT=$(printf '%s\n' "$devdir" | sed -E 's|/Contents/Developer$||')" >> "$GITHUB_ENV"
+          echo "Resolved DEVELOPER_DIR=$devdir"
       - name: Setup Node
         uses: actions/setup-node@v4
         with:
