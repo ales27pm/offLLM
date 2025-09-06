@@ -43,42 +43,43 @@ jobs:
           if [ ! -f ios/project.yml ]; then
             echo "No ios/project.yml found — seeding a minimal XcodeGen spec."
             mkdir -p ios
-          cat > ios/project.yml <<'YML'
-name: monGARS
-options:
-  bundleIdPrefix: com.example
-  deploymentTarget:
-    iOS: "18.0"
-targets:
-  monGARS:
-    type: application
-    platform: iOS
-    sources:
-      - path: .
-        excludes:
-          - ios/**/*
-          - android/**/*
-          - node_modules/**/*
-    settings:
-      PRODUCT_BUNDLE_IDENTIFIER: com.example.monGARS
-      INFOPLIST_FILE: ios/Info.plist
-YML
+            # Indent heredoc by two spaces (for YAML), then strip those two spaces with sed
+            cat <<'YML' | sed 's/^  //' > ios/project.yml
+              name: monGARS
+              options:
+                bundleIdPrefix: com.example
+                deploymentTarget:
+                  iOS: "18.0"
+              targets:
+                monGARS:
+                  type: application
+                  platform: iOS
+                  sources:
+                    - path: .
+                      excludes:
+                        - ios/**/*
+                        - android/**/*
+                        - node_modules/**/*
+                  settings:
+                    PRODUCT_BUNDLE_IDENTIFIER: com.example.monGARS
+                    INFOPLIST_FILE: ios/Info.plist
+            YML
             if [ ! -f ios/Info.plist ]; then
-cat > ios/Info.plist <<'PLIST'
-<?xml version="1.0" encoding="UTF-8"?>
-<!DOCTYPE plist PUBLIC "-//Apple//DTD PLIST 1.0//EN" "http://www.apple.com/DTDs/PropertyList-1.0.dtd">
-<plist version="1.0">
-<dict>
-  <key>CFBundleName</key><string>monGARS</string>
-  <key>CFBundleIdentifier</key><string>com.example.monGARS</string>
-  <key>CFBundleExecutable</key><string>$(EXECUTABLE_NAME)</string>
-  <key>CFBundlePackageType</key><string>APPL</string>
-  <key>UISupportedInterfaceOrientations</key>
-  <array><string>UIInterfaceOrientationPortrait</string></array>
-  <key>LSRequiresIPhoneOS</key><true/>
-</dict>
-</plist>
-PLIST
+              cat <<'PLIST' | sed 's/^  //' > ios/Info.plist
+                <?xml version="1.0" encoding="UTF-8"?>
+                <!DOCTYPE plist PUBLIC "-//Apple//DTD PLIST 1.0//EN" "http://www.apple.com/DTDs/PropertyList-1.0.dtd">
+                <plist version="1.0">
+                <dict>
+                  <key>CFBundleName</key><string>monGARS</string>
+                  <key>CFBundleIdentifier</key><string>com.example.monGARS</string>
+                  <key>CFBundleExecutable</key><string>$(EXECUTABLE_NAME)</string>
+                  <key>CFBundlePackageType</key><string>APPL</string>
+                  <key>UISupportedInterfaceOrientations</key>
+                  <array><string>UIInterfaceOrientationPortrait</string></array>
+                  <key>LSRequiresIPhoneOS</key><true/>
+                </dict>
+                </plist>
+              PLIST
             fi
           fi
 
@@ -91,11 +92,12 @@ PLIST
           test -d monGARS.xcodeproj && echo "✅ Generated ios/monGARS.xcodeproj"
           popd >/dev/null
 
-      - name: Setup Ruby and CocoaPods
+      - name: Setup Ruby
         uses: ruby/setup-ruby@v1
         with:
           ruby-version: '3.3'
           bundler-cache: false
+
       - name: Install CocoaPods
         run: |
           set -euo pipefail
@@ -107,7 +109,6 @@ PLIST
       - name: Workaround glog config.h (if missing)
         run: |
           set -euo pipefail
-          # Some CI runs misplace glog's generated config.h; ensure it's where the target expects it.
           PRIV="ios/Pods/Headers/Private/glog/config.h"
           SRC="ios/Pods/glog/src/config.h"
           if [ -f "$PRIV" ] && [ ! -f "$SRC" ]; then
@@ -120,7 +121,6 @@ PLIST
           set -euo pipefail
           LOG="$BUILD_DIR/xcodebuild.log"
           mkdir -p "$BUILD_DIR"
-          # Clean
           xcodebuild \
             -workspace ios/monGARS.xcworkspace \
             -scheme "$SCHEME" \
@@ -128,8 +128,6 @@ PLIST
             -destination 'generic/platform=iOS' \
             -quiet \
             clean
-
-          # Build & archive to derived products (unsigned)
           xcodebuild \
             -workspace ios/monGARS.xcworkspace \
             -scheme "$SCHEME" \
@@ -139,8 +137,6 @@ PLIST
             -quiet \
             build \
             | tee "$LOG" || true
-
-          # fail if build actually failed (exit code swallowed due to tee)
           grep -q "** BUILD SUCCEEDED **" "$LOG" || { echo "Build failed"; exit 65; }
 
       - name: Package .app → .ipa (unsigned)
@@ -158,7 +154,6 @@ PLIST
       - name: Export xcresult summary (JSON)
         run: |
           set -euo pipefail
-          # Find last .xcresult inside DerivedData
           XCRESULT_DIR="$(/usr/bin/find "$BUILD_DIR" -name '*.xcresult' -maxdepth 3 -print -quit || true)"
           if [ -z "$XCRESULT_DIR" ]; then
             echo "No xcresult found"; exit 0
