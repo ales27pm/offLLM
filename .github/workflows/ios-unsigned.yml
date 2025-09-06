@@ -22,6 +22,7 @@ jobs:
       BUILD_DIR: build
       TEAM_NAME: "27pm"
       PROJECT_NAME: "monGARS"
+      MD_APPLE_SDK_ROOT: /Applications/Xcode_16.4.app
 
     steps:
       - name: Checkout
@@ -44,7 +45,7 @@ jobs:
         with:
           xcode-version: "16.2"
 
-      # Robust version detection (avoid flaky `xcodebuild -version`)
+      # Avoid flaky `xcodebuild -version` by reading Info.plist
       - name: Confirm Xcode
         id: xcodever
         shell: bash
@@ -79,35 +80,34 @@ jobs:
           set -euo pipefail
           mkdir -p scripts/ci
 
-          # Collect symbols script (portable: no 'mapfile', POSIX sh compatible)
-          cat > scripts/ci/collect-symbols.sh <<'SH'
-          #!/usr/bin/env bash
-          set -euo pipefail
-          BUILD_DIR="${1:-build}"
-          CONFIG="${2:-Release}"
-          SCHEME="${3:-monGARS}"
+cat > scripts/ci/collect-symbols.sh <<'SH'
+#!/usr/bin/env bash
+set -euo pipefail
+BUILD_DIR="${1:-build}"
+CONFIG="${2:-Release}"
+SCHEME="${3:-monGARS}"
 
-          APP_PRODUCTS="$BUILD_DIR/DerivedData/Build/Products/${CONFIG}-iphoneos"
-          DSYM_DIR="$APP_PRODUCTS/${SCHEME}.app.dSYM"
-          BCS_DIR="$APP_PRODUCTS/BCSymbolMaps"
+APP_PRODUCTS="$BUILD_DIR/DerivedData/Build/Products/${CONFIG}-iphoneos"
+DSYM_DIR="$APP_PRODUCTS/${SCHEME}.app.dSYM"
+BCS_DIR="$APP_PRODUCTS/BCSymbolMaps"
 
-          OUT_DSYM="$BUILD_DIR/${SCHEME}.dSYM.zip"
-          OUT_BCS="$BUILD_DIR/BCSymbolMaps.zip"
+OUT_DSYM="$BUILD_DIR/${SCHEME}.dSYM.zip"
+OUT_BCS="$BUILD_DIR/BCSymbolMaps.zip"
 
-          rm -f "$OUT_DSYM" "$OUT_BCS" || true
+rm -f "$OUT_DSYM" "$OUT_BCS" || true
 
-          if [ -d "$DSYM_DIR" ]; then
-            (cd "$APP_PRODUCTS" && /usr/bin/zip -qry "$PWD/../../${SCHEME}.dSYM.zip" "${SCHEME}.app.dSYM")
-          else
-            echo "No dSYM found at $DSYM_DIR"
-          fi
+if [ -d "$DSYM_DIR" ]; then
+  (cd "$APP_PRODUCTS" && /usr/bin/zip -qry "$PWD/../../${SCHEME}.dSYM.zip" "${SCHEME}.app.dSYM")
+else
+  echo "No dSYM found at $DSYM_DIR"
+fi
 
-          if [ -d "$BCS_DIR" ]; then
-            (cd "$APP_PRODUCTS" && /usr/bin/zip -qry "$PWD/../../BCSymbolMaps.zip" BCSymbolMaps)
-          else
-            echo "No BCSymbolMaps found at $BCS_DIR"
-          fi
-          SH
+if [ -d "$BCS_DIR" ]; then
+  (cd "$APP_PRODUCTS" && /usr/bin/zip -qry "$PWD/../../BCSymbolMaps.zip" BCSymbolMaps)
+else
+  echo "No BCSymbolMaps found at $BCS_DIR"
+fi
+SH
           chmod +x scripts/ci/collect-symbols.sh
 
       - name: (Optional) Seed XcodeGen project if missing
@@ -176,193 +176,194 @@ PLIST
         shell: bash
         run: |
           set -euo pipefail
-          cat > Podfile <<'POD'
-          platform :ios, '18.0'
-          ENV['RCT_NEW_ARCH_ENABLED'] = '1' # Fabric/Turbo
 
-          require_relative '../node_modules/react-native/scripts/react_native_pods'
+cat > Podfile <<'POD'
+platform :ios, '18.0'
+ENV['RCT_NEW_ARCH_ENABLED'] = '1' # Fabric/Turbo
 
-          install! 'cocoapods',
-            generate_multiple_pod_projects: true,
-            disable_input_output_paths: true,
-            warn_for_multiple_pod_sources: true
+require_relative '../node_modules/react-native/scripts/react_native_pods'
 
-          # Discover project (works for XcodeGen output too)
-          project_candidates = Dir['*.xcodeproj'] + Dir['**/*.xcodeproj']
-          project_path = project_candidates.first or raise "No .xcodeproj found near Podfile (#{__dir__})"
-          puts "Using Xcode project at: #{project_path}"
-          project project_path, 'Debug' => :debug, 'Release' => :release
+install! 'cocoapods',
+  generate_multiple_pod_projects: true,
+  disable_input_output_paths: true,
+  warn_for_multiple_pod_sources: true
 
-          app_target = File.basename(project_path, '.xcodeproj')
-          USE_FLIPPER = ENV['USE_FLIPPER'] == '1'
-          NEW_ARCH_ENABLED = ENV['RCT_NEW_ARCH_ENABLED'] == '1'
+# Discover project (works for XcodeGen output too)
+project_candidates = Dir['*.xcodeproj'] + Dir['**/*.xcodeproj']
+project_path = project_candidates.first or raise "No .xcodeproj found near Podfile (#{__dir__})"
+puts "Using Xcode project at: #{project_path}"
+project project_path, 'Debug' => :debug, 'Release' => :release
 
-          target app_target do
-            use_frameworks! linkage: :static
+app_target = File.basename(project_path, '.xcodeproj')
+USE_FLIPPER = ENV['USE_FLIPPER'] == '1'
+NEW_ARCH_ENABLED = ENV['RCT_NEW_ARCH_ENABLED'] == '1'
 
-            config = (use_native_modules! rescue nil) || {}
-            react_native_path = config[:reactNativePath] || File.expand_path('../node_modules/react-native', __dir__)
+target app_target do
+  use_frameworks! linkage: :static
 
-            use_react_native!(
-              path: react_native_path,
-              hermes_enabled: true,
-              new_arch_enabled: true,
-              fabric_enabled: NEW_ARCH_ENABLED,
-              app_path: "#{Pod::Config.instance.installation_root}/.."
-            )
+  config = (use_native_modules! rescue nil) || {}
+  react_native_path = config[:reactNativePath] || File.expand_path('../node_modules/react-native', __dir__)
 
-            # Ensure <react/bridging/*.h> resolves
-            pod 'ReactCommon/turbomodule/bridging', path: "#{react_native_path}/ReactCommon"
+  use_react_native!(
+    path: react_native_path,
+    hermes_enabled: true,
+    new_arch_enabled: true,
+    fabric_enabled: NEW_ARCH_ENABLED,
+    app_path: "#{Pod::Config.instance.installation_root}/.."
+  )
 
-            use_flipper!({ 'Flipper' => '0.203.0' }) if USE_FLIPPER
+  # Ensure <react/bridging/*.h> resolves
+  pod 'ReactCommon/turbomodule/bridging', path: "#{react_native_path}/ReactCommon"
+
+  use_flipper!({ 'Flipper' => '0.203.0' }) if USE_FLIPPER
+end
+
+FORBIDDEN_HERMES_MARKERS = [
+  'replace hermes',
+  'replace hermes for the right configuration',
+  '[hermes]'
+].freeze
+
+def strip_hermes_replacement_scripts!(project)
+  project.targets.each do |t|
+    t.build_phases.select { |p|
+      p.isa == 'PBXShellScriptBuildPhase' &&
+      FORBIDDEN_HERMES_MARKERS.any? { |m|
+        (p.name || '').downcase.include?(m) || (p.shell_script || '').downcase.include?(m)
+      }
+    }.each do |p|
+      t.build_phases.delete(p)
+      p.remove_from_project
+    end
+  end
+  project.save
+end
+
+def pods_projects_for(installer)
+  pods = [installer.pods_project]
+  pods.concat(Array(installer.generated_projects)) if installer.respond_to?(:generated_projects)
+  pods.compact
+end
+
+def user_projects_for(installer)
+  installer.aggregate_targets.map(&:user_project).compact.uniq { |p| p.path.to_s }
+end
+
+def scrub_cp_filelists_from_target(target)
+  target.build_phases.each do |phase|
+    next unless phase.respond_to?(:name)
+    next unless phase.name&.include?('[CP]')
+    begin
+      phase.input_paths = [] if phase.respond_to?(:input_paths=)
+      phase.output_paths = [] if phase.respond_to?(:output_paths=)
+      phase.input_file_list_paths = [] if phase.respond_to?(:input_file_list_paths=)
+      phase.output_file_list_paths = [] if phase.respond_to?(:output_file_list_paths=)
+    rescue => e
+      puts "WARN: Skipping scrub for phase #{phase.name}: #{e}"
+    end
+  end
+end
+
+post_install do |installer|
+  react_native_post_install(installer) if defined?(react_native_post_install)
+
+  pods_projects = pods_projects_for(installer)
+  user_projects = user_projects_for(installer)
+  all_projects  = (pods_projects + user_projects).uniq { |p| p.path.to_s }
+
+  min_target = Gem::Version.new('18.0')
+
+  all_projects.each do |proj|
+    strip_hermes_replacement_scripts!(proj)
+
+    proj.targets.each do |t|
+      scrub_cp_filelists_from_target(t)
+
+      t.build_configurations.each do |cfg|
+        bs = cfg.build_settings
+
+        # CRITICAL: robust header resolution for RN new-arch + libc++
+        bs['USE_HEADERMAP'] = 'YES'
+        bs['HEADER_SEARCH_PATHS'] = [
+          '$(inherited)',
+          '$(PODS_ROOT)/Headers/Public/**',
+          '$(PODS_ROOT)/Headers/Private/**',
+          '$(PODS_CONFIGURATION_BUILD_DIR)/**',
+          '$(SDKROOT)/usr/include/c++/v1'
+        ]
+        bs['SYSTEM_HEADER_SEARCH_PATHS'] = '$(SDKROOT)/usr/include'
+
+        # allow Pods scripts to create header symlinks
+        bs['ENABLE_USER_SCRIPT_SANDBOXING'] = 'NO'
+
+        # Debug vs Release Swift settings (avoid forcing SWIFT_VERSION)
+        if cfg.name.include?('Debug')
+          bs['SWIFT_OPTIMIZATION_LEVEL'] = '-Onone'
+          bs['SWIFT_COMPILATION_MODE']   = 'singlefile'
+        else
+          bs['SWIFT_OPTIMIZATION_LEVEL'] ||= '-O'
+        end
+
+        # Non-fatal warnings; Folly safe path
+        bs['GCC_TREAT_WARNINGS_AS_ERRORS'] = 'NO'
+        bs['OTHER_CFLAGS'] = [bs['OTHER_CFLAGS'], '$(inherited)', '-Wno-everything', '-DFOLLY_DISABLE_SIMD=1'].compact.join(' ').squeeze(' ')
+        bs['OTHER_CPLUSPLUSFLAGS'] = [bs['OTHER_CPLUSPLUSFLAGS'], '$(inherited)', '-DFOLLY_DISABLE_SIMD=1'].compact.join(' ').squeeze(' ')
+
+        # C/C++ toolchain stability
+        bs['CLANG_CXX_LANGUAGE_STANDARD'] ||= 'gnu++17'
+        bs['CLANG_CXX_LIBRARY']          ||= 'libc++'
+        bs['GCC_C_LANGUAGE_STANDARD']    ||= 'gnu11'
+
+        # Unify deployment target
+        current = Gem::Version.new(bs['IPHONEOS_DEPLOYMENT_TARGET'] || '0')
+        bs['IPHONEOS_DEPLOYMENT_TARGET'] = min_target.to_s if current < min_target
+
+        bs['ALWAYS_SEARCH_USER_PATHS'] = 'NO'
+      end
+
+      # Silence “[CP] … will run every build” warnings
+      t.build_phases
+        .select { |p| p.isa == 'PBXShellScriptBuildPhase' && p.name&.start_with?('[CP]') }
+        .each do |run|
+          if (run.input_paths || []).empty? && (run.output_paths || []).empty?
+            run.always_out_of_date = '1' if run.respond_to?(:always_out_of_date=)
           end
+        end
+    end
 
-          FORBIDDEN_HERMES_MARKERS = [
-            'replace hermes',
-            'replace hermes for the right configuration',
-            '[hermes]'
-          ].freeze
+    proj.save
+  end
 
-          def strip_hermes_replacement_scripts!(project)
-            project.targets.each do |t|
-              t.build_phases.select { |p|
-                p.isa == 'PBXShellScriptBuildPhase' &&
-                FORBIDDEN_HERMES_MARKERS.any? { |m|
-                  (p.name || '').downcase.include?(m) || (p.shell_script || '').downcase.include?(m)
-                }
-              }.each do |p|
-                t.build_phases.delete(p)
-                p.remove_from_project
-              end
-            end
-            project.save
+  # CI guard
+  if ENV['CI']
+    offending = []
+    all_projects.each do |proj|
+      proj.targets.each do |t|
+        t.build_phases.select { |p| p.isa == 'PBXShellScriptBuildPhase' }.each do |phase|
+          name = (phase.name || '').downcase
+          body = (phase.shell_script || '').downcase
+          if ['replace hermes','replace hermes for the right configuration','[hermes]'].any? { |m| name.include?(m) || body.include?(m) }
+            offending << "#{proj.path.basename} :: #{t.name} :: #{phase.name}"
           end
+        end
+      end
+    end
+    raise "Forbidden Hermes script phase(s) found:\n  #{offending.join("\n  ")}" unless offending.empty?
+  end
+end
 
-          def pods_projects_for(installer)
-            pods = [installer.pods_project]
-            pods.concat(Array(installer.generated_projects)) if installer.respond_to?(:generated_projects)
-            pods.compact
-          end
-
-          def user_projects_for(installer)
-            installer.aggregate_targets.map(&:user_project).compact.uniq { |p| p.path.to_s }
-          end
-
-          def scrub_cp_filelists_from_target(target)
-            target.build_phases.each do |phase|
-              next unless phase.respond_to?(:name)
-              next unless phase.name&.include?('[CP]')
-              begin
-                phase.input_paths = [] if phase.respond_to?(:input_paths=)
-                phase.output_paths = [] if phase.respond_to?(:output_paths=)
-                phase.input_file_list_paths = [] if phase.respond_to?(:input_file_list_paths=)
-                phase.output_file_list_paths = [] if phase.respond_to?(:output_file_list_paths=)
-              rescue => e
-                puts "WARN: Skipping scrub for phase #{phase.name}: #{e}"
-              end
-            end
-          end
-
-          post_install do |installer|
-            react_native_post_install(installer) if defined?(react_native_post_install)
-
-            pods_projects = pods_projects_for(installer)
-            user_projects = user_projects_for(installer)
-            all_projects  = (pods_projects + user_projects).uniq { |p| p.path.to_s }
-
-            min_target = Gem::Version.new('18.0')
-
-            all_projects.each do |proj|
-              strip_hermes_replacement_scripts!(proj)
-
-              proj.targets.each do |t|
-                scrub_cp_filelists_from_target(t)
-
-                t.build_configurations.each do |cfg|
-                  bs = cfg.build_settings
-
-                  # CRITICAL: make header resolution robust for RN new arch
-                  bs['USE_HEADERMAP'] = 'YES'
-                  bs['HEADER_SEARCH_PATHS'] = [
-                    '$(inherited)',
-                    '$(PODS_ROOT)/Headers/Public/**',
-                    '$(PODS_ROOT)/Headers/Private/**',
-                    '$(PODS_CONFIGURATION_BUILD_DIR)/**',
-                    '$(SDKROOT)/usr/include/c++/v1'
-                  ]
-                  bs['SYSTEM_HEADER_SEARCH_PATHS'] = '$(SDKROOT)/usr/include'
-
-                  # allow Pods scripts to symlink headers
-                  bs['ENABLE_USER_SCRIPT_SANDBOXING'] = 'NO'
-
-                  # Debug vs Release Swift settings (don’t force SWIFT_VERSION → avoids preview spam)
-                  if cfg.name.include?('Debug')
-                    bs['SWIFT_OPTIMIZATION_LEVEL'] = '-Onone'
-                    bs['SWIFT_COMPILATION_MODE']   = 'singlefile'
-                  else
-                    bs['SWIFT_OPTIMIZATION_LEVEL'] ||= '-O'
-                  end
-
-                  # Non-fatal warnings; Folly safe path
-                  bs['GCC_TREAT_WARNINGS_AS_ERRORS'] = 'NO'
-                  bs['OTHER_CFLAGS'] = [bs['OTHER_CFLAGS'], '$(inherited)', '-Wno-everything', '-DFOLLY_DISABLE_SIMD=1'].compact.join(' ').squeeze(' ')
-                  bs['OTHER_CPLUSPLUSFLAGS'] = [bs['OTHER_CPLUSPLUSFLAGS'], '$(inherited)', '-DFOLLY_DISABLE_SIMD=1'].compact.join(' ').squeeze(' ')
-
-                  # C/C++ toolchain stability
-                  bs['CLANG_CXX_LANGUAGE_STANDARD'] ||= 'gnu++17'
-                  bs['CLANG_CXX_LIBRARY']          ||= 'libc++'
-                  bs['GCC_C_LANGUAGE_STANDARD']    ||= 'gnu11'
-
-                  # Unify deployment target
-                  current = Gem::Version.new(bs['IPHONEOS_DEPLOYMENT_TARGET'] || '0')
-                  bs['IPHONEOS_DEPLOYMENT_TARGET'] = min_target.to_s if current < min_target
-
-                  bs['ALWAYS_SEARCH_USER_PATHS'] = 'NO'
-                end
-
-                # Silence “[CP] … will run every build” warnings
-                t.build_phases
-                  .select { |p| p.isa == 'PBXShellScriptBuildPhase' && p.name&.start_with?('[CP]') }
-                  .each do |run|
-                    if (run.input_paths || []).empty? && (run.output_paths || []).empty?
-                      run.always_out_of_date = '1' if run.respond_to?(:always_out_of_date=)
-                    end
-                  end
-              end
-
-              proj.save
-            end
-
-            # CI guard
-            if ENV['CI']
-              offending = []
-              all_projects.each do |proj|
-                proj.targets.each do |t|
-                  t.build_phases.select { |p| p.isa == 'PBXShellScriptBuildPhase' }.each do |phase|
-                    name = (phase.name || '').downcase
-                    body = (phase.shell_script || '').downcase
-                    if ['replace hermes','replace hermes for the right configuration','[hermes]'].any? { |m| name.include?(m) || body.include?(m) }
-                      offending << "#{proj.path.basename} :: #{t.name} :: #{phase.name}"
-                    end
-                  end
-                end
-              end
-              raise "Forbidden Hermes script phase(s) found:\n  #{offending.join("\n  ")}" unless offending.empty?
-            end
-          end
-
-          post_integrate do |installer|
-            (pods_projects_for(installer) + user_projects_for(installer)).each do |proj|
-              strip_hermes_replacement_scripts!(proj)
-              proj.targets.each do |t|
-                t.build_phases
-                  .select { |p| p.isa == 'PBXShellScriptBuildPhase' && p.name&.start_with?('[CP]') }
-                  .each { |run| run.always_out_of_date = '1' if (run.input_paths || []).empty? && (run.output_paths || []).empty? }
-              end
-              proj.save
-            end
-          end
-          POD
+post_integrate do |installer|
+  (pods_projects_for(installer) + user_projects_for(installer)).each do |proj|
+    strip_hermes_replacement_scripts!(proj)
+    proj.targets.each do |t|
+      t.build_phases
+        .select { |p| p.isa == 'PBXShellScriptBuildPhase' && p.name&.start_with?('[CP]') }
+        .each { |run| run.always_out_of_date = '1' if (run.input_paths || []).empty? && (run.output_paths || []).empty? }
+    end
+    proj.save
+  end
+end
+POD
 
       - name: Clean DerivedData & Pod cache
         working-directory: ios
