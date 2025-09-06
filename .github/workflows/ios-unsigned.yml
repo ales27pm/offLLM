@@ -29,7 +29,7 @@ jobs:
         run: |
           ls -1 /Applications | sed -n 's/^Xcode.*/&/p' || true
 
-      # Prefer 16.4; if missing, fall back to 16.2
+      # Prefer Xcode 16.4; if missing, fall back to 16.2
       - name: Select Xcode 16.4 (attempt)
         id: xcode164
         continue-on-error: true
