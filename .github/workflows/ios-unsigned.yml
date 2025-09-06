@@ -29,7 +29,7 @@ jobs:
         run: |
           ls -1 /Applications | sed -n 's/^Xcode.*/&/p' || true
 
-      # Prefer Xcode 16.4; if missing, fall back to 16.2
+      # Prefer 16.4; if missing, fall back to 16.2
       - name: Select Xcode 16.4 (attempt)
         id: xcode164
         continue-on-error: true
@@ -93,6 +93,10 @@ jobs:
           gem install xcodeproj
           ruby scripts/ci/post_install_hardening_hook.rb
 
+      # (Optional) Clean first to avoid any stale intermediates
+      - name: Clean derived data
+        run: rm -rf "$BUILD_DIR/DerivedData"
+
       - name: Build (unsigned, device)
         shell: bash
         run: |
@@ -108,6 +112,38 @@ jobs:
             CODE_SIGNING_ALLOWED=NO CODE_SIGNING_REQUIRED=NO CODE_SIGN_IDENTITY="" \
             SWIFT_DISABLE_REQUIRED_ARCLITE=YES \
             | tee "$BUILD_DIR/xcodebuild.log"
+
+      # 🔎 Print the first few real compiler errors/warnings from the .xcresult
+      - name: Summarize build errors
+        if: always()
+        shell: bash
+        run: |
+          if [ -d "$BUILD_DIR/$SCHEME.xcresult" ]; then
+            xcrun xcresulttool get --path "$BUILD_DIR/$SCHEME.xcresult" --format json > "$BUILD_DIR/$SCHEME.xcresult.json" || true
+            python3 - << 'PY'
+import json, sys
+p="build/monGARS.xcresult.json"
+try:
+    j=json.load(open(p))
+    issues=j.get('issues',{})
+    errs=issues.get('errorSummaries',[])
+    warns=issues.get('warningSummaries',[])
+    def show(kind, arr, n=20):
+        if arr:
+            print(f"\n==== {kind.upper()} (up to {n}) ====")
+            for i,e in enumerate(arr[:n],1):
+                msg=e.get('message','').strip()
+                loc=e.get('documentLocationInCreatingWorkspace',{}).get('url','')
+                print(f"{i}. {msg}")
+                if loc: print(f"   @ {loc}")
+    show('errors', errs)
+    show('warnings', warns)
+except Exception as e:
+    print("xcresult parse skipped:",e)
+PY
+          else
+            echo "No .xcresult found to summarize."
+          fi
 
       - name: Package unsigned IPA + zip .app
         if: always()
@@ -127,9 +163,11 @@ jobs:
           (cd "$BUILD_DIR" && zip -qry offLLM-unsigned.ipa Payload)
           (cd "$APP_DIR" && zip -qry "$PWD/../../$SCHEME.app.zip" "$SCHEME.app")
 
+      # ✅ FIX PERMISSION DENIED: call collection script via bash
       - name: Collect symbols (dSYM & BCSymbolMaps)
         if: always()
-        run: scripts/ci/collect-symbols.sh "$BUILD_DIR" "$CONFIGURATION" "$SCHEME"
+        shell: bash
+        run: bash scripts/ci/collect-symbols.sh "$BUILD_DIR" "$CONFIGURATION" "$SCHEME"
 
       - name: Upload IPA
         if: always()
@@ -161,5 +199,6 @@ jobs:
           path: |
             build/xcodebuild.log
             build/monGARS.xcresult
+            build/monGARS.xcresult.json
           if-no-files-found: warn
           overwrite: true
