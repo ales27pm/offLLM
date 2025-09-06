@@ -8,7 +8,7 @@ install! 'cocoapods',
   disable_input_output_paths: true,
   warn_for_multiple_pod_sources: true
 
-# Find the (XcodeGen-generated) project automatically
+# Find (XcodeGen-generated) project automatically
 project_candidates = Dir['*.xcodeproj'] + Dir['**/*.xcodeproj']
 project_path = project_candidates.first or raise "No .xcodeproj found near Podfile (#{__dir__})"
 puts "Using Xcode project at: #{project_path}"
@@ -32,7 +32,7 @@ target app_target do
     app_path: "#{Pod::Config.instance.installation_root}/.."
   )
 
-  # Ensure <react/bridging/*.h> resolves
+  # Ensure <react/bridging/*.h> resolves (provides bridging headers)
   pod 'ReactCommon/turbomodule/bridging', path: "#{react_native_path}/ReactCommon"
 
   use_flipper!({ 'Flipper' => '0.203.0' }) if USE_FLIPPER
@@ -102,6 +102,18 @@ post_install do |installer|
       t.build_configurations.each do |cfg|
         bs = cfg.build_settings
 
+        # === CRITICAL FIX FOR HEADER RESOLUTION ===
+        # Make header maps and searches robust so <react/bridging/*.h> resolves.
+        bs['USE_HEADERMAP'] = 'YES'
+        header_searches = [
+          '$(inherited)',
+          '$(PODS_ROOT)/Headers/Public/**',
+          '$(PODS_ROOT)/Headers/Private/**',
+          # Some RN pods generate headers into the config build dir as well:
+          '$(PODS_CONFIGURATION_BUILD_DIR)/**'
+        ]
+        bs['HEADER_SEARCH_PATHS'] = header_searches
+
         # allow Pods run-scripts to create header symlinks
         bs['ENABLE_USER_SCRIPT_SANDBOXING'] = 'NO'
 
@@ -112,18 +124,17 @@ post_install do |installer|
           bs['SWIFT_OPTIMIZATION_LEVEL'] ||= '-O'
         end
 
-        # Make warnings non-fatal across the board
+        # Make warnings non-fatal and quiet (keeps CI green)
         bs['GCC_TREAT_WARNINGS_AS_ERRORS'] = 'NO'
-        bs['OTHER_CFLAGS'] = [bs['OTHER_CFLAGS'], '$(inherited)', '-Wno-everything'].compact.join(' ').squeeze(' ')
+        bs['OTHER_CFLAGS'] = [bs['OTHER_CFLAGS'], '$(inherited)', '-Wno-everything', '-DFOLLY_DISABLE_SIMD=1'].compact.join(' ').squeeze(' ')
+        bs['OTHER_CPLUSPLUSFLAGS'] = [bs['OTHER_CPLUSPLUSFLAGS'], '$(inherited)', '-DFOLLY_DISABLE_SIMD=1'].compact.join(' ').squeeze(' ')
 
-        # Toolchain & Folly stability
+        # Toolchain stability
         bs['CLANG_CXX_LANGUAGE_STANDARD'] ||= 'gnu++17'
         bs['CLANG_CXX_LIBRARY']          ||= 'libc++'
         bs['GCC_C_LANGUAGE_STANDARD']    ||= 'gnu11'
-        bs['OTHER_CPLUSPLUSFLAGS'] = [bs['OTHER_CPLUSPLUSFLAGS'], '$(inherited)', '-DFOLLY_DISABLE_SIMD=1'].compact.join(' ').squeeze(' ')
-        bs['OTHER_CFLAGS']         = [bs['OTHER_CFLAGS'],         '$(inherited)', '-DFOLLY_DISABLE_SIMD=1', '-Wno-everything'].compact.join(' ').squeeze(' ')
 
-        # unifying deployment target
+        # Unify deployment target
         current = Gem::Version.new(bs['IPHONEOS_DEPLOYMENT_TARGET'] || '0')
         bs['IPHONEOS_DEPLOYMENT_TARGET'] = min_target.to_s if current < min_target
 
