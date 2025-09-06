@@ -1,8 +1,9 @@
 #!/usr/bin/env ruby
-# Make Pods + app target build cleanly on iOS:
-# - Standardize on libc++ + C++17 (stable for RN/Folly)
-# - Disable Folly SIMD (avoid SimdAnyOf/SimdForEach failures): -DFOLLY_DISABLE_SIMD=1
-# - Do NOT inject custom -isystem or C++20 typedef macros (these can perturb header precedence)
+# MonGARS CI hardening for iOS
+# - Use libc++ + C++17 (what RN/Folly expect)
+# - Disable Folly SIMD: -DFOLLY_DISABLE_SIMD=1 (avoids SimdAnyOf/SimdForEach failures)
+# - Remove old C++20/headers hacks
+# - Keep script idempotent (safe to run multiple times)
 
 require 'xcodeproj'
 
@@ -31,10 +32,8 @@ def ensure_flags(list_or_string, *flags)
         when Array then list_or_string
         else []
         end
-  flags.each do |f|
-    arr << '$(inherited)' unless arr.include?('$(inherited)')
-    arr << f unless arr.include?(f)
-  end
+  arr << '$(inherited)' unless arr.include?('$(inherited)')
+  flags.each { |f| arr << f unless arr.include?(f) }
   arr.join(' ').strip
 end
 
@@ -57,19 +56,17 @@ def patch_project(proj_path, target_name: nil)
   end
 
   proj = Xcodeproj::Project.open(proj_path)
-
   proj.targets.each do |t|
     next if target_name && t.name != target_name
 
     t.build_configurations.each do |cfg|
       bs = cfg.build_settings
-
       # libc++ + C++17
       bs['CLANG_CXX_LIBRARY']           = LIBCXX
       bs['CLANG_CXX_LANGUAGE_STANDARD'] = normalize_cxx_std(bs['CLANG_CXX_LANGUAGE_STANDARD'])
       bs['GCC_C_LANGUAGE_STANDARD']   ||= 'gnu11'
 
-      # Remove any previous tweaks we might have added in earlier attempts
+      # Remove previous hacks (C++20 typedefs, custom -isystem, forced SIMD on)
       %w[OTHER_CPLUSPLUSFLAGS OTHER_CFLAGS].each do |k|
         bs[k] = strip_flags(bs[k]) { |f|
           f == '-isystem' ||
@@ -79,7 +76,7 @@ def patch_project(proj_path, target_name: nil)
         }
       end
 
-      # Disable Folly SIMD everywhere (Pods + app)
+      # Disable Folly SIMD globally
       bs['OTHER_CPLUSPLUSFLAGS'] = ensure_flags(bs['OTHER_CPLUSPLUSFLAGS'], FOLLY_SIMD_OFF)
       bs['OTHER_CFLAGS']         = ensure_flags(bs['OTHER_CFLAGS'],         FOLLY_SIMD_OFF)
     end
@@ -89,8 +86,5 @@ def patch_project(proj_path, target_name: nil)
   puts "✅ Patched #{proj_path}"
 end
 
-# 1) Patch Pods (covers RCT-Folly, DoubleConversion, etc.)
-patch_project(PODS_PROJ_PATH)
-
-# 2) Patch app target
-patch_project(APP_PROJ_PATH, target_name: 'monGARS')
+patch_project(PODS_PROJ_PATH)                          # Pods incl. RCT-Folly
+patch_project(APP_PROJ_PATH, target_name: 'monGARS')   # App target
