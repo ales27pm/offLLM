@@ -93,7 +93,6 @@ jobs:
           gem install xcodeproj
           ruby scripts/ci/post_install_hardening_hook.rb
 
-      # (Optional) Clean first to avoid any stale intermediates
       - name: Clean derived data
         run: rm -rf "$BUILD_DIR/DerivedData"
 
@@ -113,38 +112,6 @@ jobs:
             SWIFT_DISABLE_REQUIRED_ARCLITE=YES \
             | tee "$BUILD_DIR/xcodebuild.log"
 
-      # 🔎 Print the first few real compiler errors/warnings from the .xcresult
-      - name: Summarize build errors
-        if: always()
-        shell: bash
-        run: |
-          if [ -d "$BUILD_DIR/$SCHEME.xcresult" ]; then
-            xcrun xcresulttool get --path "$BUILD_DIR/$SCHEME.xcresult" --format json > "$BUILD_DIR/$SCHEME.xcresult.json" || true
-            python3 - << 'PY'
-import json, sys
-p="build/monGARS.xcresult.json"
-try:
-    j=json.load(open(p))
-    issues=j.get('issues',{})
-    errs=issues.get('errorSummaries',[])
-    warns=issues.get('warningSummaries',[])
-    def show(kind, arr, n=20):
-        if arr:
-            print(f"\n==== {kind.upper()} (up to {n}) ====")
-            for i,e in enumerate(arr[:n],1):
-                msg=e.get('message','').strip()
-                loc=e.get('documentLocationInCreatingWorkspace',{}).get('url','')
-                print(f"{i}. {msg}")
-                if loc: print(f"   @ {loc}")
-    show('errors', errs)
-    show('warnings', warns)
-except Exception as e:
-    print("xcresult parse skipped:",e)
-PY
-          else
-            echo "No .xcresult found to summarize."
-          fi
-
       - name: Package unsigned IPA + zip .app
         if: always()
         shell: bash
@@ -163,7 +130,7 @@ PY
           (cd "$BUILD_DIR" && zip -qry offLLM-unsigned.ipa Payload)
           (cd "$APP_DIR" && zip -qry "$PWD/../../$SCHEME.app.zip" "$SCHEME.app")
 
-      # ✅ FIX PERMISSION DENIED: call collection script via bash
+      # Run via bash to avoid permission problems even if the exec bit isn't set
       - name: Collect symbols (dSYM & BCSymbolMaps)
         if: always()
         shell: bash
@@ -199,6 +166,5 @@ PY
           path: |
             build/xcodebuild.log
             build/monGARS.xcresult
-            build/monGARS.xcresult.json
           if-no-files-found: warn
           overwrite: true
