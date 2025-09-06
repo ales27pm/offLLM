@@ -1,9 +1,8 @@
 #!/usr/bin/env ruby
 # MonGARS CI hardening for iOS
 # - Use libc++ + C++17 (what RN/Folly expect)
-# - Disable Folly SIMD: -DFOLLY_DISABLE_SIMD=1 (avoids SimdAnyOf/SimdForEach failures)
-# - Remove old C++20/headers hacks
-# - Keep script idempotent (safe to run multiple times)
+# - Disable Folly SIMD (-DFOLLY_DISABLE_SIMD=1) to avoid SimdAnyOf/SimdForEach failures
+# - Remove old C++20/headers hacks; idempotent
 
 require 'xcodeproj'
 
@@ -61,6 +60,7 @@ def patch_project(proj_path, target_name: nil)
 
     t.build_configurations.each do |cfg|
       bs = cfg.build_settings
+
       # libc++ + C++17
       bs['CLANG_CXX_LIBRARY']           = LIBCXX
       bs['CLANG_CXX_LANGUAGE_STANDARD'] = normalize_cxx_std(bs['CLANG_CXX_LANGUAGE_STANDARD'])
@@ -86,5 +86,5 @@ def patch_project(proj_path, target_name: nil)
   puts "✅ Patched #{proj_path}"
 end
 
-patch_project(PODS_PROJ_PATH)                          # Pods incl. RCT-Folly
+patch_project(PODS_PROJ_PATH)                          # Pods incl. RCT-Folly, DoubleConversion, etc.
 patch_project(APP_PROJ_PATH, target_name: 'monGARS')   # App target
