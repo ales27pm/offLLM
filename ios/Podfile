@@ -1,118 +1,192 @@
-# Ensure pods support iOS 18.0+ (app's actual deployment target is set in Xcode project)
+# Ensure pods support iOS 18.0+; the app's deployment target lives in XcodeGen too
 platform :ios, '18.0'
-ENV['RCT_NEW_ARCH_ENABLED'] = "1"  # Enable Fabric/TurboModules for New Architecture
+ENV['RCT_NEW_ARCH_ENABLED'] = '1' # Enable Fabric/TurboModules
 
-# Include React Native CocoaPods helpers
+# React Native CocoaPods helper (this defines react_native_post_install for modern RN)
 require_relative '../node_modules/react-native/scripts/react_native_pods'
-require_relative '../node_modules/react-native/scripts/react_native_post_install'  # Ensure RN post_install is available
 
 # CocoaPods installation settings for CI stability
 install! 'cocoapods',
   generate_multiple_pod_projects: true,
-  disable_input_output_paths: true,       # Do not generate .xcfilelist files (avoid missing file issues on CI)
+  disable_input_output_paths: true,     # avoid .xcfilelist on CI
   warn_for_multiple_pod_sources: true
 
-# Find the Xcode project (handles Xcodegen output in subfolder)
+# Find the Xcode project (handles XcodeGen output)
 project_candidates = Dir['*.xcodeproj'] + Dir['**/*.xcodeproj']
 project_path = project_candidates.first or raise "No .xcodeproj found near Podfile (#{__dir__})"
 puts "Using Xcode project at: #{project_path}"
-project project_path, 'Debug' => :debug, 'Release' => :release  # Map configuration names
+project project_path, 'Debug' => :debug, 'Release' => :release
 
 app_target = File.basename(project_path, '.xcodeproj')
 USE_FLIPPER = ENV['USE_FLIPPER'] == '1'
 NEW_ARCH_ENABLED = ENV['RCT_NEW_ARCH_ENABLED'] == '1'
 
 target app_target do
-  use_frameworks! :linkage => :static
-  config = (use_native_modules! rescue nil) || {}  # Auto-link React Native modules
+  use_frameworks! linkage: :static
+
+  config = (use_native_modules! rescue nil) || {}
   react_native_path = config[:reactNativePath] || File.expand_path('../node_modules/react-native', __dir__)
 
   use_react_native!(
     path: react_native_path,
     hermes_enabled: true,
-    fabric_enabled: NEW_ARCH_ENABLED,   # Enable Fabric if new architecture is on
-    new_arch_enabled: true,             # Use new architecture (TurboModules) project setup
+    new_arch_enabled: true,
+    fabric_enabled: NEW_ARCH_ENABLED,
     app_path: "#{Pod::Config.instance.installation_root}/.."
   )
 
-  # (Optional) Add any extra pods here, e.g. custom ones not covered by auto-linking.
-  # pod 'SomeLibrary', :path => '../node_modules/some-library'
+  # Ensure <react/bridging/*.h> resolves
+  pod 'ReactCommon/turbomodule/bridging', path: "#{react_native_path}/ReactCommon"
+
+  use_flipper!({ 'Flipper' => '0.203.0' }) if USE_FLIPPER
 end
 
-# Post-installation tweaks to fix build issues and warnings
-post_install do |installer|
-  react_native_post_install(installer) if defined?(react_native_post_install)
+# ---- Helpers ----
+FORBIDDEN_HERMES_MARKERS = [
+  'replace hermes',
+  'replace hermes for the right configuration',
+  '[hermes]'
+].freeze
 
-  # 1. Disable any CocoaPods script input/output file lists (already disabled above, but double-check in generated projects)
-  def scrub_cp_filelists_from_target(target)
-    target.build_phases.each do |phase|
-      next unless phase.respond_to?(:name) && phase.name.to_s.start_with?('[CP]')
-      # Remove file lists and paths to avoid missing file warnings
+def strip_hermes_replacement_scripts!(project)
+  project.targets.each do |t|
+    t.build_phases
+      .select { |p|
+        p.isa == 'PBXShellScriptBuildPhase' &&
+        FORBIDDEN_HERMES_MARKERS.any? { |m|
+          (p.name || '').downcase.include?(m) || (p.shell_script || '').downcase.include?(m)
+        }
+      }.each do |p|
+        t.build_phases.delete(p)
+        p.remove_from_project
+      end
+  end
+  project.save
+end
+
+def pods_projects_for(installer)
+  pods = [installer.pods_project]
+  pods.concat(Array(installer.generated_projects)) if installer.respond_to?(:generated_projects)
+  pods.compact
+end
+
+def user_projects_for(installer)
+  installer.aggregate_targets.map(&:user_project).compact.uniq { |p| p.path.to_s }
+end
+
+def scrub_cp_filelists_from_target(target)
+  target.build_phases.each do |phase|
+    next unless phase.respond_to?(:name)
+    next unless phase.name&.include?('[CP]')
+    begin
       phase.input_paths = [] if phase.respond_to?(:input_paths=)
       phase.output_paths = [] if phase.respond_to?(:output_paths=)
       phase.input_file_list_paths = [] if phase.respond_to?(:input_file_list_paths=)
       phase.output_file_list_paths = [] if phase.respond_to?(:output_file_list_paths=)
     rescue => e
-      puts "WARN: Could not scrub file lists for phase #{phase.name}: #{e}"
+      puts "WARN: Skipping scrub for phase #{phase.name}: #{e}"
     end
   end
+end
 
-  # Helper to get all project objects (Pods project + any user projects)
-  pods_projects = [installer.pods_project] + (installer.respond_to?(:generated_projects) ? installer.generated_projects : [])
-  user_projects = installer.aggregate_targets.map(&:user_project).compact.uniq { |p| p.path.to_s }
-  all_projects = (pods_projects + user_projects).compact.uniq { |p| p.path.to_s }
+# ---- Post-install hardening (all-in-one) ----
+post_install do |installer|
+  # react_native_post_install is defined by react_native_pods in modern RN;
+  # guard in case older RN lacks it.
+  react_native_post_install(installer) if defined?(react_native_post_install)
 
-  all_projects.each do |project|
-    # Iterate over each target in each project
-    project.targets.each do |target|
-      # Scrub CocoaPods filelist settings
-      scrub_cp_filelists_from_target(target)
+  pods_projects = pods_projects_for(installer)
+  user_projects = user_projects_for(installer)
+  all_projects  = (pods_projects + user_projects).uniq { |p| p.path.to_s }
 
-      target.build_configurations.each do |cfg|
-        # Disable script sandboxing for all targets (to allow [CP] scripts to modify files freely)
-        cfg.build_settings['ENABLE_USER_SCRIPT_SANDBOXING'] = 'NO'
+  min_target = Gem::Version.new('18.0')
+
+  all_projects.each do |proj|
+    strip_hermes_replacement_scripts!(proj)
+
+    proj.targets.each do |t|
+      scrub_cp_filelists_from_target(t)
+
+      t.build_configurations.each do |cfg|
+        bs = cfg.build_settings
+
+        # allow Pods scripts to write symlinks (Xcode 15+ sandbox)
+        bs['ENABLE_USER_SCRIPT_SANDBOXING'] = 'NO'
+
         if cfg.name.include?('Debug')
-          # Debug builds – no optimization for Swift (needed for SwiftUI Previews)
-          cfg.build_settings['SWIFT_OPTIMIZATION_LEVEL'] = '-Onone'
-          cfg.build_settings['SWIFT_COMPILATION_MODE'] = 'singlefile'
+          bs['SWIFT_OPTIMIZATION_LEVEL'] = '-Onone'
+          bs['SWIFT_COMPILATION_MODE']   = 'singlefile'
         else
-          # Release builds – ensure optimization is enabled (if not already)
-          cfg.build_settings['SWIFT_OPTIMIZATION_LEVEL'] ||= '-O'
+          bs['SWIFT_OPTIMIZATION_LEVEL'] ||= '-O'
         end
-        # If target contains Swift sources, enforce Swift 5 (if not already specified)
-        has_swift_sources = target.source_build_phase.files.any? { |f| f.file_ref.path.end_with?('.swift') rescue false }
-        if has_swift_sources
-          cfg.build_settings['SWIFT_VERSION'] ||= '5.0'
-        end
-        # Bump deployment target to at least iOS 18.0 for all pods to avoid warnings
-        min_ios = Gem::Version.new('18.0')
-        curr_target = Gem::Version.new(cfg.build_settings['IPHONEOS_DEPLOYMENT_TARGET'] || '0')
-        if curr_target < min_ios
-          cfg.build_settings['IPHONEOS_DEPLOYMENT_TARGET'] = '18.0'
-        end
-        # Ensure modern C++ standard for RN new architecture bridging code
-        cfg.build_settings['CLANG_CXX_LANGUAGE_STANDARD'] ||= 'gnu++17'
-        cfg.build_settings['ALWAYS_SEARCH_USER_PATHS'] = 'NO'
+
+        # Only set Swift version for targets that actually have Swift sources
+        has_swift = t.respond_to?(:source_build_phase) &&
+                    t.source_build_phase.files.any? { |f| f.file_ref&.path&.end_with?('.swift') rescue false }
+        bs['SWIFT_VERSION'] ||= '5.0' if has_swift
+
+        # Stable toolchain for RN/Folly
+        bs['CLANG_CXX_LANGUAGE_STANDARD'] ||= 'gnu++17'
+        bs['CLANG_CXX_LIBRARY']          ||= 'libc++'
+        bs['GCC_C_LANGUAGE_STANDARD']    ||= 'gnu11'
+
+        # Disable Folly SIMD everywhere
+        bs['OTHER_CPLUSPLUSFLAGS'] = [bs['OTHER_CPLUSPLUSFLAGS'], '$(inherited)', '-DFOLLY_DISABLE_SIMD=1'].compact.join(' ').squeeze(' ')
+        bs['OTHER_CFLAGS']         = [bs['OTHER_CFLAGS'],         '$(inherited)', '-DFOLLY_DISABLE_SIMD=1'].compact.join(' ').squeeze(' ')
+
+        # Bump any low deployment targets; enforce iOS 18.0
+        current = Gem::Version.new(bs['IPHONEOS_DEPLOYMENT_TARGET'] || '0')
+        bs['IPHONEOS_DEPLOYMENT_TARGET'] = min_target.to_s if current < min_target
+
+        bs['ALWAYS_SEARCH_USER_PATHS'] = 'NO'
       end
 
-      # Remove any Hermes “Replace Hermes” shell script phases that might exist
-      target.shell_script_build_phases.each do |phase|
-        phase_name = phase.name.to_s
-        if phase_name.include?('Replace Hermes')
-          puts "Removing script phase '#{phase_name}' from target #{target.name}"
-          target.build_phases.delete(phase)
+      # Mark [CP] phases (no I/O) as always out-of-date to silence warnings
+      t.build_phases
+        .select { |p| p.isa == 'PBXShellScriptBuildPhase' && p.name&.start_with?('[CP]') }
+        .each do |run|
+          if (run.input_paths || []).empty? && (run.output_paths || []).empty?
+            run.always_out_of_date = '1' if run.respond_to?(:always_out_of_date=)
+          end
         end
-      end
+    end
 
-      # Mark [CP] phases without I/O as always out-of-date to avoid Xcode warnings
-      target.shell_script_build_phases.each do |phase|
-        if phase.name.to_s.start_with?('[CP]') 
-          ioEmpty = (phase.respond_to?(:input_paths) && phase.input_paths.to_a.empty?) && 
-                    (phase.respond_to?(:output_paths) && phase.output_paths.to_a.empty?)
-          phase.always_out_of_date = '1' if ioEmpty && phase.respond_to?(:always_out_of_date=)
+    proj.save
+  end
+
+  # CI guard: fail if any Hermes replacement script remains
+  if ENV['CI']
+    offending = []
+    all_projects.each do |proj|
+      proj.targets.each do |t|
+        t.build_phases.select { |p| p.isa == 'PBXShellScriptBuildPhase' }.each do |phase|
+          name = (phase.name || '').downcase
+          body = (phase.shell_script || '').downcase
+          if FORBIDDEN_HERMES_MARKERS.any? { |m| name.include?(m) || body.include?(m) }
+            offending << "#{proj.path.basename} :: #{t.name} :: #{phase.name}"
+          end
         end
       end
     end
-    project.save
+    unless offending.empty?
+      raise <<~MSG
+        Detected forbidden Hermes script phase(s):
+          #{offending.join("\n  ")}
+        CI policy: the "[Hermes] Replace Hermes" script must not exist after pod install.
+      MSG
+    end
+  end
+end
+
+# Final pass after integration (keeps projects clean across re-runs)
+post_integrate do |installer|
+  (pods_projects_for(installer) + user_projects_for(installer)).each do |proj|
+    strip_hermes_replacement_scripts!(proj)
+    proj.targets.each do |t|
+      t.build_phases
+        .select { |p| p.isa == 'PBXShellScriptBuildPhase' && p.name&.start_with?('[CP]') }
+        .each { |run| run.always_out_of_date = '1' if (run.input_paths || []).empty? && (run.output_paths || []).empty? }
+    end
+    proj.save
   end
 end
