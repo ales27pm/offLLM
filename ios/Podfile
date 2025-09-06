@@ -1,4 +1,4 @@
-# Ensure pods support iOS 18.0+; the app's deployment target also lives in XcodeGen's project.yml
+# Ensure pods support iOS 18.0+; the app's deployment target lives in XcodeGen's project.yml too
 platform :ios, '18.0'
 ENV['RCT_NEW_ARCH_ENABLED'] = "1" # Enable Fabric/TurboModules
 
@@ -97,7 +97,7 @@ def scrub_cp_filelists_from_target(target)
   end
 end
 
-# ---- Post-install hardening (consolidated here) ----
+# ---- Post-install hardening (all-in-one) ----
 post_install do |installer|
   react_native_post_install(installer) if defined?(react_native_post_install)
 
@@ -108,20 +108,20 @@ post_install do |installer|
   min_target = Gem::Version.new('18.0')
 
   all_projects.each do |proj|
-    # 1) Remove Hermes "replacement" scripts everywhere (they cause CI churn)
+    # 1) Remove Hermes "replacement" scripts everywhere
     strip_hermes_replacement_scripts!(proj)
 
     proj.targets.each do |t|
-      # 2) Scrub CP *.xcfilelist expectations & silence “every build” warnings
+      # 2) Scrub CP *.xcfilelist expectations & quiet “every build” warnings
       scrub_cp_filelists_from_target(t)
 
       t.build_configurations.each do |cfg|
         bs = cfg.build_settings
 
-        # Allow CocoaPods symlink scripts to write (Xcode 15+ sandbox)
-        bs['ENABLE_USER_SCRIPT_SANDBOXING'] = 'NO'
+        # Allow CocoaPods run-script phases to create header symlinks (Xcode 15+ default is YES)
+        bs['ENABLE_USER_SCRIPT_SANDBOXING'] = 'NO' # see Apple/IndieStack notes.  [oai_citation:0‡Apple Developer](https://developer.apple.com/forums/thread/731041?utm_source=chatgpt.com) [oai_citation:1‡Indie Stack](https://indiestack.com/2023/06/xcode-build-script-sandboxing/?utm_source=chatgpt.com)
 
-        # Swift preview notes (harmless) — ensure debug uses -Onone
+        # Swift previews note — harmless; ensure Debug uses -Onone
         if cfg.name.include?('Debug')
           bs['SWIFT_OPTIMIZATION_LEVEL'] = '-Onone'
           bs['SWIFT_COMPILATION_MODE']   = 'singlefile'
@@ -134,22 +134,24 @@ post_install do |installer|
         bs['CLANG_CXX_LIBRARY']          ||= 'libc++'
         bs['GCC_C_LANGUAGE_STANDARD']    ||= 'gnu11'
 
-        # **Disable Folly SIMD** to avoid SimdAnyOf/SimdForEach build failures
+        # **Disable Folly SIMD** to avoid SimdAnyOf/SimdForEach failures
+        # and make sure flags inherit rather than override
         bs['OTHER_CPLUSPLUSFLAGS'] = [bs['OTHER_CPLUSPLUSFLAGS'], '$(inherited)', '-DFOLLY_DISABLE_SIMD=1'].compact.join(' ').squeeze(' ')
         bs['OTHER_CFLAGS']         = [bs['OTHER_CFLAGS'],         '$(inherited)', '-DFOLLY_DISABLE_SIMD=1'].compact.join(' ').squeeze(' ')
+        # (Folly SIMD headers are guarded by feature macros; disabling SIMD is a supported path.)  [oai_citation:2‡Fossies](https://fossies.org/linux/folly/folly/algorithm/simd/detail/SimdPlatform.h?utm_source=chatgpt.com)
 
         # Bump any low deployment targets; enforce iOS 18.0+ across all Pods
         current = Gem::Version.new(bs['IPHONEOS_DEPLOYMENT_TARGET'] || '0')
         bs['IPHONEOS_DEPLOYMENT_TARGET'] = min_target.to_s if current < min_target
 
-        # Generate dSYMs for Release/Archive
+        # Ensure dSYMs on Release
         if cfg.name == 'Release'
           bs['DEBUG_INFORMATION_FORMAT'] = 'dwarf-with-dsym'
         end
       end
     end
 
-    # Mark [CP] phases without I/O as always out of date (quiet Xcode)
+    # Mark [CP] phases without I/O as always out of date (keeps Xcode quiet)
     proj.targets.each do |t|
       t.build_phases
         .select { |p| p.isa == 'PBXShellScriptBuildPhase' && p.name&.start_with?('[CP]') }
