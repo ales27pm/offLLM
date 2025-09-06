@@ -1,56 +1,32 @@
-name: iOS Unsigned Build (monGARS)
+name: iOS Unsigned (Xcode 16.4)
 
 on:
-  workflow_dispatch:
   push:
-    branches: [ main ]
+    branches: [ main, master ]
   pull_request:
-    branches: [ main ]
 
-concurrency:
-  group: ios-unsigned-${{ github.ref }}
-  cancel-in-progress: true
+env:
+  RCT_NEW_ARCH_ENABLED: "1"
+  USE_HERMES: "true"
+  SCHEME: "monGARS"
+  CONFIGURATION: "Release"
+  BUILD_DIR: "build"
 
 jobs:
-  build-unsigned:
-    runs-on: macos-15
-    env:
-      RCT_NEW_ARCH_ENABLED: "1"
-      USE_HERMES: "true"
-      SCHEME: "monGARS"
-      CONFIGURATION: "Release"
-      BUILD_DIR: build
-      TEAM_NAME: "27pm"
-      PROJECT_NAME: "monGARS"
+  ios:
+    runs-on: macos-14  # Xcode 16.4 is available here
+    defaults:
+      run:
+        shell: bash
 
     steps:
       - name: Checkout
         uses: actions/checkout@v4
 
-      - name: Show installed Xcodes
-        run: ls -1 /Applications | sed -n 's/^Xcode.*/&/p'
-
-      - name: Select Xcode 16.4 (attempt)
-        id: xcode164
-        continue-on-error: true
-        uses: maxim-lobanov/setup-xcode@v1
-        with:
-          xcode-version: "16.4"
-
-      - name: Select Xcode 16.2 (fallback)
-        if: ${{ steps.xcode164.outcome == 'failure' }}
-        uses: maxim-lobanov/setup-xcode@v1
-        with:
-          xcode-version: "16.2"
-
-      - name: Confirm Xcode
-        id: xcodever
-        shell: bash
+      - name: Print Xcode version
         run: |
-          set -e
-          xcodebuild -version
-          SEL="$(xcodebuild -version | head -n1 | awk '{print $2}')"
-          echo "xcode=$SEL" >> "$GITHUB_OUTPUT"
+          /Applications/Xcode_16.4.app/Contents/Developer/usr/bin/xcodebuild -version
+          echo "MD_APPLE_SDK_ROOT=/Applications/Xcode_16.4.app" >> "$GITHUB_ENV"
 
       - name: Setup Node
         uses: actions/setup-node@v4
@@ -59,42 +35,44 @@ jobs:
           cache: "npm"
 
       - name: Install JS deps
-        run: npm ci
-
-      - name: Install Homebrew deps
-        run: brew install xcodegen
-
-      # ✅ No heredocs. We write files via Node to avoid YAML/indent issues.
-      - name: Seed minimal XcodeGen spec if missing
         run: |
+          set -euo pipefail
+          if [ -f package-lock.json ]; then npm ci; else npm i; fi
+
+      - name: Seed minimal XcodeGen spec + Info.plist (if missing)
+        run: |
+          set -euo pipefail
           node -e "
-          const fs = require('fs');
-          if (!fs.existsSync('ios')) fs.mkdirSync('ios', { recursive: true });
-          if (!fs.existsSync('ios/project.yml')) {
-            const y = [
-              'name: monGARS',
-              'options:',
-              '  bundleIdPrefix: com.example',
-              '  deploymentTarget:',
-              '    iOS: \"18.0\"',
-              'targets:',
-              '  monGARS:',
-              '    type: application',
-              '    platform: iOS',
-              '    sources:',
-              '      - path: .',
-              '        excludes:',
-              '          - ios/**/*',
-              '          - android/**/*',
-              '          - node_modules/**/*',
-              '    settings:',
-              '      PRODUCT_BUNDLE_IDENTIFIER: com.example.monGARS',
-              '      INFOPLIST_FILE: ios/Info.plist',
-              ''
-            ].join('\\n');
-            fs.writeFileSync('ios/project.yml', y);
-            if (!fs.existsSync('ios/Info.plist')) {
-              const p = [
+            const fs = require('fs');
+            fs.mkdirSync('ios', { recursive: true });
+            const proj = 'ios/project.yml';
+            if (!fs.existsSync(proj)) {
+              fs.writeFileSync(proj, [
+                'name: monGARS',
+                'options:',
+                '  bundleIdPrefix: com.example',
+                '  deploymentTarget:',
+                '    iOS: \"18.0\"',
+                'targets:',
+                '  monGARS:',
+                '    type: application',
+                '    platform: iOS',
+                '    sources:',
+                '      - path: .',
+                '        excludes:',
+                '          - ios/**/*',
+                '          - android/**/*',
+                '          - node_modules/**/*',
+                '    settings:',
+                '      PRODUCT_BUNDLE_IDENTIFIER: com.example.monGARS',
+                '      INFOPLIST_FILE: ios/Info.plist',
+                ''
+              ].join('\\n'));
+              console.log('Seeded ios/project.yml');
+            }
+            const plist = 'ios/Info.plist';
+            if (!fs.existsSync(plist)) {
+              fs.writeFileSync(plist, [
                 '<?xml version=\"1.0\" encoding=\"UTF-8\"?>',
                 '<!DOCTYPE plist PUBLIC \"-//Apple//DTD PLIST 1.0//EN\" \"http://www.apple.com/DTDs/PropertyList-1.0.dtd\">',
                 '<plist version=\"1.0\">',
@@ -109,99 +87,77 @@ jobs:
                 '</dict>',
                 '</plist>',
                 ''
-              ].join('\\n');
-              fs.writeFileSync('ios/Info.plist', p);
+              ].join('\\n'));
+              console.log('Seeded ios/Info.plist');
             }
-            console.log('Seeded ios/project.yml and ios/Info.plist');
-          } else {
-            console.log('ios/project.yml already exists; skipping seeding.');
-          }
           "
 
-      - name: Generate .xcodeproj with XcodeGen
-        working-directory: ios
-        run: xcodegen generate
-
-      - name: Verify project
+      - name: Install Ruby & CocoaPods (bundler optional)
         run: |
-          if [ ! -d ios/monGARS.xcodeproj ] && [ ! -d ios/monGARS.xcworkspace ]; then
-            echo "Xcode project not generated"
-            ls -la ios || true
-            exit 1
-          fi
+          set -euo pipefail
+          gem install cocoapods -N
+          cd ios
+          pod repo update
+          pod install --verbose
 
-      - name: Setup Ruby (CocoaPods)
-        uses: ruby/setup-ruby@v1
-        with:
-          ruby-version: "3.2"
-          bundler-cache: true
-          working-directory: ios
+      # If you’re actually using XcodeGen, generate here
+      # - name: Generate Xcode project with XcodeGen
+      #   run: |
+      #     brew install xcodegen || true
+      #     xcodegen generate
 
-      - name: Install Pods
-        working-directory: ios
-        run: |
-          bundle install --path vendor/bundle
-          bundle exec pod repo update
-          bundle exec pod install
-
-      - name: Bootstrap, build, and package (single script)
-        id: buildstep
-        shell: bash
+      - name: Build (unsigned, generic iOS device)
         run: |
           set -euo pipefail
           mkdir -p "$BUILD_DIR"
-          rm -rf "$BUILD_DIR/DerivedData"
+          # Build workspace if Pods exist, otherwise project
+          WORKSPACE=""
+          if [ -d ios/Pods ]; then WORKSPACE="-workspace ios/monGARS.xcworkspace"; else WORKSPACE="-project ios/monGARS.xcodeproj"; fi
 
-          set +e
-          xcodebuild \
-            -workspace ios/monGARS.xcworkspace \
+          /Applications/Xcode_16.4.app/Contents/Developer/usr/bin/xcodebuild \
+            $WORKSPACE \
             -scheme "$SCHEME" \
             -configuration "$CONFIGURATION" \
-            -sdk iphoneos \
-            -destination 'generic/platform=iOS' \
+            -destination "generic/platform=iOS" \
             -derivedDataPath "$BUILD_DIR/DerivedData" \
-            -resultBundlePath "$BUILD_DIR/$SCHEME.xcresult" \
-            CODE_SIGNING_ALLOWED=NO CODE_SIGNING_REQUIRED=NO CODE_SIGN_IDENTITY="" \
-            | tee "$BUILD_DIR/xcodebuild.log"
-          STATUS=${PIPESTATUS[0]}
-          set -e
+            -resultBundlePath "$BUILD_DIR/monGARS.xcresult" \
+            -allowProvisioningUpdates \
+            -UseModernBuildSystem=YES \
+            build \
+            2>&1 | tee "$BUILD_DIR/xcodebuild.log"
 
-          APP_DIR="$BUILD_DIR/DerivedData/Build/Products/${CONFIGURATION}-iphoneos"
-          APP_PATH="$APP_DIR/$SCHEME.app"
-          if [ -d "$APP_PATH" ]; then
-            rm -rf "$BUILD_DIR/Payload"
-            mkdir -p "$BUILD_DIR/Payload"
-            cp -R "$APP_PATH" "$BUILD_DIR/Payload/"
-            (cd "$BUILD_DIR" && zip -qry offLLM-unsigned.ipa Payload)
-            (cd "$APP_DIR" && zip -qry "$PWD/../../$SCHEME.app.zip" "$SCHEME.app")
+      - name: Export xcresult JSON (Xcode 16 requires --legacy)
+        if: always()
+        run: |
+          set -euo pipefail
+          if [ -d "$BUILD_DIR/monGARS.xcresult" ]; then
+            xcrun xcresulttool get object --legacy \
+              --path "$BUILD_DIR/monGARS.xcresult" \
+              --format json > "$BUILD_DIR/monGARS.xcresult.json" || true
           fi
 
-          if command -v xcrun >/dev/null 2>&1 && [ -d "$BUILD_DIR/$SCHEME.xcresult" ]; then
-            xcrun xcresulttool get --format json --path "$BUILD_DIR/$SCHEME.xcresult" > "$BUILD_DIR/$SCHEME.xcresult.json" || true
+      - name: Archive app products (optional)
+        if: always()
+        run: |
+          set -euo pipefail
+          APP_PRODUCTS="$BUILD_DIR/DerivedData/Build/Products/${CONFIGURATION}-iphoneos"
+          if [ -d "$APP_PRODUCTS" ]; then
+            echo "Contents of $APP_PRODUCTS:"
+            ls -al "$APP_PRODUCTS"
+            # Zip the .app for convenience (unsigned)
+            if [ -d "$APP_PRODUCTS/${SCHEME}.app" ]; then
+              (cd "$APP_PRODUCTS" && /usr/bin/zip -qry "$PWD/../../${SCHEME}.app.zip" "${SCHEME}.app")
+            fi
           fi
 
-          echo "status=$STATUS" >> "$GITHUB_OUTPUT"
-          exit "$STATUS"
-
-      - name: Upload IPA
+      - name: Upload artifacts
         if: always()
         uses: actions/upload-artifact@v4
         with:
-          name: ios-unsigned-ipa-xcode-${{ steps.xcodever.outputs.xcode }}-attempt-${{ github.run_attempt }}
-          path: |
-            build/offLLM-unsigned.ipa
-            build/monGARS.app.zip
-          if-no-files-found: ignore
-          overwrite: true
-
-      - name: Upload logs & xcresult
-        if: always()
-        uses: actions/upload-artifact@v4
-        with:
-          name: ios-unsigned-reports-xcode-${{ steps.xcodever.outputs.xcode }}-attempt-${{ github.run_attempt }}
+          name: ios-unsigned-xcode-16_4
           path: |
             build/xcodebuild.log
             build/monGARS.xcresult
             build/monGARS.xcresult.json
+            build/monGARS.app.zip
           if-no-files-found: ignore
-          overwrite: true
