@@ -118,8 +118,19 @@ jobs:
       - name: Generate .xcodeproj
         run: |
           set -euo pipefail
-          xcodegen generate --spec ios/project.yml --project ios/monGARS.xcodeproj
+          # make sure xcodegen is really available
+          if ! command -v xcodegen >/dev/null 2>&1; then
+            brew update
+            brew install xcodegen
+          fi
+          xcodegen --version
 
+          # generate in-place; do NOT use --project
+          pushd ios >/dev/null
+          rm -rf monGARS.xcodeproj  # clean any partial from previous runs
+          xcodegen generate --spec project.yml
+          test -d monGARS.xcodeproj && echo "✅ Generated ios/monGARS.xcodeproj"
+          popd >/dev/null
       - name: Install CocoaPods
         run: |
           set -euo pipefail
