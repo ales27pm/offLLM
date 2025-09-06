@@ -1,174 +1,175 @@
-name: iOS Unsigned (Xcode 16.2)
+name: iOS (unsigned)
 
 on:
+  workflow_dispatch:
   push:
     branches: [ main, master ]
   pull_request:
 
-env:
-  RCT_NEW_ARCH_ENABLED: "1"
-  USE_HERMES: "true"
-  SCHEME: "monGARS"
-  CONFIGURATION: "Release"
-  BUILD_DIR: "build"
-
 jobs:
-  ios:
+  build-ios-unsigned:
     runs-on: macos-14
-    defaults:
-      run:
-        shell: bash
+
+    env:
+      # RN build knobs (tweak if your project needs different values)
+      RCT_NEW_ARCH_ENABLED: "1"
+      USE_HERMES: "true"
+      SCHEME: monGARS
+      CONFIGURATION: Release
+      BUILD_DIR: build
 
     steps:
       - name: Checkout
         uses: actions/checkout@v4
 
+      # Use one of the Xcode versions actually present on your runner
       - name: Select Xcode 16.2
         uses: maxim-lobanov/setup-xcode@v1
         with:
           xcode-version: "16.2"
 
-      - name: Print Xcode version & export paths
+      - name: Show selected Xcode
         run: |
           set -euo pipefail
           xcodebuild -version
-          # Fallback to xcode-select if DEVELOPER_DIR is unset
-          devdir="${DEVELOPER_DIR:-$(xcode-select -p)}"
-          echo "DEVELOPER_DIR=$devdir" >> "$GITHUB_ENV"
-          # MD_APPLE_SDK_ROOT should be the .app, not .../Contents/Developer
-          echo "MD_APPLE_SDK_ROOT=$(printf '%s\n' "$devdir" | sed -E 's|/Contents/Developer$||')" >> "$GITHUB_ENV"
-          echo "Resolved DEVELOPER_DIR=$devdir"
-      - name: Setup Node
+          # Do NOT reference $DEVELOPER_DIR unless it exists; setup-xcode exports it for us
+
+      - name: Setup Node.js
         uses: actions/setup-node@v4
         with:
           node-version: "20"
           cache: "npm"
 
-      - name: Install JS deps
+      - name: Install JS dependencies
         run: |
           set -euo pipefail
-          if [ -f package-lock.json ]; then npm ci; else npm i; fi
+          if [ -f yarn.lock ]; then
+            corepack enable
+            yarn --version
+            yarn install --frozen-lockfile
+          else
+            npm ci
+          fi
 
-      - name: Seed minimal XcodeGen spec + Info.plist (if missing)
+      - name: Generate Xcode project (XcodeGen) and install pods
         run: |
           set -euo pipefail
-          node -e "
-            const fs = require('fs');
-            fs.mkdirSync('ios', { recursive: true });
-            if (!fs.existsSync('ios/project.yml')) {
-              fs.writeFileSync('ios/project.yml', [
-                'name: monGARS',
-                'options:',
-                '  bundleIdPrefix: com.example',
-                '  deploymentTarget:',
-                '    iOS: \"18.0\"',
-                'targets:',
-                '  monGARS:',
-                '    type: application',
-                '    platform: iOS',
-                '    sources:',
-                '      - path: .',
-                '        excludes:',
-                '          - ios/**/*',
-                '          - android/**/*',
-                '          - node_modules/**/*',
-                '    settings:',
-                '      PRODUCT_BUNDLE_IDENTIFIER: com.example.monGARS',
-                '      INFOPLIST_FILE: ios/Info.plist',
-                ''
-              ].join('\\n'));
-              console.log('Seeded ios/project.yml');
-            }
-            if (!fs.existsSync('ios/Info.plist')) {
-              fs.writeFileSync('ios/Info.plist', [
-                '<?xml version=\"1.0\" encoding=\"UTF-8\"?>',
-                '<!DOCTYPE plist PUBLIC \"-//Apple//DTD PLIST 1.0//EN\" \"http://www.apple.com/DTDs/PropertyList-1.0.dtd\">',
-                '<plist version=\"1.0\">',
-                '<dict>',
-                '  <key>CFBundleName</key><string>monGARS</string>',
-                '  <key>CFBundleIdentifier</key><string>com.example.monGARS</string>',
-                '  <key>CFBundleExecutable</key><string>$(EXECUTABLE_NAME)</string>',
-                '  <key>CFBundlePackageType</key><string>APPL</string>',
-                '  <key>UISupportedInterfaceOrientations</key>',
-                '  <array><string>UIInterfaceOrientationPortrait</string></array>',
-                '  <key>LSRequiresIPhoneOS</key><true/>',
-                '</dict>',
-                '</plist>',
-                ''
-              ].join('\\n'));
-              console.log('Seeded ios/Info.plist');
-            }
-          "
 
-      - name: Install CocoaPods
-        run: |
-          set -euo pipefail
+          # Ensure XcodeGen is available (fast no-op if already installed)
+          if ! command -v xcodegen >/dev/null 2>&1; then
+            brew install xcodegen
+          fi
+
+          # Seed a minimal XcodeGen spec if missing
+          if [ ! -f ios/project.yml ]; then
+            echo "No ios/project.yml found — seeding a minimal XcodeGen spec."
+            mkdir -p ios
+            cat > ios/project.yml <<'YML'
+name: monGARS
+options:
+  bundleIdPrefix: com.example
+  deploymentTarget:
+    iOS: "18.0"
+targets:
+  monGARS:
+    type: application
+    platform: iOS
+    sources:
+      - path: ..
+        excludes:
+          - ios/**/*
+          - android/**/*
+          - node_modules/**/*
+    settings:
+      PRODUCT_BUNDLE_IDENTIFIER: com.example.monGARS
+      INFOPLIST_FILE: ios/Info.plist
+YML
+
+            # Seed a very basic Info.plist if missing
+            if [ ! -f ios/Info.plist ]; then
+              cat > ios/Info.plist <<'PLIST'
+<?xml version="1.0" encoding="UTF-8"?>
+<!DOCTYPE plist PUBLIC "-//Apple//DTD PLIST 1.0//EN" "http://www.apple.com/DTDs/PropertyList-1.0.dtd">
+<plist version="1.0">
+<dict>
+  <key>CFBundleName</key><string>monGARS</string>
+  <key>CFBundleIdentifier</key><string>com.example.monGARS</string>
+  <key>CFBundleExecutable</key><string>$(EXECUTABLE_NAME)</string>
+  <key>CFBundlePackageType</key><string>APPL</string>
+  <key>UISupportedInterfaceOrientations</key>
+  <array><string>UIInterfaceOrientationPortrait</string></array>
+  <key>LSRequiresIPhoneOS</key><true/>
+</dict>
+</plist>
+PLIST
+            fi
+          fi
+
+          # Generate the .xcodeproj next to the Podfile so CocoaPods can find it
+          xcodegen generate --spec ios/project.yml --project ios/monGARS.xcodeproj
+
+          # Install CocoaPods deps
           gem install cocoapods -N
           cd ios
-          pod repo update
-          pod install --verbose
+          pod install --repo-update --verbose
+        shell: bash
 
-      # Create an xcconfig that prioritizes libc++ headers to avoid the <cstdint>/<stdint.h> error.
-      - name: Create CI xcconfig to fix libc++ include order
+      - name: Build (unsigned) and package IPA
         run: |
           set -euo pipefail
-          mkdir -p ios
-          cat > ios/CIOverrides.xcconfig <<'XC'
-          // Ensure C++ stdlib headers take precedence
-          HEADER_SEARCH_PATHS = $(SDKROOT)/usr/include/c++/v1 $(inherited)
-          SYSTEM_HEADER_SEARCH_PATHS = $(inherited)
-          // Keep warnings as-is
-          XC
 
-      - name: Build (unsigned, generic iOS device)
-        run: |
-          set -euo pipefail
-          mkdir -p "$BUILD_DIR"
-          if [ -d ios/Pods ]; then
-            WORK_ARG="-workspace ios/monGARS.xcworkspace"
-          else
-            WORK_ARG="-project ios/monGARS.xcodeproj"
-          fi
+          # Clean build dir
+          rm -rf "${BUILD_DIR}"
+          mkdir -p "${BUILD_DIR}"
 
+          # Build without code signing
           xcodebuild \
-            ${WORK_ARG} \
-            -scheme "$SCHEME" \
-            -configuration "$CONFIGURATION" \
-            -destination "generic/platform=iOS" \
-            -derivedDataPath "$BUILD_DIR/DerivedData" \
-            -resultBundlePath "$BUILD_DIR/monGARS.xcresult" \
-            -xcconfig ios/CIOverrides.xcconfig \
-            -allowProvisioningUpdates \
-            -UseModernBuildSystem=YES \
-            build \
-            2>&1 | tee "$BUILD_DIR/xcodebuild.log"
+            -workspace ios/monGARS.xcworkspace \
+            -scheme "${SCHEME}" \
+            -configuration "${CONFIGURATION}" \
+            -sdk iphoneos \
+            -derivedDataPath "${BUILD_DIR}/DerivedData" \
+            CODE_SIGNING_ALLOWED=NO CODE_SIGNING_REQUIRED=NO CODE_SIGN_IDENTITY="" \
+            | tee "${BUILD_DIR}/xcodebuild.log"
 
-      - name: Export xcresult JSON (Xcode 16 requires --legacy)
-        if: always()
-        run: |
-          set -euo pipefail
-          if [ -d "$BUILD_DIR/monGARS.xcresult" ]; then
-            xcrun xcresulttool get object --legacy \
-              --path "$BUILD_DIR/monGARS.xcresult" \
-              --format json > "$BUILD_DIR/monGARS.xcresult.json" || true
+          # Package unsigned IPA (zip the .app into Payload/)
+          APP_PRODUCTS="${BUILD_DIR}/DerivedData/Build/Products/${CONFIGURATION}-iphoneos"
+          APP_PATH="${APP_PRODUCTS}/${SCHEME}.app"
+
+          if [ ! -d "${APP_PATH}" ]; then
+            echo "App not found at ${APP_PATH}"
+            exit 65
           fi
 
-      - name: Zip unsigned .app (optional)
-        if: always()
-        run: |
-          set -euo pipefail
-          APP_PRODUCTS="$BUILD_DIR/DerivedData/Build/Products/${CONFIGURATION}-iphoneos"
-          if [ -d "$APP_PRODUCTS/${SCHEME}.app" ]; then
-            (cd "$APP_PRODUCTS" && /usr/bin/zip -qry "$PWD/../../${SCHEME}.app.zip" "${SCHEME}.app")
-          fi
-          ls -al "$BUILD_DIR" || true
-          ls -al "$BUILD_DIR/DerivedData/Build/Products" || true
+          mkdir -p "${BUILD_DIR}/Payload"
+          cp -R "${APP_PATH}" "${BUILD_DIR}/Payload/"
+          (cd "${BUILD_DIR}" && /usr/bin/zip -qry "${SCHEME}-unsigned.ipa" Payload)
 
-      - name: Upload artifacts
-        if: always()
+          # Keep xcresult bundle for artifacts
+          # (xcodebuild on recent Xcode writes it to DerivedData/Logs/Test or Logs/Build;
+          # uploading the whole DerivedData is heavy, so we upload the products and logs.)
+        shell: bash
+
+      - name: Upload IPA
         uses: actions/upload-artifact@v4
         with:
-          name: ios-unsigned-xcode-16_2
-          path: |
-            build/**
+          name: ipa-unsigned
+          path: build/monGARS-unsigned.ipa
+          if-no-files-found: error
+          retention-days: 7
+
+      - name: Upload build log
+        uses: actions/upload-artifact@v4
+        with:
+          name: xcodebuild-log
+          path: build/xcodebuild.log
           if-no-files-found: warn
+          retention-days: 7
+
+      - name: Upload Products (for debugging)
+        uses: actions/upload-artifact@v4
+        with:
+          name: products-${{ env.CONFIGURATION }}-iphoneos
+          path: build/DerivedData/Build/Products/${{ env.CONFIGURATION }}-iphoneos/**
+          if-no-files-found: warn
+          retention-days: 7
