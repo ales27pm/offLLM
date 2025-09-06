@@ -1,4 +1,4 @@
-name: iOS Unsigned Build (monGARS)
+name: iOS Unsigned Build (monGARS, self-bootstrapping)
 
 on:
   workflow_dispatch:
@@ -7,25 +7,31 @@ on:
   pull_request:
     branches: [ main ]
 
+concurrency:
+  group: ios-unsigned-${{ github.ref }}
+  cancel-in-progress: true
+
 jobs:
   build-unsigned:
     runs-on: macos-15
     env:
-      RCT_NEW_ARCH_ENABLED: "1"
+      RCT_NEW_ARCH_ENABLED: "1"   # Fabric/Turbo
       USE_HERMES: "true"
       SCHEME: "monGARS"
       CONFIGURATION: "Release"
       BUILD_DIR: build
+      TEAM_NAME: "27pm"
+      PROJECT_NAME: "monGARS"
+      MD_APPLE_SDK_ROOT: /Applications/Xcode_16.4.app
 
     steps:
       - name: Checkout
         uses: actions/checkout@v4
 
       - name: Show installed Xcodes
-        run: |
-          ls -1 /Applications | sed -n 's/^Xcode.*/&/p' || true
+        run: ls -1 /Applications | sed -n 's/^Xcode.*/&/p' || true
 
-      # Try 16.4 first; if not available, fall back to 16.2
+      # Prefer Xcode 16.4; fall back to 16.2 if not present
       - name: Select Xcode 16.4 (attempt)
         id: xcode164
         continue-on-error: true
@@ -39,14 +45,18 @@ jobs:
         with:
           xcode-version: "16.2"
 
+      # Read Info.plist directly to avoid rare xcodebuild -version crash
       - name: Confirm Xcode
         id: xcodever
         shell: bash
         run: |
-          set -e
-          xcodebuild -version
-          SEL="$(xcodebuild -version | head -n1 | awk '{print $2}')"
-          echo "xcode=$SEL" >> "$GITHUB_OUTPUT"
+          set -euo pipefail
+          DEVELOPER_DIR="$(xcode-select -p)"
+          APP_DIR="${DEVELOPER_DIR%/Contents/Developer}"
+          INFO_PLIST="$APP_DIR/Contents/Info.plist"
+          XVER="$(/usr/libexec/PlistBuddy -c 'Print :CFBundleShortVersionString' "$INFO_PLIST")"
+          echo "Using Xcode at: $APP_DIR (version $XVER)"
+          echo "xcode=$XVER" >> "$GITHUB_OUTPUT"
 
       - name: Setup Node
         uses: actions/setup-node@v4
@@ -64,19 +74,306 @@ jobs:
           bundler-cache: true
           working-directory: ios
 
+      - name: Ensure CI helper script (collect symbols)
+        shell: bash
+        run: |
+          set -euo pipefail
+          node -e "
+            const fs = require('fs');
+            fs.mkdirSync('scripts/ci', { recursive: true });
+            const lines = [
+              '#!/usr/bin/env bash',
+              'set -euo pipefail',
+              'BUILD_DIR=\"${1:-build}\"',
+              'CONFIG=\"${2:-Release}\"',
+              'SCHEME=\"${3:-monGARS}\"',
+              '',
+              'APP_PRODUCTS=\"$BUILD_DIR/DerivedData/Build/Products/${CONFIG}-iphoneos\"',
+              'DSYM_DIR=\"$APP_PRODUCTS/${SCHEME}.app.dSYM\"',
+              'BCS_DIR=\"$APP_PRODUCTS/BCSymbolMaps\"',
+              '',
+              'OUT_DSYM=\"$BUILD_DIR/${SCHEME}.dSYM.zip\"',
+              'OUT_BCS=\"$BUILD_DIR/BCSymbolMaps.zip\"',
+              '',
+              'rm -f \"$OUT_DSYM\" \"$OUT_BCS\" || true',
+              '',
+              'if [ -d \"$DSYM_DIR\" ]; then',
+              '  (cd \"$APP_PRODUCTS\" && /usr/bin/zip -qry \"$PWD/../../${SCHEME}.dSYM.zip\" \"${SCHEME}.app.dSYM\")',
+              'else',
+              '  echo \"No dSYM found at $DSYM_DIR\"',
+              'fi',
+              '',
+              'if [ -d \"$BCS_DIR\" ]; then',
+              '  (cd \"$APP_PRODUCTS\" && /usr/bin/zip -qry \"$PWD/../../BCSymbolMaps.zip\" BCSymbolMaps)',
+              'else',
+              '  echo \"No BCSymbolMaps found at $BCS_DIR\"',
+              'fi',
+              ''
+            ];
+            fs.writeFileSync('scripts/ci/collect-symbols.sh', lines.join('\\n'), { mode: 0o755 });
+          "
+
+      - name: Seed XcodeGen project if missing (safe writer)
+        shell: bash
+        run: |
+          set -euo pipefail
+          if [ ! -f ios/project.yml ]; then
+            echo "No ios/project.yml found — seeding a minimal XcodeGen spec."
+            node -e "
+              const fs = require('fs');
+              fs.mkdirSync('ios', { recursive: true });
+              const yml = [
+                'name: monGARS',
+                'options:',
+                '  bundleIdPrefix: com.example',
+                '  deploymentTarget:',
+                '    iOS: \"18.0\"',
+                'targets:',
+                '  monGARS:',
+                '    type: application',
+                '    platform: iOS',
+                '    sources:',
+                '      - path: .',
+                '        excludes:',
+                '          - ios/**/*',
+                '          - android/**/*',
+                '          - node_modules/**/*',
+                '    settings:',
+                '      PRODUCT_BUNDLE_IDENTIFIER: com.example.monGARS',
+                '      INFOPLIST_FILE: ios/Info.plist',
+                ''
+              ].join('\\n');
+              fs.writeFileSync('ios/project.yml', yml);
+              if (!fs.existsSync('ios/Info.plist')) {
+                const plist = [
+                  '<?xml version=\"1.0\" encoding=\"UTF-8\"?>',
+                  '<!DOCTYPE plist PUBLIC \"-//Apple//DTD PLIST 1.0//EN\" \"http://www.apple.com/DTDs/PropertyList-1.0.dtd\">',
+                  '<plist version=\"1.0\">',
+                  '<dict>',
+                  '  <key>CFBundleName</key><string>monGARS</string>',
+                  '  <key>CFBundleIdentifier</key><string>com.example.monGARS</string>',
+                  '  <key>CFBundleExecutable</key><string>$(EXECUTABLE_NAME)</string>',
+                  '  <key>CFBundlePackageType</key><string>APPL</string>',
+                  '  <key>UILaunchStoryboardName</key><string></string>',
+                  '  <key>UIMainStoryboardFile</key><string></string>',
+                  '  <key>UISupportedInterfaceOrientations</key>',
+                  '  <array><string>UIInterfaceOrientationPortrait</string></array>',
+                  '  <key>LSRequiresIPhoneOS</key><true/>',
+                  '</dict>',
+                  '</plist>',
+                  ''
+                ].join('\\n');
+                fs.writeFileSync('ios/Info.plist', plist);
+              }
+            "
+          fi
+
       - name: Install XcodeGen
         run: brew install xcodegen
 
-      - name: Generate Xcode project
-        working-directory: ios
-        run: xcodegen generate
-
-      - name: Verify project
+      - name: Generate Xcode project (only if project.yml exists)
+        shell: bash
         run: |
-          if [ ! -d ios/monGARS.xcodeproj ]; then
-            echo "monGARS.xcodeproj not generated"
-            exit 1
+          set -euo pipefail
+          if [ -f ios/project.yml ]; then
+            (cd ios && xcodegen generate)
+          else
+            echo "No ios/project.yml present; skipping XcodeGen."
           fi
+
+      - name: Write Podfile (hardened RN + Hermes + headers)
+        working-directory: ios
+        shell: bash
+        run: |
+          set -euo pipefail
+          node -e "
+            const fs = require('fs');
+            const lines = [
+              \"platform :ios, '18.0'\",
+              \"ENV['RCT_NEW_ARCH_ENABLED'] = '1' # Fabric/Turbo\",
+              '',
+              \"require_relative '../node_modules/react-native/scripts/react_native_pods'\",
+              '',
+              \"install! 'cocoapods',\",
+              '  generate_multiple_pod_projects: true,',
+              '  disable_input_output_paths: true,',
+              '  warn_for_multiple_pod_sources: true',
+              '',
+              '# Discover project (works for XcodeGen output too)',
+              \"project_candidates = Dir['*.xcodeproj'] + Dir['**/*.xcodeproj']\",
+              'project_path = project_candidates.first or raise \"No .xcodeproj found near Podfile (#{__dir__})\"',
+              'puts \"Using Xcode project at: #{project_path}\"',
+              \"project project_path, 'Debug' => :debug, 'Release' => :release\",
+              '',
+              \"app_target = File.basename(project_path, '.xcodeproj')\",
+              \"USE_FLIPPER = ENV['USE_FLIPPER'] == '1'\",
+              \"NEW_ARCH_ENABLED = ENV['RCT_NEW_ARCH_ENABLED'] == '1'\",
+              '',
+              'target app_target do',
+              '  use_frameworks! linkage: :static',
+              '',
+              '  config = (use_native_modules! rescue nil) || {}',
+              \"  react_native_path = config[:reactNativePath] || File.expand_path('../node_modules/react-native', __dir__)\",
+              '',
+              '  use_react_native!(',
+              '    path: react_native_path,',
+              '    hermes_enabled: true,',
+              '    new_arch_enabled: true,',
+              '    fabric_enabled: NEW_ARCH_ENABLED,',
+              '    app_path: \"#{Pod::Config.instance.installation_root}/..\"',
+              '  )',
+              '',
+              '  # Ensure <react/bridging/*.h> resolves',
+              \"  pod 'ReactCommon/turbomodule/bridging', path: \" + '\"' + '#{react_native_path}/ReactCommon' + '\"',
+              '',
+              \"  use_flipper!({ 'Flipper' => '0.203.0' }) if USE_FLIPPER\",
+              'end',
+              '',
+              \"FORBIDDEN_HERMES_MARKERS = ['replace hermes','replace hermes for the right configuration','[hermes]'].freeze\",
+              '',
+              'def strip_hermes_replacement_scripts!(project)',
+              '  project.targets.each do |t|',
+              '    t.build_phases.select { |p|',
+              \"      p.isa == 'PBXShellScriptBuildPhase' &&\",
+              '      FORBIDDEN_HERMES_MARKERS.any? { |m|',
+              '        (p.name || \'\').downcase.include?(m) || (p.shell_script || \'\').downcase.include?(m)',
+              '      }',
+              '    }.each do |p|',
+              '      t.build_phases.delete(p)',
+              '      p.remove_from_project',
+              '    end',
+              '  end',
+              '  project.save',
+              'end',
+              '',
+              'def pods_projects_for(installer)',
+              '  pods = [installer.pods_project]',
+              '  pods.concat(Array(installer.generated_projects)) if installer.respond_to?(:generated_projects)',
+              '  pods.compact',
+              'end',
+              '',
+              'def user_projects_for(installer)',
+              '  installer.aggregate_targets.map(&:user_project).compact.uniq { |p| p.path.to_s }',
+              'end',
+              '',
+              'def scrub_cp_filelists_from_target(target)',
+              '  target.build_phases.each do |phase|',
+              '    next unless phase.respond_to?(:name)',
+              '    next unless phase.name&.include?(\"[CP]\")',
+              '    begin',
+              '      phase.input_paths = [] if phase.respond_to?(:input_paths=)',
+              '      phase.output_paths = [] if phase.respond_to?(:output_paths=)',
+              '      phase.input_file_list_paths = [] if phase.respond_to?(:input_file_list_paths=)',
+              '      phase.output_file_list_paths = [] if phase.respond_to?(:output_file_list_paths=)',
+              '    rescue => e',
+              '      puts \"WARN: Skipping scrub for phase #{phase.name}: #{e}\"',
+              '    end',
+              '  end',
+              'end',
+              '',
+              'post_install do |installer|',
+              '  react_native_post_install(installer) if defined?(react_native_post_install)',
+              '',
+              '  pods_projects = pods_projects_for(installer)',
+              '  user_projects = user_projects_for(installer)',
+              '  all_projects  = (pods_projects + user_projects).uniq { |p| p.path.to_s }',
+              '',
+              \"  min_target = Gem::Version.new('18.0')\",
+              '',
+              '  all_projects.each do |proj|',
+              '    strip_hermes_replacement_scripts!(proj)',
+              '',
+              '    proj.targets.each do |t|',
+              '      scrub_cp_filelists_from_target(t)',
+              '',
+              '      t.build_configurations.each do |cfg|',
+              '        bs = cfg.build_settings',
+              '',
+              '        bs[\"USE_HEADERMAP\"] = \"YES\"',
+              '        bs[\"HEADER_SEARCH_PATHS\"] = [',
+              \"          '$(inherited)',\",
+              \"          '$(PODS_ROOT)/Headers/Public/**',\",
+              \"          '$(PODS_ROOT)/Headers/Private/**',\",
+              \"          '$(PODS_CONFIGURATION_BUILD_DIR)/**',\",
+              \"          '$(SDKROOT)/usr/include/c++/v1'\" ,
+              '        ]',
+              '        bs[\"SYSTEM_HEADER_SEARCH_PATHS\"] = \"$(SDKROOT)/usr/include\"',
+              '',
+              '        bs[\"ENABLE_USER_SCRIPT_SANDBOXING\"] = \"NO\"',
+              '',
+              '        if cfg.name.include?(\"Debug\")',
+              \"          bs['SWIFT_OPTIMIZATION_LEVEL'] = '-Onone'\",
+              \"          bs['SWIFT_COMPILATION_MODE']   = 'singlefile'\",
+              '        else',
+              \"          bs['SWIFT_OPTIMIZATION_LEVEL'] ||= '-O'\",
+              '        end',
+              '',
+              \"        bs['GCC_TREAT_WARNINGS_AS_ERRORS'] = 'NO'\",
+              \"        bs['OTHER_CFLAGS'] = [bs['OTHER_CFLAGS'], '$(inherited)', '-Wno-everything', '-DFOLLY_DISABLE_SIMD=1'].compact.join(' ').squeeze(' ')\",
+              \"        bs['OTHER_CPLUSPLUSFLAGS'] = [bs['OTHER_CPLUSPLUSFLAGS'], '$(inherited)', '-DFOLLY_DISABLE_SIMD=1'].compact.join(' ').squeeze(' ')\",
+              '',
+              \"        bs['CLANG_CXX_LANGUAGE_STANDARD'] ||= 'gnu++17'\",
+              \"        bs['CLANG_CXX_LIBRARY']          ||= 'libc++'\",
+              \"        bs['GCC_C_LANGUAGE_STANDARD']    ||= 'gnu11'\",
+              '',
+              \"        current = Gem::Version.new(bs['IPHONEOS_DEPLOYMENT_TARGET'] || '0')\",
+              \"        bs['IPHONEOS_DEPLOYMENT_TARGET'] = min_target.to_s if current < min_target\",
+              '',
+              \"        bs['ALWAYS_SEARCH_USER_PATHS'] = 'NO'\",
+              '      end',
+              '',
+              '      t.build_phases',
+              \"        .select { |p| p.isa == 'PBXShellScriptBuildPhase' && p.name&.start_with?('[CP]') }\",
+              '        .each do |run|',
+              '          if (run.input_paths || []).empty? && (run.output_paths || []).empty? && run.respond_to?(:always_out_of_date=)',
+              '            run.always_out_of_date = \"1\"',
+              '          end',
+              '        end',
+              '    end',
+              '',
+              '    proj.save',
+              '  end',
+              '',
+              '  if ENV[\"CI\"]',
+              '    offending = []',
+              '    all_projects.each do |proj|',
+              '      proj.targets.each do |t|',
+              \"        t.build_phases.select { |p| p.isa == 'PBXShellScriptBuildPhase' }.each do |phase|\",
+              '          name = (phase.name || \'\').downcase',
+              '          body = (phase.shell_script || \'\').downcase',
+              \"          if ['replace hermes','replace hermes for the right configuration','[hermes]'].any? { |m| name.include?(m) || body.include?(m) }\",
+              '            offending << \"#{proj.path.basename} :: #{t.name} :: #{phase.name}\"',
+              '          end',
+              '        end',
+              '      end',
+              '    end',
+              '    raise \"Forbidden Hermes script phase(s) found:\\n  #{offending.join(\"\\n  \")}\" unless offending.empty?',
+              '  end',
+              'end',
+              '',
+              'post_integrate do |installer|',
+              '  (pods_projects_for(installer) + user_projects_for(installer)).each do |proj|',
+              '    strip_hermes_replacement_scripts!(proj)',
+              '    proj.targets.each do |t|',
+              \"      t.build_phases.select { |p| p.isa == 'PBXShellScriptBuildPhase' && p.name&.start_with?('[CP]') }.each do |run|\",
+              '        if (run.input_paths || []).empty? && (run.output_paths || []).empty? && run.respond_to?(:always_out_of_date=)',
+              '          run.always_out_of_date = \"1\"',
+              '        end',
+              '      end',
+              '    end',
+              '    proj.save',
+              '  end',
+              'end',
+              ''
+            ];
+            fs.writeFileSync('Podfile', lines.join('\\n'));
+          "
+
+      - name: Clean DerivedData & Pod cache
+        working-directory: ios
+        run: |
+          rm -rf "$HOME/Library/Developer/Xcode/DerivedData" || true
+          bundle exec pod cache clean --all || true
 
       - name: Install Pods
         working-directory: ios
@@ -84,45 +381,57 @@ jobs:
           bundle install
           bundle exec pod install --repo-update
 
-      - name: Apply post-install hardening
-        run: |
-          gem install xcodeproj
-          ruby scripts/ci/post_install_hardening_hook.rb
-
       - name: Build (unsigned, device)
         shell: bash
         run: |
           set -euo pipefail
+          SDK_PATH="$(xcrun --show-sdk-path --sdk iphoneos)"
           xcodebuild \
-            -workspace ios/monGARS.xcworkspace \
-            -scheme "$SCHEME" \
-            -configuration "$CONFIGURATION" \
+            -workspace ios/${{ env.SCHEME }}.xcworkspace \
+            -scheme "${{ env.SCHEME }}" \
+            -configuration "${{ env.CONFIGURATION }}" \
             -sdk iphoneos \
             -destination 'generic/platform=iOS' \
-            -derivedDataPath "$BUILD_DIR/DerivedData" \
-            -resultBundlePath "$BUILD_DIR/$SCHEME.xcresult" \
+            -derivedDataPath "${{ env.BUILD_DIR }}/DerivedData" \
+            -resultBundlePath "${{ env.BUILD_DIR }}/${{ env.SCHEME }}.xcresult" \
             CODE_SIGNING_ALLOWED=NO CODE_SIGNING_REQUIRED=NO CODE_SIGN_IDENTITY="" \
-            | tee "$BUILD_DIR/xcodebuild.log"
+            GCC_TREAT_WARNINGS_AS_ERRORS=NO \
+            OTHER_CFLAGS="-Wno-everything" \
+            OTHER_CPLUSPLUSFLAGS="-nostdinc++ -isystem${SDK_PATH}/usr/include/c++/v1 -DFOLLY_DISABLE_SIMD=1" \
+            OTHER_LDFLAGS="-lc++" \
+            | tee "${{ env.BUILD_DIR }}/xcodebuild.log"
+
+      - name: Export xcresult JSON
+        if: always()
+        shell: bash
+        run: |
+          if [ -d "${{ env.BUILD_DIR }}/${{ env.SCHEME }}.xcresult" ]; then
+            xcrun xcresulttool get --path "${{ env.BUILD_DIR }}/${{ env.SCHEME }}.xcresult" --format json --legacy > "${{ env.BUILD_DIR }}/${{ env.SCHEME }}.xcresult.json" || true
+          fi
 
       - name: Package unsigned IPA + zip .app
         if: always()
         shell: bash
         run: |
           set -e
-          APP_DIR="$BUILD_DIR/DerivedData/Build/Products/$CONFIGURATION-iphoneos"
-          APP_PATH="$APP_DIR/$SCHEME.app"
+          APP_DIR="${{ env.BUILD_DIR }}/DerivedData/Build/Products/${{ env.CONFIGURATION }}-iphoneos"
+          APP_PATH="$APP_DIR/${{ env.SCHEME }}.app"
           if [ ! -d "$APP_PATH" ]; then
-            echo "Not found: $APP_PATH"
+            echo "❌ Not found: $APP_PATH"
             ls -la "$APP_DIR" || true
-            exit 0
+            exit 1
           fi
-          rm -rf "$BUILD_DIR/Payload"
-          mkdir -p "$BUILD_DIR/Payload"
-          cp -R "$APP_PATH" "$BUILD_DIR/Payload/"
-          (cd "$BUILD_DIR" && zip -qry offLLM-unsigned.ipa Payload)
-          (cd "$APP_DIR" && zip -qry "$PWD/../../$SCHEME.app.zip" "$SCHEME.app")
+          rm -rf "${{ env.BUILD_DIR }}/Payload"
+          mkdir -p "${{ env.BUILD_DIR }}/Payload"
+          cp -R "$APP_PATH" "${{ env.BUILD_DIR }}/Payload/"
+          (cd "${{ env.BUILD_DIR }}" && /usr/bin/zip -qry offLLM-unsigned.ipa Payload)
+          (cd "$APP_DIR" && /usr/bin/zip -qry "$PWD/../../${{ env.SCHEME }}.app.zip" "${{ env.SCHEME }}.app")
 
-      # Unique names and overwrite to avoid 409 conflicts on re-runs
+      - name: Collect symbols (dSYM & BCSymbolMaps)
+        if: always()
+        shell: bash
+        run: bash scripts/ci/collect-symbols.sh "${{ env.BUILD_DIR }}" "${{ env.CONFIGURATION }}" "${{ env.SCHEME }}"
+
       - name: Upload IPA
         if: always()
         uses: actions/upload-artifact@v4
@@ -134,6 +443,17 @@ jobs:
           if-no-files-found: ignore
           overwrite: true
 
+      - name: Upload symbols
+        if: always()
+        uses: actions/upload-artifact@v4
+        with:
+          name: ios-symbols-xcode-${{ steps.xcodever.outputs.xcode }}-attempt-${{ github.run_attempt }}
+          path: |
+            build/monGARS.dSYM.zip
+            build/BCSymbolMaps.zip
+          if-no-files-found: ignore
+          overwrite: true
+
       - name: Upload logs & xcresult
         if: always()
         uses: actions/upload-artifact@v4
@@ -142,5 +462,6 @@ jobs:
           path: |
             build/xcodebuild.log
             build/monGARS.xcresult
+            build/monGARS.xcresult.json
           if-no-files-found: warn
           overwrite: true
