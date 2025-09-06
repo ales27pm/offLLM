@@ -1,89 +1,21 @@
-name: iOS Unsigned Build (monGARS)
+#!/usr/bin/env bash
+set -euo pipefail
 
-on:
-  workflow_dispatch:
-  push:
-    branches: [ main ]
-  pull_request:
-    branches: [ main ]
+# --------- Env & defaults ----------
+SCHEME="${SCHEME:-monGARS}"
+CONFIGURATION="${CONFIGURATION:-Release}"
+BUILD_DIR="${BUILD_DIR:-build}"
 
-concurrency:
-  group: ios-unsigned-${{ github.ref }}
-  cancel-in-progress: true
+echo "SCHEME=$SCHEME"
+echo "CONFIGURATION=$CONFIGURATION"
+echo "BUILD_DIR=$BUILD_DIR"
 
-jobs:
-  build-unsigned:
-    runs-on: macos-15
-    env:
-      RCT_NEW_ARCH_ENABLED: "1"   # Fabric/Turbo
-      USE_HERMES: "true"
-      SCHEME: "monGARS"
-      CONFIGURATION: "Release"
-      BUILD_DIR: build
-      TEAM_NAME: "27pm"
-      PROJECT_NAME: "monGARS"
-      MD_APPLE_SDK_ROOT: /Applications/Xcode_16.4.app
+mkdir -p "scripts/ci" "ios" "$BUILD_DIR"
 
-    steps:
-      - name: Checkout
-        uses: actions/checkout@v4
-
-      - name: Show installed Xcodes
-        run: ls -1 /Applications | sed -n 's/^Xcode.*/&/p' || true
-
-      # Prefer Xcode 16.4; fall back to 16.2 if not present
-      - name: Select Xcode 16.4 (attempt)
-        id: xcode164
-        continue-on-error: true
-        uses: maxim-lobanov/setup-xcode@v1
-        with:
-          xcode-version: "16.4"
-
-      - name: Select Xcode 16.2 (fallback)
-        if: ${{ steps.xcode164.outcome == 'failure' }}
-        uses: maxim-lobanov/setup-xcode@v1
-        with:
-          xcode-version: "16.2"
-
-      # Avoid rare xcodebuild -version crash by reading Info.plist
-      - name: Confirm Xcode
-        id: xcodever
-        shell: bash
-        run: |
-          set -euo pipefail
-          DEVELOPER_DIR="$(xcode-select -p)"
-          APP_DIR="${DEVELOPER_DIR%/Contents/Developer}"
-          INFO_PLIST="$APP_DIR/Contents/Info.plist"
-          XVER="$(/usr/libexec/PlistBuddy -c 'Print :CFBundleShortVersionString' "$INFO_PLIST")"
-          echo "Using Xcode at: $APP_DIR (version $XVER)"
-          echo "xcode=$XVER" >> "$GITHUB_OUTPUT"
-
-      - name: Ensure ios dir exists
-        run: mkdir -p ios
-
-      - name: Setup Node
-        uses: actions/setup-node@v4
-        with:
-          node-version: "20"
-          cache: "npm"
-
-      - name: Install JS deps
-        run: npm ci
-
-      - name: Setup Ruby (CocoaPods)
-        uses: ruby/setup-ruby@v1
-        with:
-          ruby-version: "3.2"
-          bundler-cache: true
-          working-directory: ios
-
-      - name: Seed XcodeGen project if missing
-        shell: bash
-        run: |
-          set -euo pipefail
-          if [ ! -f ios/project.yml ]; then
-            echo "No ios/project.yml found — seeding a minimal XcodeGen spec."
-            cat > ios/project.yml <<'YML'
+# --------- Seed XcodeGen if missing ----------
+if [ ! -f ios/project.yml ]; then
+  echo "Seeding ios/project.yml"
+  cat > ios/project.yml <<'YML'
 name: monGARS
 options:
   bundleIdPrefix: com.example
@@ -103,8 +35,11 @@ targets:
       PRODUCT_BUNDLE_IDENTIFIER: com.example.monGARS
       INFOPLIST_FILE: ios/Info.plist
 YML
-            if [ ! -f ios/Info.plist ]; then
-              cat > ios/Info.plist <<'PLIST'
+fi
+
+if [ ! -f ios/Info.plist ]; then
+  echo "Seeding ios/Info.plist"
+  cat > ios/Info.plist <<'PLIST'
 <?xml version="1.0" encoding="UTF-8"?>
 <!DOCTYPE plist PUBLIC "-//Apple//DTD PLIST 1.0//EN" "http://www.apple.com/DTDs/PropertyList-1.0.dtd">
 <plist version="1.0">
@@ -121,28 +56,15 @@ YML
 </dict>
 </plist>
 PLIST
-            fi
-          fi
+fi
 
-      - name: Install XcodeGen
-        run: brew install xcodegen
+# --------- Generate Xcode project (XcodeGen) ----------
+if [ -f ios/project.yml ]; then
+  (cd ios && xcodegen generate)
+fi
 
-      - name: Generate Xcode project (if project.yml exists)
-        shell: bash
-        run: |
-          set -euo pipefail
-          if [ -f ios/project.yml ]; then
-            (cd ios && xcodegen generate)
-          else
-            echo "No ios/project.yml present; skipping XcodeGen."
-          fi
-
-      - name: Write Podfile (hardened RN + Hermes + headers)
-        working-directory: ios
-        shell: bash
-        run: |
-          set -euo pipefail
-          cat > Podfile <<'RUBY'
+# --------- Write hardened Podfile ----------
+cat > ios/Podfile <<'RUBY'
 platform :ios, '18.0'
 ENV['RCT_NEW_ARCH_ENABLED'] = '1' # Fabric/Turbo
 
@@ -318,7 +240,7 @@ post_integrate do |installer|
     strip_hermes_replacement_scripts!(proj)
     proj.targets.each do |t|
       t.build_phases
-        .select { |p| p.isa == 'PBXShellScriptBuildPhase' && p.name&.start_with?('[CP]') }
+        .select { |p| p.isa == 'PBXShellScriptBuildPhase' && p.name&{start_with?('[CP]') } rescue false }
         .each do |run|
           if (run.input_paths || []).empty? && (run.output_paths || []).empty? && run.respond_to?(:always_out_of_date=)
             run.always_out_of_date = '1'
@@ -330,83 +252,55 @@ post_integrate do |installer|
 end
 RUBY
 
-      - name: Clean DerivedData & Pod cache
-        working-directory: ios
-        run: |
-          rm -rf "$HOME/Library/Developer/Xcode/DerivedData" || true
-          bundle exec pod cache clean --all || true
+# --------- Clean caches ----------
+rm -rf "$HOME/Library/Developer/Xcode/DerivedData" || true
+(
+  cd ios
+  if [ -f Gemfile ]; then
+    bundle install
+    bundle exec pod cache clean --all || true
+    bundle exec pod install --repo-update
+  else
+    pod cache clean --all || true
+    pod install --repo-update
+  fi
+)
 
-      - name: Install Pods
-        working-directory: ios
-        run: |
-          bundle install
-          bundle exec pod install --repo-update
+# --------- Build ----------
+SDK_PATH="$(xcrun --show-sdk-path --sdk iphoneos)"
+xcodebuild \
+  -workspace "ios/${SCHEME}.xcworkspace" \
+  -scheme "${SCHEME}" \
+  -configuration "${CONFIGURATION}" \
+  -sdk iphoneos \
+  -destination 'generic/platform=iOS' \
+  -derivedDataPath "${BUILD_DIR}/DerivedData" \
+  -resultBundlePath "${BUILD_DIR}/${SCHEME}.xcresult" \
+  CODE_SIGNING_ALLOWED=NO CODE_SIGNING_REQUIRED=NO CODE_SIGN_IDENTITY="" \
+  GCC_TREAT_WARNINGS_AS_ERRORS=NO \
+  OTHER_CFLAGS="-Wno-everything" \
+  OTHER_CPLUSPLUSFLAGS="-nostdinc++ -isystem${SDK_PATH}/usr/include/c++/v1 -DFOLLY_DISABLE_SIMD=1" \
+  OTHER_LDFLAGS="-lc++" \
+  | tee "${BUILD_DIR}/xcodebuild.log"
 
-      - name: Build (unsigned, device)
-        shell: bash
-        run: |
-          set -euo pipefail
-          SDK_PATH="$(xcrun --show-sdk-path --sdk iphoneos)"
-          xcodebuild \
-            -workspace ios/${{ env.SCHEME }}.xcworkspace \
-            -scheme "${{ env.SCHEME }}" \
-            -configuration "${{ env.CONFIGURATION }}" \
-            -sdk iphoneos \
-            -destination 'generic/platform=iOS' \
-            -derivedDataPath "${{ env.BUILD_DIR }}/DerivedData" \
-            -resultBundlePath "${{ env.BUILD_DIR }}/${{ env.SCHEME }}.xcresult" \
-            CODE_SIGNING_ALLOWED=NO CODE_SIGNING_REQUIRED=NO CODE_SIGN_IDENTITY="" \
-            GCC_TREAT_WARNINGS_AS_ERRORS=NO \
-            OTHER_CFLAGS="-Wno-everything" \
-            OTHER_CPLUSPLUSFLAGS="-nostdinc++ -isystem${SDK_PATH}/usr/include/c++/v1 -DFOLLY_DISABLE_SIMD=1" \
-            OTHER_LDFLAGS="-lc++" \
-            | tee "${{ env.BUILD_DIR }}/xcodebuild.log"
+# --------- Export xcresult JSON (best-effort) ----------
+if [ -d "${BUILD_DIR}/${SCHEME}.xcresult" ]; then
+  xcrun xcresulttool get --path "${BUILD_DIR}/${SCHEME}.xcresult" --format json --legacy > "${BUILD_DIR}/${SCHEME}.xcresult.json" || true
+fi
 
-      - name: Export xcresult JSON
-        if: always()
-        shell: bash
-        run: |
-          if [ -d "${{ env.BUILD_DIR }}/${{ env.SCHEME }}.xcresult" ]; then
-            xcrun xcresulttool get --path "${{ env.BUILD_DIR }}/${{ env.SCHEME }}.xcresult" --format json --legacy > "${{ env.BUILD_DIR }}/${{ env.SCHEME }}.xcresult.json" || true
-          fi
+# --------- Package unsigned IPA ----------
+APP_DIR="${BUILD_DIR}/DerivedData/Build/Products/${CONFIGURATION}-iphoneos"
+APP_PATH="${APP_DIR}/${SCHEME}.app"
+if [ ! -d "$APP_PATH" ]; then
+  echo "❌ Not found: $APP_PATH"
+  ls -la "$APP_DIR" || true
+  exit 1
+fi
 
-      - name: Package unsigned IPA + zip .app
-        if: always()
-        shell: bash
-        run: |
-          set -e
-          APP_DIR="${{ env.BUILD_DIR }}/DerivedData/Build/Products/${{ env.CONFIGURATION }}-iphoneos"
-          APP_PATH="$APP_DIR/${{ env.SCHEME }}.app"
-          if [ ! -d "$APP_PATH" ]; then
-            echo "❌ Not found: $APP_PATH"
-            ls -la "$APP_DIR" || true
-            exit 1
-          fi
-          rm -rf "${{ env.BUILD_DIR }}/Payload"
-          mkdir -p "${{ env.BUILD_DIR }}/Payload"
-          cp -R "$APP_PATH" "${{ env.BUILD_DIR }}/Payload/"
-          (cd "${{ env.BUILD_DIR }}" && /usr/bin/zip -qry offLLM-unsigned.ipa Payload)
-          (cd "$APP_DIR" && /usr/bin/zip -qry "$PWD/../../${{ env.SCHEME }}.app.zip" "${{ env.SCHEME }}.app")
+rm -rf "${BUILD_DIR}/Payload"
+mkdir -p "${BUILD_DIR}/Payload"
+cp -R "$APP_PATH" "${BUILD_DIR}/Payload/"
+( cd "${BUILD_DIR}" && /usr/bin/zip -qry offLLM-unsigned.ipa Payload )
+( cd "$APP_DIR" && /usr/bin/zip -qry "$PWD/../../${SCHEME}.app.zip" "${SCHEME}.app" )
 
-      - name: Upload IPA
-        if: always()
-        uses: actions/upload-artifact@v4
-        with:
-          name: ios-unsigned-ipa-xcode-${{ steps.xcodever.outputs.xcode }}-attempt-${{ github.run_attempt }}
-          path: |
-            build/offLLM-unsigned.ipa
-            build/monGARS.app.zip
-          if-no-files-found: ignore
-          overwrite: true
-
-      - name: Upload logs & xcresult
-        if: always()
-        uses: actions/upload-artifact@v4
-        with:
-          name: ios-unsigned-reports-xcode-${{ steps.xcodever.outputs.xcode }}-attempt-${{ github.run_attempt }}
-          path: |
-            build/xcodebuild.log
-            build/monGARS.xcresult
-            build/monGARS.xcresult.json
-          if-no-files-found: warn
-          overwrite: true
+echo "✅ Done. IPA at ${BUILD_DIR}/offLLM-unsigned.ipa"
