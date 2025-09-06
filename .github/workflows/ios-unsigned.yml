@@ -64,51 +64,59 @@ jobs:
       - name: Install Homebrew deps
         run: brew install xcodegen
 
+      # ✅ No heredocs. We write files via Node to avoid YAML/indent issues.
       - name: Seed minimal XcodeGen spec if missing
-        shell: bash
         run: |
-          set -euo pipefail
-          if [ ! -f ios/project.yml ]; then
-            echo "No ios/project.yml found — seeding a minimal XcodeGen spec."
-            mkdir -p ios
-            cat > ios/project.yml <<'YML'
-            name: monGARS
-            options:
-              bundleIdPrefix: com.example
-              deploymentTarget:
-                iOS: "18.0"
-            targets:
-              monGARS:
-                type: application
-                platform: iOS
-                sources:
-                  - path: .
-                    excludes:
-                      - ios/**/*
-                      - android/**/*
-                      - node_modules/**/*
-                settings:
-                  PRODUCT_BUNDLE_IDENTIFIER: com.example.monGARS
-                  INFOPLIST_FILE: ios/Info.plist
-            YML
-            if [ ! -f ios/Info.plist ]; then
-              cat > ios/Info.plist <<'PLIST'
-              <?xml version="1.0" encoding="UTF-8"?>
-              <!DOCTYPE plist PUBLIC "-//Apple//DTD PLIST 1.0//EN" "http://www.apple.com/DTDs/PropertyList-1.0.dtd">
-              <plist version="1.0">
-              <dict>
-                <key>CFBundleName</key><string>monGARS</string>
-                <key>CFBundleIdentifier</key><string>com.example.monGARS</string>
-                <key>CFBundleExecutable</key><string>$(EXECUTABLE_NAME)</string>
-                <key>CFBundlePackageType</key><string>APPL</string>
-                <key>UISupportedInterfaceOrientations</key>
-                <array><string>UIInterfaceOrientationPortrait</string></array>
-                <key>LSRequiresIPhoneOS</key><true/>
-              </dict>
-              </plist>
-              PLIST
-            fi
-          fi
+          node -e "
+          const fs = require('fs');
+          if (!fs.existsSync('ios')) fs.mkdirSync('ios', { recursive: true });
+          if (!fs.existsSync('ios/project.yml')) {
+            const y = [
+              'name: monGARS',
+              'options:',
+              '  bundleIdPrefix: com.example',
+              '  deploymentTarget:',
+              '    iOS: \"18.0\"',
+              'targets:',
+              '  monGARS:',
+              '    type: application',
+              '    platform: iOS',
+              '    sources:',
+              '      - path: .',
+              '        excludes:',
+              '          - ios/**/*',
+              '          - android/**/*',
+              '          - node_modules/**/*',
+              '    settings:',
+              '      PRODUCT_BUNDLE_IDENTIFIER: com.example.monGARS',
+              '      INFOPLIST_FILE: ios/Info.plist',
+              ''
+            ].join('\\n');
+            fs.writeFileSync('ios/project.yml', y);
+            if (!fs.existsSync('ios/Info.plist')) {
+              const p = [
+                '<?xml version=\"1.0\" encoding=\"UTF-8\"?>',
+                '<!DOCTYPE plist PUBLIC \"-//Apple//DTD PLIST 1.0//EN\" \"http://www.apple.com/DTDs/PropertyList-1.0.dtd\">',
+                '<plist version=\"1.0\">',
+                '<dict>',
+                '  <key>CFBundleName</key><string>monGARS</string>',
+                '  <key>CFBundleIdentifier</key><string>com.example.monGARS</string>',
+                '  <key>CFBundleExecutable</key><string>$(EXECUTABLE_NAME)</string>',
+                '  <key>CFBundlePackageType</key><string>APPL</string>',
+                '  <key>UISupportedInterfaceOrientations</key>',
+                '  <array><string>UIInterfaceOrientationPortrait</string></array>',
+                '  <key>LSRequiresIPhoneOS</key><true/>',
+                '</dict>',
+                '</plist>',
+                ''
+              ].join('\\n');
+              fs.writeFileSync('ios/Info.plist', p);
+            }
+            console.log('Seeded ios/project.yml and ios/Info.plist');
+          } else {
+            console.log('ios/project.yml already exists; skipping seeding.');
+          }
+          "
 
       - name: Generate .xcodeproj with XcodeGen
         working-directory: ios
@@ -142,11 +150,8 @@ jobs:
         run: |
           set -euo pipefail
           mkdir -p "$BUILD_DIR"
-
-          # Clean DerivedData to avoid stale search paths
           rm -rf "$BUILD_DIR/DerivedData"
 
-          # Build
           set +e
           xcodebuild \
             -workspace ios/monGARS.xcworkspace \
@@ -161,7 +166,6 @@ jobs:
           STATUS=${PIPESTATUS[0]}
           set -e
 
-          # Package unsigned IPA if .app exists
           APP_DIR="$BUILD_DIR/DerivedData/Build/Products/${CONFIGURATION}-iphoneos"
           APP_PATH="$APP_DIR/$SCHEME.app"
           if [ -d "$APP_PATH" ]; then
@@ -172,12 +176,10 @@ jobs:
             (cd "$APP_DIR" && zip -qry "$PWD/../../$SCHEME.app.zip" "$SCHEME.app")
           fi
 
-          # Export a JSON summary of the xcresult if available
           if command -v xcrun >/dev/null 2>&1 && [ -d "$BUILD_DIR/$SCHEME.xcresult" ]; then
             xcrun xcresulttool get --format json --path "$BUILD_DIR/$SCHEME.xcresult" > "$BUILD_DIR/$SCHEME.xcresult.json" || true
           fi
 
-          # Expose status to later steps
           echo "status=$STATUS" >> "$GITHUB_OUTPUT"
           exit "$STATUS"
 
