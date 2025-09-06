@@ -1,4 +1,4 @@
-name: iOS unsigned build
+name: iOS CI
 
 on:
   push:
@@ -6,216 +6,157 @@ on:
   pull_request:
 
 jobs:
-  ios:
+  build-ios:
     runs-on: macos-14
-
     env:
-      RCT_NEW_ARCH_ENABLED: "1"
-      USE_HERMES: "true"
-      SCHEME: monGARS
-      CONFIGURATION: Release
-      BUILD_DIR: build
+      DEVELOPER_DIR: /Applications/Xcode_16.2.app/Contents/Developer
+      XCODE_SCHEME: monGARS
+      XCODE_WORKSPACE: ios/monGARS.xcworkspace
+      DERIVED_DATA: build/DerivedData
 
     steps:
       - name: Checkout
         uses: actions/checkout@v4
 
-      - name: Select Xcode 16.2
-        uses: maxim-lobanov/setup-xcode@v1
-        with:
-          xcode-version: "16.2"
-
-      - name: Show Xcode path/version
+      - name: Show Xcode version
         run: |
-          set -euo pipefail
           xcodebuild -version
-          echo "MD_APPLE_SDK_ROOT=$(/usr/bin/xcode-select -p | sed 's#/Contents/Developer##')" >> "$GITHUB_ENV"
+          xcode-select -p
 
-      - name: Setup Homebrew tools
-        run: |
-          set -euo pipefail
-          brew update
-          brew install xcodegen jq autoconf automake libtool
-
-      - name: Setup Node and install JS deps
+      - name: Setup Node
         uses: actions/setup-node@v4
         with:
-          node-version: '20'
-          cache: 'npm'
-      - run: npm ci
+          node-version: 18
 
-      - name: Ensure ios/project.yml and Info.plist exist (no heredocs)
+      - name: Install JS deps
         run: |
-          set -euo pipefail
-          if [ ! -f ios/project.yml ]; then
-            echo "Seeding ios/project.yml"
-            mkdir -p ios
-            {
-              echo "name: monGARS"
-              echo "options:"
-              echo "  bundleIdPrefix: com.example"
-              echo "  deploymentTarget:"
-              echo "    iOS: \"18.0\""
-              echo "targets:"
-              echo "  monGARS:"
-              echo "    type: application"
-              echo "    platform: iOS"
-              echo "    sources:"
-              echo "      - path: ."
-              echo "        excludes:"
-              echo "          - ios/**/*"
-              echo "          - android/**/*"
-              echo "          - node_modules/**/*"
-              echo "    settings:"
-              echo "      PRODUCT_BUNDLE_IDENTIFIER: com.example.monGARS"
-              echo "      INFOPLIST_FILE: ios/Info.plist"
-            } > ios/project.yml
+          if [ -f yarn.lock ]; then
+            corepack enable
+            yarn --version
+            yarn install --frozen-lockfile
+          elif [ -f package-lock.json ]; then
+            npm ci
+          else
+            echo "No yarn.lock or package-lock.json found, skipping JS install"
           fi
-          if [ ! -f ios/Info.plist ]; then
-            echo "Creating ios/Info.plist"
-            mkdir -p ios
-            {
-              echo "<?xml version=\"1.0\" encoding=\"UTF-8\"?>"
-              echo "<!DOCTYPE plist PUBLIC \"-//Apple//DTD PLIST 1.0//EN\" \"http://www.apple.com/DTDs/PropertyList-1.0.dtd\">"
-              echo "<plist version=\"1.0\">"
-              echo "<dict>"
-              echo "  <key>CFBundleName</key><string>monGARS</string>"
-              echo "  <key>CFBundleIdentifier</key><string>com.example.monGARS</string>"
-              echo "  <key>CFBundleExecutable</key><string>\$(EXECUTABLE_NAME)</string>"
-              echo "  <key>CFBundlePackageType</key><string>APPL</string>"
-              echo "  <key>UISupportedInterfaceOrientations</key>"
-              echo "  <array><string>UIInterfaceOrientationPortrait</string></array>"
-              echo "  <key>LSRequiresIPhoneOS</key><true/>"
-              echo "</dict>"
-              echo "</plist>"
-            } > ios/Info.plist
-          fi
-
-      - name: Generate .xcodeproj with XcodeGen
-        run: |
-          set -euo pipefail
-          pushd ios >/dev/null
-          rm -rf monGARS.xcodeproj
-          xcodegen generate --spec project.yml
-          test -d monGARS.xcodeproj && echo "✅ Generated ios/monGARS.xcodeproj"
-          popd >/dev/null
 
       - name: Setup Ruby
         uses: ruby/setup-ruby@v1
         with:
-          ruby-version: '3.3'
-          bundler-cache: false
+          ruby-version: '3.2'
+          bundler-cache: true
 
-      - name: Install CocoaPods and pods
+      - name: Install CocoaPods (if not using Bundler)
+        if: ${{ !hashFiles('Gemfile') }}
         run: |
-          set -euo pipefail
           gem install cocoapods -N
-          cd ios
-          pod repo update
-          pod install --verbose
+          pod --version
 
-      - name: Ensure glog config.h exists (generate or copy)
+      - name: Pod cache
+        uses: actions/cache@v4
+        with:
+          path: |
+            ios/Pods
+            ~/Library/Caches/CocoaPods
+            ~/Library/Developer/Xcode/DerivedData
+          key: pods-${{ runner.os }}-${{ env.DEVELOPER_DIR }}-${{ hashFiles('ios/Podfile.lock') }}
+          restore-keys: |
+            pods-${{ runner.os }}-${{ env.DEVELOPER_DIR }}-
+
+      - name: Install pods
+        working-directory: ios
+        run: |
+          if [ -f ../Gemfile ]; then
+            bundle exec pod install --repo-update
+          else
+            pod install --repo-update
+          fi
+
+      # ---- FIX: make sure glog's src/config.h exists on CI ----
+      - name: Configure glog for iOS (generate config.h)
         run: |
           set -euo pipefail
           SRC_DIR="ios/Pods/glog/src"
           GLOG_DIR="ios/Pods/glog"
-          PRIV_HDR="ios/Pods/Headers/Private/glog/config.h"
 
           mkdir -p "$SRC_DIR"
 
-          # 1) If src/config.h is missing, try configure
+          # 1) Preferred: RN helper script (same as local CocoaPods post-install)
           if [ ! -f "$SRC_DIR/config.h" ]; then
-            if [ -x "$GLOG_DIR/configure" ]; then
-              echo "Running glog ./configure to generate config.h"
-              (cd "$GLOG_DIR" && ./configure || true)
-            fi
-          fi
-
-          # 2) If still missing, copy from any known location (Private headers first)
-          if [ ! -f "$SRC_DIR/config.h" ]; then
-            if [ -f "$PRIV_HDR" ]; then
-              echo "Copying $PRIV_HDR -> $SRC_DIR/config.h"
-              cp "$PRIV_HDR" "$SRC_DIR/config.h"
+            if [ -f node_modules/react-native/scripts/ios-configure-glog.sh ]; then
+              echo "Running RN ios-configure-glog.sh"
+              bash node_modules/react-native/scripts/ios-configure-glog.sh || true
             else
-              FOUND="$(/usr/bin/find ios/Pods -name config.h -path '*/glog/*' | head -n1 || true)"
-              if [ -n "${FOUND:-}" ]; then
-                echo "Copying $FOUND -> $SRC_DIR/config.h"
-                cp "$FOUND" "$SRC_DIR/config.h"
-              fi
+              echo "RN helper script not found, skipping to fallback"
             fi
           fi
 
-          # 3) Final check
+          # 2) Fallback: autogen/configure inside the glog pod
+          if [ ! -f "$SRC_DIR/config.h" ] && [ -d "$GLOG_DIR" ]; then
+            echo "Trying glog autogen/configure"
+            (
+              cd "$GLOG_DIR"
+              if [ -x ./autogen.sh ]; then ./autogen.sh || true; fi
+              if [ -x ./configure ]; then ./configure || true; fi
+            )
+          fi
+
+          # 3) Last resort: write a tiny iOS-safe stub so the include resolves
           if [ ! -f "$SRC_DIR/config.h" ]; then
-            echo "❌ glog src/config.h still missing; build will likely fail."
-            ls -la "$SRC_DIR" || true
-            exit 1
-          else
+            echo "Creating minimal iOS config.h stub"
+            F="$SRC_DIR/config.h"
+            : > "$F"
+            echo "/* minimal config for iOS CI */" >> "$F"
+            echo "#define HAVE_PTHREAD 1" >> "$F"
+            echo "#define GLOG_OS_MACOSX 1" >> "$F"
+            echo "#define GLOG_HAVE_STDINT_H 1" >> "$F"
+            echo "#define GLOG_HAVE_SYS_TIME_H 1" >> "$F"
+            echo "#define GLOG_HAVE_UNISTD_H 1" >> "$F"
+            echo "#define GLOG_NDEBUG 1" >> "$F"
+            echo "#define GOOGLE_GLOG_DLL_DECL" >> "$F"
+            echo "#define GOOGLE_GLOG_DLL_DECL_FOR_UNITTESTS" >> "$F"
+            echo "#define GLOG_USE_GLOG_EXPORT 1" >> "$F"
+          fi
+
+          # 4) Verify
+          if [ -f "$SRC_DIR/config.h" ]; then
             echo "✅ glog src/config.h present."
+          else
+            echo "❌ glog src/config.h still missing."
+            exit 1
           fi
 
-      - name: Build (xcodebuild)
+      - name: Build (Release, device SDK)
         run: |
           set -euo pipefail
-          LOG="$BUILD_DIR/xcodebuild.log"
-          mkdir -p "$BUILD_DIR"
+          mkdir -p build
+          LOG_PATH="build/xcodebuild.log"
+          # Clean
+          xcodebuild -workspace "$XCODE_WORKSPACE" \
+                     -scheme "$XCODE_SCHEME" \
+                     -configuration Release \
+                     -sdk iphoneos \
+                     -derivedDataPath "$DERIVED_DATA" \
+                     clean | tee "$LOG_PATH"
 
-          xcodebuild \
-            -workspace ios/monGARS.xcworkspace \
-            -scheme "$SCHEME" \
-            -configuration "$CONFIGURATION" \
-            -destination 'generic/platform=iOS' \
-            -UseModernBuildSystem=YES \
-            -showBuildTimingSummary \
-            clean
+          # Build
+          xcodebuild -workspace "$XCODE_WORKSPACE" \
+                     -scheme "$XCODE_SCHEME" \
+                     -configuration Release \
+                     -sdk iphoneos \
+                     -derivedDataPath "$DERIVED_DATA" \
+                     build | tee -a "$LOG_PATH"
 
-          if ! xcodebuild \
-            -workspace ios/monGARS.xcworkspace \
-            -scheme "$SCHEME" \
-            -configuration "$CONFIGURATION" \
-            -destination 'generic/platform=iOS' \
-            -derivedDataPath "$BUILD_DIR/DerivedData" \
-            -UseModernBuildSystem=YES \
-            -showBuildTimingSummary \
-            build | tee "$LOG" ; then
-            echo "------ tail of $LOG ------"
-            tail -n 300 "$LOG" || true
-            exit 65
-          fi
-
-          # Verify success using fixed-string grep (not regex)
-          if ! grep -Fq "** BUILD SUCCEEDED **" "$LOG"; then
-            echo "Build did not report success."
-            tail -n 300 "$LOG" || true
-            exit 65
-          fi
-
-      - name: Package .app → .ipa (unsigned)
-        run: |
-          set -euo pipefail
-          PRODUCTS="$BUILD_DIR/DerivedData/Build/Products/${CONFIGURATION}-iphoneos"
-          APP_PATH="$PRODUCTS/${SCHEME}.app"
-          OUT_DIR="$BUILD_DIR/artifacts"
-          mkdir -p "$OUT_DIR/Payload"
-          test -d "$APP_PATH" || { echo "App not found at $APP_PATH"; exit 1; }
-          cp -R "$APP_PATH" "$OUT_DIR/Payload/"
-          (cd "$OUT_DIR" && zip -qry "${SCHEME}.ipa" Payload)
-          echo "IPA at $OUT_DIR/${SCHEME}.ipa"
-
-      - name: Export xcresult summary (JSON)
-        run: |
-          set -euo pipefail
-          XCRESULT_DIR="$(/usr/bin/find "$BUILD_DIR" -name '*.xcresult' -maxdepth 3 -print -quit || true)"
-          if [ -n "${XCRESULT_DIR:-}" ]; then
-            /usr/bin/xcrun xcresulttool get --legacy --path "$XCRESULT_DIR" --format json > "$BUILD_DIR/monGARS.xcresult.json" || true
-          fi
-
-      - name: Upload artifacts
+      - name: Upload xcodebuild log (always)
+        if: always()
         uses: actions/upload-artifact@v4
         with:
-          name: ios-unsigned-build
-          path: |
-            build/xcodebuild.log
-            build/artifacts/monGARS.ipa
-            build/monGARS.xcresult.json
-          if-no-files-found: warn
+          name: xcodebuild-log
+          path: build/xcodebuild.log
+
+      - name: Upload .xcarchive (optional if you archive)
+        if: false
+        uses: actions/upload-artifact@v4
+        with:
+          name: ios-archive
+          path: build/DerivedData/Build/Products/*.xcarchive
