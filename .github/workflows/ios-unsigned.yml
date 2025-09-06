@@ -1,4 +1,4 @@
-name: iOS Unsigned (Xcode 16.4)
+name: iOS Unsigned (Xcode 16.2)
 
 on:
   push:
@@ -23,16 +23,15 @@ jobs:
       - name: Checkout
         uses: actions/checkout@v4
 
-      - name: Select Xcode 16.4
+      - name: Select Xcode 16.2
         uses: maxim-lobanov/setup-xcode@v1
         with:
-          xcode-version: "16.4"
+          xcode-version: "16.2"
 
       - name: Print Xcode version
         run: |
           set -euo pipefail
           xcodebuild -version
-          # DEVELOPER_DIR is set by setup-xcode; keep for downstream tools
           echo "DEVELOPER_DIR=$DEVELOPER_DIR" >> "$GITHUB_ENV"
 
       - name: Setup Node
@@ -52,9 +51,8 @@ jobs:
           node -e "
             const fs = require('fs');
             fs.mkdirSync('ios', { recursive: true });
-            const proj = 'ios/project.yml';
-            if (!fs.existsSync(proj)) {
-              fs.writeFileSync(proj, [
+            if (!fs.existsSync('ios/project.yml')) {
+              fs.writeFileSync('ios/project.yml', [
                 'name: monGARS',
                 'options:',
                 '  bundleIdPrefix: com.example',
@@ -77,9 +75,8 @@ jobs:
               ].join('\\n'));
               console.log('Seeded ios/project.yml');
             }
-            const plist = 'ios/Info.plist';
-            if (!fs.existsSync(plist)) {
-              fs.writeFileSync(plist, [
+            if (!fs.existsSync('ios/Info.plist')) {
+              fs.writeFileSync('ios/Info.plist', [
                 '<?xml version=\"1.0\" encoding=\"UTF-8\"?>',
                 '<!DOCTYPE plist PUBLIC \"-//Apple//DTD PLIST 1.0//EN\" \"http://www.apple.com/DTDs/PropertyList-1.0.dtd\">',
                 '<plist version=\"1.0\">',
@@ -107,17 +104,22 @@ jobs:
           pod repo update
           pod install --verbose
 
-      # If you really use XcodeGen, uncomment these:
-      # - name: Generate Xcode project with XcodeGen
-      #   run: |
-      #     brew install xcodegen || true
-      #     xcodegen generate
+      # Create an xcconfig that prioritizes libc++ headers to avoid the <cstdint>/<stdint.h> error.
+      - name: Create CI xcconfig to fix libc++ include order
+        run: |
+          set -euo pipefail
+          mkdir -p ios
+          cat > ios/CIOverrides.xcconfig <<'XC'
+          // Ensure C++ stdlib headers take precedence
+          HEADER_SEARCH_PATHS = $(SDKROOT)/usr/include/c++/v1 $(inherited)
+          SYSTEM_HEADER_SEARCH_PATHS = $(inherited)
+          // Keep warnings as-is
+          XC
 
       - name: Build (unsigned, generic iOS device)
         run: |
           set -euo pipefail
           mkdir -p "$BUILD_DIR"
-          # Pick workspace if Pods exist, else project
           if [ -d ios/Pods ]; then
             WORK_ARG="-workspace ios/monGARS.xcworkspace"
           else
@@ -131,6 +133,7 @@ jobs:
             -destination "generic/platform=iOS" \
             -derivedDataPath "$BUILD_DIR/DerivedData" \
             -resultBundlePath "$BUILD_DIR/monGARS.xcresult" \
+            -xcconfig ios/CIOverrides.xcconfig \
             -allowProvisioningUpdates \
             -UseModernBuildSystem=YES \
             build \
@@ -161,10 +164,7 @@ jobs:
         if: always()
         uses: actions/upload-artifact@v4
         with:
-          name: ios-unsigned-xcode-16_4
+          name: ios-unsigned-xcode-16_2
           path: |
-            build/xcodebuild.log
-            build/monGARS.xcresult
-            build/monGARS.xcresult.json
-            build/monGARS.app.zip
-          if-no-files-found: ignore
+            build/**
+          if-no-files-found: warn
