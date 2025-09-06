@@ -25,11 +25,6 @@ jobs:
       - name: Checkout
         uses: actions/checkout@v4
 
-      - name: Show installed Xcodes
-        run: |
-          ls -1 /Applications | sed -n 's/^Xcode.*/&/p' || true
-
-      # Prefer Xcode 16.4; if missing, fall back to 16.2
       - name: Select Xcode 16.4 (attempt)
         id: xcode164
         continue-on-error: true
@@ -71,18 +66,10 @@ jobs:
       - name: Install XcodeGen
         run: brew install xcodegen
 
-      # ✅ FIXED: use hashFiles() to conditionally run XcodeGen if project.yml exists
       - name: Generate Xcode project
         if: ${{ hashFiles('ios/project.yml') != '' }}
         working-directory: ios
         run: xcodegen generate
-
-      - name: Verify project
-        run: |
-          if [ ! -d ios/monGARS.xcodeproj ]; then
-            echo "monGARS.xcodeproj not generated"
-            exit 1
-          fi
 
       - name: Clean DerivedData & Pod cache
         working-directory: ios
@@ -109,9 +96,8 @@ jobs:
             -derivedDataPath "$BUILD_DIR/DerivedData" \
             -resultBundlePath "$BUILD_DIR/$SCHEME.xcresult" \
             CODE_SIGNING_ALLOWED=NO CODE_SIGNING_REQUIRED=NO CODE_SIGN_IDENTITY="" \
-            SWIFT_DISABLE_REQUIRED_ARCLITE=YES \
             GCC_TREAT_WARNINGS_AS_ERRORS=NO \
-            OTHER_CFLAGS="-Wno-everything $(xcodebuild -showBuildSettings 2>/dev/null >/dev/null || true)" \
+            OTHER_CFLAGS="-Wno-everything" \
             | tee "$BUILD_DIR/xcodebuild.log"
 
       - name: Export xcresult JSON
@@ -130,9 +116,9 @@ jobs:
           APP_DIR="$BUILD_DIR/DerivedData/Build/Products/$CONFIGURATION-iphoneos"
           APP_PATH="$APP_DIR/$SCHEME.app"
           if [ ! -d "$APP_PATH" ]; then
-            echo "Not found: $APP_PATH"
+            echo "❌ Not found: $APP_PATH"
             ls -la "$APP_DIR" || true
-            exit 0
+            exit 1
           fi
           rm -rf "$BUILD_DIR/Payload"
           mkdir -p "$BUILD_DIR/Payload"
