@@ -20,11 +20,18 @@ jobs:
       SCHEME: "monGARS"
       CONFIGURATION: "Release"
       BUILD_DIR: build
+      # prefer 16.4; the step below falls back to 16.2 automatically
+      MD_APPLE_SDK_ROOT: /Applications/Xcode_16.4.app
 
     steps:
       - name: Checkout
         uses: actions/checkout@v4
 
+      - name: Show installed Xcodes
+        run: |
+          ls -1 /Applications | sed -n 's/^Xcode.*/&/p' || true
+
+      # Prefer Xcode 16.4; if missing, fall back to 16.2
       - name: Select Xcode 16.4 (attempt)
         id: xcode164
         continue-on-error: true
@@ -38,14 +45,19 @@ jobs:
         with:
           xcode-version: "16.2"
 
+      # ⛏️ New: detect version without calling `xcodebuild -version`
       - name: Confirm Xcode
         id: xcodever
         shell: bash
         run: |
-          set -e
-          xcodebuild -version
-          SEL="$(xcodebuild -version | head -n1 | awk '{print $2}')"
-          echo "xcode=$SEL" >> "$GITHUB_OUTPUT"
+          set -euo pipefail
+          DEVELOPER_DIR="$(xcode-select -p)"                                  # /Applications/Xcode_16.4.app/Contents/Developer
+          APP_DIR="${DEVELOPER_DIR%/Contents/Developer}"                      # /Applications/Xcode_16.4.app
+          INFO_PLIST="$APP_DIR/Contents/Info.plist"
+          # CFBundleShortVersionString is e.g. "16.4"
+          XVER="$(/usr/libexec/PlistBuddy -c 'Print :CFBundleShortVersionString' "$INFO_PLIST")"
+          echo "Using Xcode at: $APP_DIR (version $XVER)"
+          echo "xcode=$XVER" >> "$GITHUB_OUTPUT"
 
       - name: Setup Node
         uses: actions/setup-node@v4
