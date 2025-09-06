@@ -1,8 +1,8 @@
 #!/usr/bin/env ruby
-# Make Pods + app target compile cleanly on iOS 18 toolchains.
-# - Force libc++ and C++20
-# - Re-enable removed typedef macros (e.g. ::FILE)
-# - Ensure SDK libc++ headers are seen first via -isystem $(SDKROOT)/usr/include/c++/v1
+# MonGARS CI hardening for iOS
+# - Use libc++ + C++17 (what RN/Folly expect)
+# - Disable Folly SIMD (-DFOLLY_DISABLE_SIMD=1) to avoid SimdAnyOf/SimdForEach failures
+# - Remove old C++20/headers hacks; idempotent
 
 require 'xcodeproj'
 
@@ -10,32 +10,42 @@ IOS_DIR        = File.expand_path(File.join(__dir__, '..', '..', 'ios'))
 PODS_PROJ_PATH = File.join(IOS_DIR, 'Pods', 'Pods.xcodeproj')
 APP_PROJ_PATH  = File.join(IOS_DIR, 'monGARS.xcodeproj')
 
-CPP_MACRO = '-D_LIBCPP_ENABLE_CXX20_REMOVED_TYPEDEF_MACROS'
-CXX_STD   = 'gnu++20'
-LIBCXX    = 'libc++'
-LIBCXX_ISYSTEM = '-isystem $(SDKROOT)/usr/include/c++/v1'
+CXX_STD = 'gnu++17'
+LIBCXX  = 'libc++'
+FOLLY_SIMD_OFF = '-DFOLLY_DISABLE_SIMD=1'
 
 def normalize_cxx_std(current)
   return CXX_STD unless current.is_a?(String)
   if current =~ /(?:c\+\+|gnu\+\+)(\d{2})/
     ver = Regexp.last_match(1).to_i
-    ver >= 20 ? current : CXX_STD
+    ver >= 20 ? CXX_STD : current
   else
     CXX_STD
   end
 end
 
-def ensure_flag(flags, newflag)
-  arr = case flags
+def ensure_flags(list_or_string, *flags)
+  arr = case list_or_string
         when nil then []
-        when String then flags.split(/\s+/)
-        when Array then flags
+        when String then list_or_string.split(/\s+/)
+        when Array then list_or_string
         else []
         end
-  unless arr.any? { |f| f == newflag }
-    arr << newflag
-  end
-  arr
+  arr << '$(inherited)' unless arr.include?('$(inherited)')
+  flags.each { |f| arr << f unless arr.include?(f) }
+  arr.join(' ').strip
+end
+
+def strip_flags(list_or_string, &block)
+  arr = case list_or_string
+        when nil then []
+        when String then list_or_string.split(/\s+/)
+        when Array then list_or_string
+        else []
+        end
+  arr.reject! { |f| block.call(f) }
+  arr = ['$(inherited)'] if arr.empty?
+  arr.join(' ').strip
 end
 
 def patch_project(proj_path, target_name: nil)
@@ -51,19 +61,24 @@ def patch_project(proj_path, target_name: nil)
     t.build_configurations.each do |cfg|
       bs = cfg.build_settings
 
-      # Force libc++ and C++20
-      bs['CLANG_CXX_LIBRARY']          = LIBCXX
+      # libc++ + C++17
+      bs['CLANG_CXX_LIBRARY']           = LIBCXX
       bs['CLANG_CXX_LANGUAGE_STANDARD'] = normalize_cxx_std(bs['CLANG_CXX_LANGUAGE_STANDARD'])
+      bs['GCC_C_LANGUAGE_STANDARD']   ||= 'gnu11'
 
-      # Re-enable removed typedef macros + force SDK libc++ headers first
-      cppflags = bs['OTHER_CPLUSPLUSFLAGS']
-      cppflags = ensure_flag(cppflags, '$(inherited)')
-      cppflags = ensure_flag(cppflags, CPP_MACRO)
-      cppflags = ensure_flag(cppflags, LIBCXX_ISYSTEM)
-      bs['OTHER_CPLUSPLUSFLAGS'] = cppflags.is_a?(Array) ? cppflags.join(' ') : cppflags
+      # Remove previous hacks (C++20 typedefs, custom -isystem, forced SIMD on)
+      %w[OTHER_CPLUSPLUSFLAGS OTHER_CFLAGS].each do |k|
+        bs[k] = strip_flags(bs[k]) { |f|
+          f == '-isystem' ||
+          f == '$(SDKROOT)/usr/include/c++/v1' ||
+          f.include?('_LIBCPP_ENABLE_CXX20_REMOVED_TYPEDEF_MACROS') ||
+          f.include?('FOLLY_USE_SIMD=1')
+        }
+      end
 
-      # Reasonable C language standard
-      bs['GCC_C_LANGUAGE_STANDARD'] = (bs['GCC_C_LANGUAGE_STANDARD'] || 'gnu11')
+      # Disable Folly SIMD globally
+      bs['OTHER_CPLUSPLUSFLAGS'] = ensure_flags(bs['OTHER_CPLUSPLUSFLAGS'], FOLLY_SIMD_OFF)
+      bs['OTHER_CFLAGS']         = ensure_flags(bs['OTHER_CFLAGS'],         FOLLY_SIMD_OFF)
     end
   end
 
@@ -71,8 +86,5 @@ def patch_project(proj_path, target_name: nil)
   puts "✅ Patched #{proj_path}"
 end
 
-# 1) Patch Pods project (applies to RCT-Folly and friends)
-patch_project(PODS_PROJ_PATH)
-
-# 2) Patch app project (target: monGARS)
-patch_project(APP_PROJ_PATH, target_name: 'monGARS')
+patch_project(PODS_PROJ_PATH)                          # Pods incl. RCT-Folly, DoubleConversion, etc.
+patch_project(APP_PROJ_PATH, target_name: 'monGARS')   # App target
