@@ -14,7 +14,7 @@ env:
 
 jobs:
   ios:
-    runs-on: macos-14  # Xcode 16.4 is available here
+    runs-on: macos-14
     defaults:
       run:
         shell: bash
@@ -23,10 +23,17 @@ jobs:
       - name: Checkout
         uses: actions/checkout@v4
 
+      - name: Select Xcode 16.4
+        uses: maxim-lobanov/setup-xcode@v1
+        with:
+          xcode-version: "16.4"
+
       - name: Print Xcode version
         run: |
-          /Applications/Xcode_16.4.app/Contents/Developer/usr/bin/xcodebuild -version
-          echo "MD_APPLE_SDK_ROOT=/Applications/Xcode_16.4.app" >> "$GITHUB_ENV"
+          set -euo pipefail
+          xcodebuild -version
+          # DEVELOPER_DIR is set by setup-xcode; keep for downstream tools
+          echo "DEVELOPER_DIR=$DEVELOPER_DIR" >> "$GITHUB_ENV"
 
       - name: Setup Node
         uses: actions/setup-node@v4
@@ -92,7 +99,7 @@ jobs:
             }
           "
 
-      - name: Install Ruby & CocoaPods (bundler optional)
+      - name: Install CocoaPods
         run: |
           set -euo pipefail
           gem install cocoapods -N
@@ -100,7 +107,7 @@ jobs:
           pod repo update
           pod install --verbose
 
-      # If you’re actually using XcodeGen, generate here
+      # If you really use XcodeGen, uncomment these:
       # - name: Generate Xcode project with XcodeGen
       #   run: |
       #     brew install xcodegen || true
@@ -110,12 +117,15 @@ jobs:
         run: |
           set -euo pipefail
           mkdir -p "$BUILD_DIR"
-          # Build workspace if Pods exist, otherwise project
-          WORKSPACE=""
-          if [ -d ios/Pods ]; then WORKSPACE="-workspace ios/monGARS.xcworkspace"; else WORKSPACE="-project ios/monGARS.xcodeproj"; fi
+          # Pick workspace if Pods exist, else project
+          if [ -d ios/Pods ]; then
+            WORK_ARG="-workspace ios/monGARS.xcworkspace"
+          else
+            WORK_ARG="-project ios/monGARS.xcodeproj"
+          fi
 
-          /Applications/Xcode_16.4.app/Contents/Developer/usr/bin/xcodebuild \
-            $WORKSPACE \
+          xcodebuild \
+            ${WORK_ARG} \
             -scheme "$SCHEME" \
             -configuration "$CONFIGURATION" \
             -destination "generic/platform=iOS" \
@@ -136,19 +146,16 @@ jobs:
               --format json > "$BUILD_DIR/monGARS.xcresult.json" || true
           fi
 
-      - name: Archive app products (optional)
+      - name: Zip unsigned .app (optional)
         if: always()
         run: |
           set -euo pipefail
           APP_PRODUCTS="$BUILD_DIR/DerivedData/Build/Products/${CONFIGURATION}-iphoneos"
-          if [ -d "$APP_PRODUCTS" ]; then
-            echo "Contents of $APP_PRODUCTS:"
-            ls -al "$APP_PRODUCTS"
-            # Zip the .app for convenience (unsigned)
-            if [ -d "$APP_PRODUCTS/${SCHEME}.app" ]; then
-              (cd "$APP_PRODUCTS" && /usr/bin/zip -qry "$PWD/../../${SCHEME}.app.zip" "${SCHEME}.app")
-            fi
+          if [ -d "$APP_PRODUCTS/${SCHEME}.app" ]; then
+            (cd "$APP_PRODUCTS" && /usr/bin/zip -qry "$PWD/../../${SCHEME}.app.zip" "${SCHEME}.app")
           fi
+          ls -al "$BUILD_DIR" || true
+          ls -al "$BUILD_DIR/DerivedData/Build/Products" || true
 
       - name: Upload artifacts
         if: always()
