@@ -25,7 +25,7 @@ jobs:
         with:
           xcode-version: "16.2"
 
-      - name: Show Xcode
+      - name: Show Xcode path/version
         run: |
           set -euo pipefail
           xcodebuild -version
@@ -37,61 +37,56 @@ jobs:
           brew update
           brew install xcodegen jq
 
-      # --- NEW: install JS deps so Podfile can require RN scripts ---
-      - name: Setup Node
+      - name: Setup Node and install JS deps
         uses: actions/setup-node@v4
         with:
           node-version: '20'
           cache: 'npm'
-      - name: Install JS dependencies
-        run: |
-          set -euo pipefail
-          npm ci
-          # (If you use yarn/pnpm instead, replace with the right install command)
+      - run: npm ci
 
       - name: Seed minimal XcodeGen spec (if missing)
         run: |
           set -euo pipefail
-          mkdir -p ios
           if [ ! -f ios/project.yml ]; then
             echo "No ios/project.yml found — seeding a minimal XcodeGen spec."
-            printf '%s\n' \
-              'name: monGARS' \
-              'options:' \
-              '  bundleIdPrefix: com.example' \
-              '  deploymentTarget:' \
-              '    iOS: "18.0"' \
-              'targets:' \
-              '  monGARS:' \
-              '    type: application' \
-              '    platform: iOS' \
-              '    sources:' \
-              '      - path: .' \
-              '        excludes:' \
-              '          - ios/**/*' \
-              '          - android/**/*' \
-              '          - node_modules/**/*' \
-              '    settings:' \
-              '      PRODUCT_BUNDLE_IDENTIFIER: com.example.monGARS' \
-              '      INFOPLIST_FILE: ios/Info.plist' \
-              > ios/project.yml
-          fi
-          if [ ! -f ios/Info.plist ]; then
-            printf '%s\n' \
-              '<?xml version="1.0" encoding="UTF-8"?>' \
-              '<!DOCTYPE plist PUBLIC "-//Apple//DTD PLIST 1.0//EN" "http://www.apple.com/DTDs/PropertyList-1.0.dtd">' \
-              '<plist version="1.0">' \
-              '<dict>' \
-              '  <key>CFBundleName</key><string>monGARS</string>' \
-              '  <key>CFBundleIdentifier</key><string>com.example.monGARS</string>' \
-              '  <key>CFBundleExecutable</key><string>$(EXECUTABLE_NAME)</string>' \
-              '  <key>CFBundlePackageType</key><string>APPL</string>' \
-              '  <key>UISupportedInterfaceOrientations</key>' \
-              '  <array><string>UIInterfaceOrientationPortrait</string></array>' \
-              '  <key>LSRequiresIPhoneOS</key><true/>' \
-              '</dict>' \
-              '</plist>' \
-              > ios/Info.plist
+            mkdir -p ios
+            cat > ios/project.yml <<'YML'
+name: monGARS
+options:
+  bundleIdPrefix: com.example
+  deploymentTarget:
+    iOS: "18.0"
+targets:
+  monGARS:
+    type: application
+    platform: iOS
+    sources:
+      - path: .
+        excludes:
+          - ios/**/*
+          - android/**/*
+          - node_modules/**/*
+    settings:
+      PRODUCT_BUNDLE_IDENTIFIER: com.example.monGARS
+      INFOPLIST_FILE: ios/Info.plist
+YML
+            if [ ! -f ios/Info.plist ]; then
+              cat > ios/Info.plist <<'PLIST'
+<?xml version="1.0" encoding="UTF-8"?>
+<!DOCTYPE plist PUBLIC "-//Apple//DTD PLIST 1.0//EN" "http://www.apple.com/DTDs/PropertyList-1.0.dtd">
+<plist version="1.0">
+<dict>
+  <key>CFBundleName</key><string>monGARS</string>
+  <key>CFBundleIdentifier</key><string>com.example.monGARS</string>
+  <key>CFBundleExecutable</key><string>$(EXECUTABLE_NAME)</string>
+  <key>CFBundlePackageType</key><string>APPL</string>
+  <key>UISupportedInterfaceOrientations</key>
+  <array><string>UIInterfaceOrientationPortrait</string></array>
+  <key>LSRequiresIPhoneOS</key><true/>
+</dict>
+</plist>
+PLIST
+            fi
           fi
 
       - name: Generate .xcodeproj with XcodeGen
@@ -109,7 +104,7 @@ jobs:
           ruby-version: '3.3'
           bundler-cache: false
 
-      - name: Install CocoaPods
+      - name: Install CocoaPods and pods
         run: |
           set -euo pipefail
           gem install cocoapods -N
@@ -117,15 +112,29 @@ jobs:
           pod repo update
           pod install --verbose
 
-      # glog sometimes misses generated config.h; copy if needed.
       - name: Workaround glog config.h (if missing)
         run: |
           set -euo pipefail
-          PRIV="ios/Pods/Headers/Private/glog/config.h"
-          SRC="ios/Pods/glog/src/config.h"
-          if [ -f "$PRIV" ] && [ ! -f "$SRC" ]; then
-            echo "Patching glog: copying $PRIV -> $SRC"
-            cp "$PRIV" "$SRC"
+          SRC_DIR="ios/Pods/glog/src"
+          mkdir -p "$SRC_DIR"
+          if [ ! -f "$SRC_DIR/config.h" ]; then
+            FOUND="$(/usr/bin/find ios/Pods -name config.h -path '*/glog/*' | head -n1 || true)"
+            if [ -n "${FOUND:-}" ]; then
+              echo "Copying $FOUND -> $SRC_DIR/config.h"
+              cp "$FOUND" "$SRC_DIR/config.h"
+            else
+              echo "⚠️  glog config.h not found; attempting ./configure"
+              if [ -x ios/Pods/glog/configure ]; then
+                (cd ios/Pods/glog && ./configure || true)
+              fi
+              FOUND2="$(/usr/bin/find ios/Pods -name config.h -path '*/glog/*' | head -n1 || true)"
+              if [ -n "${FOUND2:-}" ]; then
+                echo "Copying $FOUND2 -> $SRC_DIR/config.h"
+                cp "$FOUND2" "$SRC_DIR/config.h"
+              else
+                echo "❌ Still no config.h; continuing, but build may fail."
+              fi
+            fi
           fi
 
       - name: Build (xcodebuild)
@@ -133,6 +142,8 @@ jobs:
           set -euo pipefail
           LOG="$BUILD_DIR/xcodebuild.log"
           mkdir -p "$BUILD_DIR"
+
+          # Clean
           xcodebuild \
             -workspace ios/monGARS.xcworkspace \
             -scheme "$SCHEME" \
@@ -140,6 +151,8 @@ jobs:
             -destination 'generic/platform=iOS' \
             -quiet \
             clean
+
+          # Build (pipefail ensures failure propagates through tee)
           xcodebuild \
             -workspace ios/monGARS.xcworkspace \
             -scheme "$SCHEME" \
@@ -148,8 +161,10 @@ jobs:
             -derivedDataPath "$BUILD_DIR/DerivedData" \
             -quiet \
             build \
-            | tee "$LOG" || true
-          grep -q "** BUILD SUCCEEDED **" "$LOG" || { echo "Build failed"; exit 65; }
+            | tee "$LOG"
+
+          # Verify success using fixed-string grep (no regex)
+          grep -Fq "** BUILD SUCCEEDED **" "$LOG"
 
       - name: Package .app → .ipa (unsigned)
         run: |
@@ -167,7 +182,7 @@ jobs:
         run: |
           set -euo pipefail
           XCRESULT_DIR="$(/usr/bin/find "$BUILD_DIR" -name '*.xcresult' -maxdepth 3 -print -quit || true)"
-          if [ -z "$XCRESULT_DIR" ]; then
+          if [ -z "${XCRESULT_DIR:-}" ]; then
             echo "No xcresult found"; exit 0
           fi
           mkdir -p "$BUILD_DIR"
