@@ -7,9 +7,13 @@ on:
   pull_request:
     branches: [ main ]
 
+concurrency:
+  group: ios-unsigned-${{ github.ref }}
+  cancel-in-progress: true
+
 jobs:
   build-unsigned:
-    runs-on: macos-15  # newer image; still fallback Xcode below
+    runs-on: macos-15
     env:
       RCT_NEW_ARCH_ENABLED: "1"
       USE_HERMES: "true"
@@ -123,7 +127,10 @@ jobs:
           (cd "$BUILD_DIR" && zip -qry offLLM-unsigned.ipa Payload)
           (cd "$APP_DIR" && zip -qry "$PWD/../../$SCHEME.app.zip" "$SCHEME.app")
 
-      # Unique names + overwrite avoid 409 conflicts on re-runs
+      - name: Collect symbols (dSYM & BCSymbolMaps)
+        if: always()
+        run: scripts/ci/collect-symbols.sh "$BUILD_DIR" "$CONFIGURATION" "$SCHEME"
+
       - name: Upload IPA
         if: always()
         uses: actions/upload-artifact@v4
@@ -132,6 +139,17 @@ jobs:
           path: |
             build/offLLM-unsigned.ipa
             build/monGARS.app.zip
+          if-no-files-found: ignore
+          overwrite: true
+
+      - name: Upload symbols
+        if: always()
+        uses: actions/upload-artifact@v4
+        with:
+          name: ios-symbols-xcode-${{ steps.xcodever.outputs.xcode }}-attempt-${{ github.run_attempt }}
+          path: |
+            build/monGARS.dSYM.zip
+            build/BCSymbolMaps.zip
           if-no-files-found: ignore
           overwrite: true
 
