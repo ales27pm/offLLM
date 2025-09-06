@@ -3,15 +3,21 @@ name: iOS (unsigned)
 on:
   workflow_dispatch:
   push:
-    branches: [ main, master ]
+    branches: [main, master]
   pull_request:
+
+permissions:
+  contents: read
+
+defaults:
+  run:
+    shell: bash
 
 jobs:
   build-ios-unsigned:
     runs-on: macos-14
 
     env:
-      # RN build knobs (tweak if your project needs different values)
       RCT_NEW_ARCH_ENABLED: "1"
       USE_HERMES: "true"
       SCHEME: monGARS
@@ -22,7 +28,6 @@ jobs:
       - name: Checkout
         uses: actions/checkout@v4
 
-      # Use one of the Xcode versions actually present on your runner
       - name: Select Xcode 16.2
         uses: maxim-lobanov/setup-xcode@v1
         with:
@@ -32,7 +37,6 @@ jobs:
         run: |
           set -euo pipefail
           xcodebuild -version
-          # Do NOT reference $DEVELOPER_DIR unless it exists; setup-xcode exports it for us
 
       - name: Setup Node.js
         uses: actions/setup-node@v4
@@ -55,12 +59,12 @@ jobs:
         run: |
           set -euo pipefail
 
-          # Ensure XcodeGen is available (fast no-op if already installed)
+          # XcodeGen (install if missing)
           if ! command -v xcodegen >/dev/null 2>&1; then
             brew install xcodegen
           fi
 
-          # Seed a minimal XcodeGen spec if missing
+          # Seed XcodeGen spec if missing
           if [ ! -f ios/project.yml ]; then
             echo "No ios/project.yml found — seeding a minimal XcodeGen spec."
             mkdir -p ios
@@ -85,7 +89,6 @@ targets:
       INFOPLIST_FILE: ios/Info.plist
 YML
 
-            # Seed a very basic Info.plist if missing
             if [ ! -f ios/Info.plist ]; then
               cat > ios/Info.plist <<'PLIST'
 <?xml version="1.0" encoding="UTF-8"?>
@@ -105,24 +108,21 @@ PLIST
             fi
           fi
 
-          # Generate the .xcodeproj next to the Podfile so CocoaPods can find it
+          # Generate .xcodeproj next to Podfile so CocoaPods can find it
           xcodegen generate --spec ios/project.yml --project ios/monGARS.xcodeproj
 
-          # Install CocoaPods deps
+          # CocoaPods
           gem install cocoapods -N
           cd ios
           pod install --repo-update --verbose
-        shell: bash
 
       - name: Build (unsigned) and package IPA
         run: |
           set -euo pipefail
 
-          # Clean build dir
           rm -rf "${BUILD_DIR}"
           mkdir -p "${BUILD_DIR}"
 
-          # Build without code signing
           xcodebuild \
             -workspace ios/monGARS.xcworkspace \
             -scheme "${SCHEME}" \
@@ -132,7 +132,6 @@ PLIST
             CODE_SIGNING_ALLOWED=NO CODE_SIGNING_REQUIRED=NO CODE_SIGN_IDENTITY="" \
             | tee "${BUILD_DIR}/xcodebuild.log"
 
-          # Package unsigned IPA (zip the .app into Payload/)
           APP_PRODUCTS="${BUILD_DIR}/DerivedData/Build/Products/${CONFIGURATION}-iphoneos"
           APP_PATH="${APP_PRODUCTS}/${SCHEME}.app"
 
@@ -144,11 +143,6 @@ PLIST
           mkdir -p "${BUILD_DIR}/Payload"
           cp -R "${APP_PATH}" "${BUILD_DIR}/Payload/"
           (cd "${BUILD_DIR}" && /usr/bin/zip -qry "${SCHEME}-unsigned.ipa" Payload)
-
-          # Keep xcresult bundle for artifacts
-          # (xcodebuild on recent Xcode writes it to DerivedData/Logs/Test or Logs/Build;
-          # uploading the whole DerivedData is heavy, so we upload the products and logs.)
-        shell: bash
 
       - name: Upload IPA
         uses: actions/upload-artifact@v4
@@ -166,7 +160,7 @@ PLIST
           if-no-files-found: warn
           retention-days: 7
 
-      - name: Upload Products (for debugging)
+      - name: Upload products (for debugging)
         uses: actions/upload-artifact@v4
         with:
           name: products-${{ env.CONFIGURATION }}-iphoneos
