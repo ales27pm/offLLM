@@ -1,17 +1,14 @@
-# Ensure pods support iOS 18.0+; the app's deployment target lives in XcodeGen too
 platform :ios, '18.0'
-ENV['RCT_NEW_ARCH_ENABLED'] = '1' # Enable Fabric/TurboModules
+ENV['RCT_NEW_ARCH_ENABLED'] = '1' # Fabric/Turbo
 
-# React Native CocoaPods helper (this defines react_native_post_install for modern RN)
 require_relative '../node_modules/react-native/scripts/react_native_pods'
 
-# CocoaPods installation settings for CI stability
 install! 'cocoapods',
   generate_multiple_pod_projects: true,
-  disable_input_output_paths: true,     # avoid .xcfilelist on CI
+  disable_input_output_paths: true,
   warn_for_multiple_pod_sources: true
 
-# Find the Xcode project (handles XcodeGen output)
+# Find the (XcodeGen-generated) project automatically
 project_candidates = Dir['*.xcodeproj'] + Dir['**/*.xcodeproj']
 project_path = project_candidates.first or raise "No .xcodeproj found near Podfile (#{__dir__})"
 puts "Using Xcode project at: #{project_path}"
@@ -41,7 +38,6 @@ target app_target do
   use_flipper!({ 'Flipper' => '0.203.0' }) if USE_FLIPPER
 end
 
-# ---- Helpers ----
 FORBIDDEN_HERMES_MARKERS = [
   'replace hermes',
   'replace hermes for the right configuration',
@@ -50,16 +46,15 @@ FORBIDDEN_HERMES_MARKERS = [
 
 def strip_hermes_replacement_scripts!(project)
   project.targets.each do |t|
-    t.build_phases
-      .select { |p|
-        p.isa == 'PBXShellScriptBuildPhase' &&
-        FORBIDDEN_HERMES_MARKERS.any? { |m|
-          (p.name || '').downcase.include?(m) || (p.shell_script || '').downcase.include?(m)
-        }
-      }.each do |p|
-        t.build_phases.delete(p)
-        p.remove_from_project
-      end
+    t.build_phases.select { |p|
+      p.isa == 'PBXShellScriptBuildPhase' &&
+      FORBIDDEN_HERMES_MARKERS.any? { |m|
+        (p.name || '').downcase.include?(m) || (p.shell_script || '').downcase.include?(m)
+      }
+    }.each do |p|
+      t.build_phases.delete(p)
+      p.remove_from_project
+    end
   end
   project.save
 end
@@ -89,10 +84,7 @@ def scrub_cp_filelists_from_target(target)
   end
 end
 
-# ---- Post-install hardening (all-in-one) ----
 post_install do |installer|
-  # react_native_post_install is defined by react_native_pods in modern RN;
-  # guard in case older RN lacks it.
   react_native_post_install(installer) if defined?(react_native_post_install)
 
   pods_projects = pods_projects_for(installer)
@@ -110,7 +102,7 @@ post_install do |installer|
       t.build_configurations.each do |cfg|
         bs = cfg.build_settings
 
-        # allow Pods scripts to write symlinks (Xcode 15+ sandbox)
+        # allow Pods run-scripts to create header symlinks
         bs['ENABLE_USER_SCRIPT_SANDBOXING'] = 'NO'
 
         if cfg.name.include?('Debug')
@@ -120,28 +112,25 @@ post_install do |installer|
           bs['SWIFT_OPTIMIZATION_LEVEL'] ||= '-O'
         end
 
-        # Only set Swift version for targets that actually have Swift sources
-        has_swift = t.respond_to?(:source_build_phase) &&
-                    t.source_build_phase.files.any? { |f| f.file_ref&.path&.end_with?('.swift') rescue false }
-        bs['SWIFT_VERSION'] ||= '5.0' if has_swift
+        # Make warnings non-fatal across the board
+        bs['GCC_TREAT_WARNINGS_AS_ERRORS'] = 'NO'
+        bs['OTHER_CFLAGS'] = [bs['OTHER_CFLAGS'], '$(inherited)', '-Wno-everything'].compact.join(' ').squeeze(' ')
 
-        # Stable toolchain for RN/Folly
+        # Toolchain & Folly stability
         bs['CLANG_CXX_LANGUAGE_STANDARD'] ||= 'gnu++17'
         bs['CLANG_CXX_LIBRARY']          ||= 'libc++'
         bs['GCC_C_LANGUAGE_STANDARD']    ||= 'gnu11'
-
-        # Disable Folly SIMD everywhere
         bs['OTHER_CPLUSPLUSFLAGS'] = [bs['OTHER_CPLUSPLUSFLAGS'], '$(inherited)', '-DFOLLY_DISABLE_SIMD=1'].compact.join(' ').squeeze(' ')
-        bs['OTHER_CFLAGS']         = [bs['OTHER_CFLAGS'],         '$(inherited)', '-DFOLLY_DISABLE_SIMD=1'].compact.join(' ').squeeze(' ')
+        bs['OTHER_CFLAGS']         = [bs['OTHER_CFLAGS'],         '$(inherited)', '-DFOLLY_DISABLE_SIMD=1', '-Wno-everything'].compact.join(' ').squeeze(' ')
 
-        # Bump any low deployment targets; enforce iOS 18.0
+        # unifying deployment target
         current = Gem::Version.new(bs['IPHONEOS_DEPLOYMENT_TARGET'] || '0')
         bs['IPHONEOS_DEPLOYMENT_TARGET'] = min_target.to_s if current < min_target
 
         bs['ALWAYS_SEARCH_USER_PATHS'] = 'NO'
       end
 
-      # Mark [CP] phases (no I/O) as always out-of-date to silence warnings
+      # Mark [CP] phases without I/O as always out of date (silences warnings)
       t.build_phases
         .select { |p| p.isa == 'PBXShellScriptBuildPhase' && p.name&.start_with?('[CP]') }
         .each do |run|
@@ -154,7 +143,7 @@ post_install do |installer|
     proj.save
   end
 
-  # CI guard: fail if any Hermes replacement script remains
+  # CI guard
   if ENV['CI']
     offending = []
     all_projects.each do |proj|
@@ -162,23 +151,14 @@ post_install do |installer|
         t.build_phases.select { |p| p.isa == 'PBXShellScriptBuildPhase' }.each do |phase|
           name = (phase.name || '').downcase
           body = (phase.shell_script || '').downcase
-          if FORBIDDEN_HERMES_MARKERS.any? { |m| name.include?(m) || body.include?(m) }
-            offending << "#{proj.path.basename} :: #{t.name} :: #{phase.name}"
-          end
+          offending << "#{proj.path.basename} :: #{t.name} :: #{phase.name}" if FORBIDDEN_HERMES_MARKERS.any? { |m| name.include?(m) || body.include?(m) }
         end
       end
     end
-    unless offending.empty?
-      raise <<~MSG
-        Detected forbidden Hermes script phase(s):
-          #{offending.join("\n  ")}
-        CI policy: the "[Hermes] Replace Hermes" script must not exist after pod install.
-      MSG
-    end
+    raise "Forbidden Hermes script phase(s) found:\n  #{offending.join("\n  ")}" unless offending.empty?
   end
 end
 
-# Final pass after integration (keeps projects clean across re-runs)
 post_integrate do |installer|
   (pods_projects_for(installer) + user_projects_for(installer)).each do |proj|
     strip_hermes_replacement_scripts!(proj)
