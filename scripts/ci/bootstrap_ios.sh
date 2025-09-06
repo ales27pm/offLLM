@@ -1,7 +1,13 @@
 #!/usr/bin/env bash
 set -euo pipefail
 
-# --------- Env & defaults ----------
+# ---------- Global logging (always captured) ----------
+mkdir -p build
+# Capture EVERYTHING (stdout+stderr) into build/bootstrap.log while also printing to console
+exec > >(tee -a "build/bootstrap.log") 2>&1
+set -x
+
+# ---------- Env & defaults ----------
 SCHEME="${SCHEME:-monGARS}"
 CONFIGURATION="${CONFIGURATION:-Release}"
 BUILD_DIR="${BUILD_DIR:-build}"
@@ -12,7 +18,7 @@ echo "BUILD_DIR=$BUILD_DIR"
 
 mkdir -p "scripts/ci" "ios" "$BUILD_DIR"
 
-# --------- Seed XcodeGen if missing ----------
+# ---------- Seed XcodeGen if missing ----------
 if [ ! -f ios/project.yml ]; then
   echo "Seeding ios/project.yml"
   cat > ios/project.yml <<'YML'
@@ -58,12 +64,12 @@ if [ ! -f ios/Info.plist ]; then
 PLIST
 fi
 
-# --------- Generate Xcode project (XcodeGen) ----------
+# ---------- Generate Xcode project ----------
 if [ -f ios/project.yml ]; then
   (cd ios && xcodegen generate)
 fi
 
-# --------- Write hardened Podfile ----------
+# ---------- Write hardened Podfile (RN + Hermes + bridging headers) ----------
 cat > ios/Podfile <<'RUBY'
 platform :ios, '18.0'
 ENV['RCT_NEW_ARCH_ENABLED'] = '1' # Fabric/Turbo
@@ -172,9 +178,13 @@ post_install do |installer|
           '$(PODS_ROOT)/Headers/Public/**',
           '$(PODS_ROOT)/Headers/Private/**',
           '$(PODS_CONFIGURATION_BUILD_DIR)/**',
+          '$(PODS_ROOT)/Headers/Public/ReactCommon/react',
           '$(SDKROOT)/usr/include/c++/v1'
         ]
         bs['SYSTEM_HEADER_SEARCH_PATHS'] = '$(SDKROOT)/usr/include'
+
+        # Allow non-modular includes in framework modules (RN pods)
+        bs['CLANG_ALLOW_NON_MODULAR_INCLUDES_IN_FRAMEWORK_MODULES'] = 'YES'
 
         # Allow Pods scripts to create header symlinks
         bs['ENABLE_USER_SCRIPT_SANDBOXING'] = 'NO'
@@ -240,7 +250,7 @@ post_integrate do |installer|
     strip_hermes_replacement_scripts!(proj)
     proj.targets.each do |t|
       t.build_phases
-        .select { |p| p.isa == 'PBXShellScriptBuildPhase' && p.name&{start_with?('[CP]') } rescue false }
+        .select { |p| p.isa == 'PBXShellScriptBuildPhase' && p.name&.start_with?('[CP]') }
         .each do |run|
           if (run.input_paths || []).empty? && (run.output_paths || []).empty? && run.respond_to?(:always_out_of_date=)
             run.always_out_of_date = '1'
@@ -252,7 +262,7 @@ post_integrate do |installer|
 end
 RUBY
 
-# --------- Clean caches ----------
+# ---------- Clean caches & install pods ----------
 rm -rf "$HOME/Library/Developer/Xcode/DerivedData" || true
 (
   cd ios
@@ -266,7 +276,7 @@ rm -rf "$HOME/Library/Developer/Xcode/DerivedData" || true
   fi
 )
 
-# --------- Build ----------
+# ---------- Build ----------
 SDK_PATH="$(xcrun --show-sdk-path --sdk iphoneos)"
 xcodebuild \
   -workspace "ios/${SCHEME}.xcworkspace" \
@@ -283,12 +293,12 @@ xcodebuild \
   OTHER_LDFLAGS="-lc++" \
   | tee "${BUILD_DIR}/xcodebuild.log"
 
-# --------- Export xcresult JSON (best-effort) ----------
+# ---------- Export xcresult JSON (best-effort) ----------
 if [ -d "${BUILD_DIR}/${SCHEME}.xcresult" ]; then
   xcrun xcresulttool get --path "${BUILD_DIR}/${SCHEME}.xcresult" --format json --legacy > "${BUILD_DIR}/${SCHEME}.xcresult.json" || true
 fi
 
-# --------- Package unsigned IPA ----------
+# ---------- Package unsigned IPA ----------
 APP_DIR="${BUILD_DIR}/DerivedData/Build/Products/${CONFIGURATION}-iphoneos"
 APP_PATH="${APP_DIR}/${SCHEME}.app"
 if [ ! -d "$APP_PATH" ]; then

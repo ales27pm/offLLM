@@ -95,6 +95,7 @@ jobs:
         with:
           name: ios-unsigned-reports-xcode-${{ steps.xcodever.outputs.xcode }}-attempt-${{ github.run_attempt }}
           path: |
+            build/bootstrap.log
             build/xcodebuild.log
             build/monGARS.xcresult
             build/monGARS.xcresult.json
