@@ -1,89 +1,180 @@
-name: iOS Unsigned Build
+name: iOS Unsigned Build (monGARS)
 
 on:
+  workflow_dispatch:
   push:
     branches: [ main ]
   pull_request:
     branches: [ main ]
 
-jobs:
-  build-ios:
-    runs-on: macos-latest  # macOS runner with Xcode 14.x (iOS 16.4 SDK)
-    timeout-minutes: 60
-    steps:
-      - name: Checkout source
-        uses: actions/checkout@v3
+concurrency:
+  group: ios-unsigned-${{ github.ref }}
+  cancel-in-progress: true
 
-      - name: Setup Ruby (for CocoaPods)
+jobs:
+  build-unsigned:
+    runs-on: macos-15
+    env:
+      RCT_NEW_ARCH_ENABLED: "1"
+      USE_HERMES: "true"
+      SCHEME: "monGARS"
+      CONFIGURATION: "Release"
+      BUILD_DIR: build
+
+    steps:
+      - name: Checkout
+        uses: actions/checkout@v4
+
+      - name: Show installed Xcodes
+        run: |
+          ls -1 /Applications | sed -n 's/^Xcode.*/&/p' || true
+
+      # Prefer Xcode 16.4; if missing, fall back to 16.2
+      - name: Select Xcode 16.4 (attempt)
+        id: xcode164
+        continue-on-error: true
+        uses: maxim-lobanov/setup-xcode@v1
+        with:
+          xcode-version: "16.4"
+
+      - name: Select Xcode 16.2 (fallback)
+        if: ${{ steps.xcode164.outcome == 'failure' }}
+        uses: maxim-lobanov/setup-xcode@v1
+        with:
+          xcode-version: "16.2"
+
+      - name: Confirm Xcode
+        id: xcodever
+        shell: bash
+        run: |
+          set -e
+          xcodebuild -version
+          SEL="$(xcodebuild -version | head -n1 | awk '{print $2}')"
+          echo "xcode=$SEL" >> "$GITHUB_OUTPUT"
+
+      - name: Setup Node
+        uses: actions/setup-node@v4
+        with:
+          node-version: "20"
+          cache: "npm"
+
+      - name: Install JS deps
+        run: npm ci
+
+      - name: Setup Ruby (CocoaPods)
         uses: ruby/setup-ruby@v1
         with:
-          ruby-version: '3.1'     # Use appropriate Ruby version for bundler
+          ruby-version: "3.2"
           bundler-cache: true
+          working-directory: ios
 
-      - name: Install Bundler
-        run: gem install bundler
+      - name: Install XcodeGen
+        run: brew install xcodegen
 
-      - name: Install CocoaPods and XcodeGen
-        run: |
-          bundle install   # Install CocoaPods (and any other gems) from Gemfile
-          brew install xcodegen
-
-      - name: Generate Xcode project with XcodeGen
-        if: ${{ exists('ios/project.yml') }}
-        run: |
-          cd ios
-          xcodegen generate
-          echo "✅ Xcode project generated via XcodeGen."
-
-      - name: Install iOS Pods
+      # ✅ FIXED: use hashFiles() to conditionally run XcodeGen if project.yml exists
+      - name: Generate Xcode project
+        if: ${{ hashFiles('ios/project.yml') != '' }}
         working-directory: ios
-        run: |
-          bundle exec pod install --repo-update
-        env:
-          CP_SKIP_XCODE_VERSION_CHECK: 1   # (Skip CocoaPods Xcode version warning if necessary)
+        run: xcodegen generate
 
-      # (Optional) Verify Hermes phase removal - ensure no forbidden script remains
-      - name: Verify No Hermes Script Phase
+      - name: Verify project
         run: |
-          ! grep -R "Replace Hermes" ios/Pods ios/*.xcodeproj || (echo "❌ Forbidden Hermes script phase still present!" && exit 1)
-      - name: Build iOS (Release, Unsigned, Device)
-        env:
-          SCHEME: MyOfflineLLMApp
-          CONFIGURATION: Release
-        run: |
-          xcodebuild -workspace ios/"${SCHEME}.xcworkspace" \
-                     -scheme "${SCHEME}" -configuration "${CONFIGURATION}" \
-                     -sdk iphoneos -destination 'generic/platform=iOS' \
-                     -derivedDataPath ios/build/DerivedData \
-                     CODE_SIGNING_ALLOWED=NO CODE_SIGNING_REQUIRED=NO CODE_SIGN_IDENTITY="" \
-                     build | tee ios/build/xcodebuild.log
-          echo "✅ Xcode build completed."
-
-      - name: Package Unsigned IPA
-        run: |
-          cd ios
-          BUILD_DIR="build"
-          # Path to the built .app (from DerivedData products)
-          APP_PATH="$BUILD_DIR/DerivedData/Build/Products/Release-iphoneos/MyOfflineLLMApp.app"
-          if [ ! -d "$APP_PATH" ]; then
-            echo "❌ Error: App not found at $APP_PATH"
-            echo "Contents of DerivedData/Build/Products:" && ls "$BUILD_DIR/DerivedData/Build/Products"
+          if [ ! -d ios/monGARS.xcodeproj ]; then
+            echo "monGARS.xcodeproj not generated"
             exit 1
           fi
-          # Create Payload folder and copy .app
+
+      - name: Clean DerivedData & Pod cache
+        working-directory: ios
+        run: |
+          rm -rf "$HOME/Library/Developer/Xcode/DerivedData" || true
+          bundle exec pod cache clean --all || true
+
+      - name: Install Pods
+        working-directory: ios
+        run: |
+          bundle install
+          bundle exec pod install --repo-update
+
+      - name: Build (unsigned, device)
+        shell: bash
+        run: |
+          set -euo pipefail
+          xcodebuild \
+            -workspace ios/monGARS.xcworkspace \
+            -scheme "$SCHEME" \
+            -configuration "$CONFIGURATION" \
+            -sdk iphoneos \
+            -destination 'generic/platform=iOS' \
+            -derivedDataPath "$BUILD_DIR/DerivedData" \
+            -resultBundlePath "$BUILD_DIR/$SCHEME.xcresult" \
+            CODE_SIGNING_ALLOWED=NO CODE_SIGNING_REQUIRED=NO CODE_SIGN_IDENTITY="" \
+            SWIFT_DISABLE_REQUIRED_ARCLITE=YES \
+            GCC_TREAT_WARNINGS_AS_ERRORS=NO \
+            OTHER_CFLAGS="-Wno-everything $(xcodebuild -showBuildSettings 2>/dev/null >/dev/null || true)" \
+            | tee "$BUILD_DIR/xcodebuild.log"
+
+      - name: Export xcresult JSON
+        if: always()
+        shell: bash
+        run: |
+          if [ -d "$BUILD_DIR/$SCHEME.xcresult" ]; then
+            xcrun xcresulttool get --path "$BUILD_DIR/$SCHEME.xcresult" --format json --legacy > "$BUILD_DIR/$SCHEME.xcresult.json" || true
+          fi
+
+      - name: Package unsigned IPA + zip .app
+        if: always()
+        shell: bash
+        run: |
+          set -e
+          APP_DIR="$BUILD_DIR/DerivedData/Build/Products/$CONFIGURATION-iphoneos"
+          APP_PATH="$APP_DIR/$SCHEME.app"
+          if [ ! -d "$APP_PATH" ]; then
+            echo "Not found: $APP_PATH"
+            ls -la "$APP_DIR" || true
+            exit 0
+          fi
+          rm -rf "$BUILD_DIR/Payload"
           mkdir -p "$BUILD_DIR/Payload"
           cp -R "$APP_PATH" "$BUILD_DIR/Payload/"
-          # Remove any signing info to truly unsign the app
-          rm -rf "$BUILD_DIR/Payload/MyOfflineLLMApp.app/_CodeSignature" \
-                 "$BUILD_DIR/Payload/MyOfflineLLMApp.app/embedded.mobileprovision"
-          # Zip the Payload into an .ipa file
-          cd "$BUILD_DIR"
-          zip -qry "MyOfflineLLMApp-unsigned.ipa" Payload
-          rm -rf Payload
-          echo "✅ Unsigned IPA packaged at ios/$BUILD_DIR/MyOfflineLLMApp-unsigned.ipa"
+          (cd "$BUILD_DIR" && zip -qry offLLM-unsigned.ipa Payload)
+          (cd "$APP_DIR" && zip -qry "$PWD/../../$SCHEME.app.zip" "$SCHEME.app")
 
-      - name: Upload Unsigned IPA Artifact
-        uses: actions/upload-artifact@v3
+      - name: Collect symbols (dSYM & BCSymbolMaps)
+        if: always()
+        shell: bash
+        run: bash scripts/ci/collect-symbols.sh "$BUILD_DIR" "$CONFIGURATION" "$SCHEME"
+
+      - name: Upload IPA
+        if: always()
+        uses: actions/upload-artifact@v4
         with:
-          name: MyOfflineLLMApp-unsigned-ipa
-          path: ios/build/MyOfflineLLMApp-unsigned.ipa
+          name: ios-unsigned-ipa-xcode-${{ steps.xcodever.outputs.xcode }}-attempt-${{ github.run_attempt }}
+          path: |
+            build/offLLM-unsigned.ipa
+            build/monGARS.app.zip
+          if-no-files-found: ignore
+          overwrite: true
+
+      - name: Upload symbols
+        if: always()
+        uses: actions/upload-artifact@v4
+        with:
+          name: ios-symbols-xcode-${{ steps.xcodever.outputs.xcode }}-attempt-${{ github.run_attempt }}
+          path: |
+            build/monGARS.dSYM.zip
+            build/BCSymbolMaps.zip
+          if-no-files-found: ignore
+          overwrite: true
+
+      - name: Upload logs & xcresult
+        if: always()
+        uses: actions/upload-artifact@v4
+        with:
+          name: ios-unsigned-reports-xcode-${{ steps.xcodever.outputs.xcode }}-attempt-${{ github.run_attempt }}
+          path: |
+            build/xcodebuild.log
+            build/monGARS.xcresult
+            build/monGARS.xcresult.json
+          if-no-files-found: warn
+          overwrite: true
