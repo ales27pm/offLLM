@@ -13,7 +13,6 @@ jobs:
     env:
       DEVELOPER_DIR: /Applications/Xcode_16.2.app/Contents/Developer
       XCODE_SCHEME: monGARS
-      XCODE_WORKSPACE: ios/monGARS.xcworkspace
       DERIVED_DATA: build/DerivedData
 
     steps:
@@ -78,6 +77,7 @@ jobs:
           NAME="$(basename "${FOUND}" .xcodeproj)"
           echo "XCODE_PROJECT_PATH=${FOUND}" >> $GITHUB_ENV
           echo "XCODE_PROJECT_NAME=${NAME}" >> $GITHUB_ENV
+          echo "XCODE_WORKSPACE=ios/${NAME}.xcworkspace" >> $GITHUB_ENV
 
       - name: Set up Ruby and CocoaPods
         uses: ruby/setup-ruby@v1
