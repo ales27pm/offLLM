@@ -2,9 +2,9 @@ name: iOS CI
 
 on:
   push:
-    branches: [ main, master ]
+    branches: [main, master]
   pull_request:
-    branches: [ main, master ]
+    branches: [main, master]
 
 jobs:
   build-ios:
@@ -47,6 +47,12 @@ jobs:
             npm ci
           fi
 
+      - name: Install XcodeGen
+        run: |
+          if ! command -v xcodegen >/dev/null; then
+            brew install xcodegen
+          fi
+
       - name: Generate Xcode project
         working-directory: ios
         run: |
@@ -76,7 +82,7 @@ jobs:
       - name: Set up Ruby and CocoaPods
         uses: ruby/setup-ruby@v1
         with:
-          ruby-version: '3.2'
+          ruby-version: "3.2"
           bundler-cache: false
 
       - name: Install CocoaPods
