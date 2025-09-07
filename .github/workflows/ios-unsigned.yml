@@ -54,12 +54,18 @@ jobs:
           echo "Find .xcodeproj:"
           find ios -maxdepth 2 -name "*.xcodeproj" -print || true
 
-      - name: Verify Xcode project exists
+      - name: Verify & export Xcode project
         run: |
-          if [ ! -d "ios/monGARS.xcodeproj" ]; then
-            echo "::error title=Missing Xcode project::ios/monGARS.xcodeproj not found. Check Podfile 'project' line or commit the project."
+          set -euo pipefail
+          FOUND="$(ls -1 ios/*.xcodeproj 2>/dev/null | head -n1 || true)"
+          if [ -z "${FOUND}" ]; then
+            echo "::error title=Missing Xcode project::No .xcodeproj found under ios/. Commit your Xcode project (e.g., ios/YourApp.xcodeproj)."
             exit 1
           fi
+          echo "Found Xcode project: ${FOUND}"
+          NAME="$(basename "${FOUND}" .xcodeproj)"
+          echo "XCODE_PROJECT_PATH=${FOUND}" >> $GITHUB_ENV
+          echo "XCODE_PROJECT_NAME=${NAME}" >> $GITHUB_ENV
 
       - name: Set up Ruby and CocoaPods
         uses: ruby/setup-ruby@v1

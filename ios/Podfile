@@ -1,20 +1,29 @@
 platform :ios, '13.0'
 
-# 1) Stop autodetection and point CocoaPods at your project explicitly.
-project 'monGARS.xcodeproj'
+# --- Auto-detect the .xcodeproj near this Podfile ---
+project_candidates = Dir.glob(File.join(__dir__, '*.xcodeproj')).sort
+preferred = ENV['XCODE_PROJECT_NAME']
+project_path =
+  if preferred && File.exist?(File.join(__dir__, "#{preferred}.xcodeproj"))
+    File.join(__dir__, "#{preferred}.xcodeproj")
+  elsif project_candidates.any?
+    project_candidates.first
+  else
+    nil
+  end
 
-# 2) Static frameworks are typical for RN; change if you need dynamic.
+raise "No .xcodeproj found near Podfile (#{__dir__})" unless project_path
+project File.basename(project_path)
+
 use_frameworks! :linkage => :static
 
-# 3) React Native helper
 require_relative '../node_modules/react-native/scripts/react_native_pods'
 require_relative '../node_modules/@react-native-community/cli-platform-ios/native_modules'
 
-# 4) Ensure glog/src/config.h exists before build (prevents your fatal error).
+# Ensure glog/src/config.h exists
 pre_install do |installer|
   Pod::UI.puts "Ensuring glog/src/config.h exists…"
-  sandbox = installer.sandbox
-  glog_src = File.join(sandbox.root.to_s, 'glog', 'src')
+  glog_src = File.join(installer.sandbox.root.to_s, 'glog', 'src')
   config_h = File.join(glog_src, 'config.h')
   config_ios = File.join(glog_src, 'config_ios.h')
   config_cmake = File.join(glog_src, 'config.h.cmake')
@@ -33,14 +42,12 @@ pre_install do |installer|
 end
 
 target 'monGARS' do
-  # Hermes is default for current RN; flip to false if you use JSC.
   use_react_native!(
     :hermes_enabled => true,
     :fabric_enabled => true,
     :app_path => "#{Pod::Config.instance.installation_root}/.."
   )
 
-  # Typical RN pods that match your logs; keep/remove as your app needs.
   pod 'RNFS', :path => '../node_modules/react-native-fs'
   pod 'RNDeviceInfo', :path => '../node_modules/react-native-device-info'
   pod 'RNCClipboard', :path => '../node_modules/@react-native-clipboard/clipboard'
@@ -52,37 +59,16 @@ target 'monGARS' do
   pod 'react-native-slider', :path => '../node_modules/@react-native-community/slider'
   pod 'react-native-music-control', :path => '../node_modules/react-native-music-control'
 
-  # If you have Swift modules without a bridging header:
-  # use_frameworks! :linkage => :static
-
-  # Autolink any remaining native modules
   use_native_modules!
-
-  # Resources bundles some pods generate (keep if your app uses them)
-  # pod 'RNDeviceInfo/RNDeviceInfoPrivacyInfo', :path => '../node_modules/react-native-device-info'
-
-  # Unit/UI test targets (optional)
-  # target 'monGARSTests' do
-  #   inherit! :complete
-  # end
 end
 
 post_install do |installer|
-  react_native_post_install(
-    installer,
-    # If you hit flipper issues on Xcode 16, set here:
-    # :mac_catalyst_enabled => false
-  )
+  react_native_post_install(installer)
 
-  # Xcode 16 / arm64 warnings won’t fail the build, but we can clean a few:
   installer.pods_project.targets.each do |t|
     t.build_configurations.each do |c|
-      # keep Release as -O (your logs show Xcode disabling previews; that’s ok)
-      if c.name == 'Debug'
-        c.build_settings['SWIFT_OPTIMIZATION_LEVEL'] = '-Onone'
-      end
-      # Do not treat warnings as errors for 3rd-party pods
       c.build_settings['GCC_TREAT_WARNINGS_AS_ERRORS'] = 'NO'
+      c.build_settings['SWIFT_OPTIMIZATION_LEVEL'] = '-Onone' if c.name == 'Debug'
     end
   end
 end
