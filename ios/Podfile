@@ -18,7 +18,14 @@ project File.basename(project_path)
 use_frameworks! :linkage => :static
 
 require_relative '../node_modules/react-native/scripts/react_native_pods'
-require_relative '../node_modules/@react-native-community/cli-platform-ios/native_modules'
+
+# React Native <0.74 ships native_modules via @react-native-community,
+# but newer releases moved it under react-native/scripts.
+if File.exist?(File.join(__dir__, '../node_modules/@react-native-community/cli-platform-ios/native_modules.rb'))
+  require_relative '../node_modules/@react-native-community/cli-platform-ios/native_modules'
+else
+  require_relative '../node_modules/react-native/scripts/native_modules'
+end
 
 # Ensure glog/src/config.h exists
 pre_install do |installer|
