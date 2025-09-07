@@ -36,14 +36,14 @@ jobs:
 
       - name: Install JS deps
         run: |
+          set -euo pipefail
+          corepack enable || true
           if [ -f yarn.lock ]; then
-            corepack enable
             yarn install --frozen-lockfile
-          elif [ -f pnpm-lock.yaml ]; then
-            corepack enable
-            pnpm i --frozen-lockfile
-          else
+          elif [ -f package-lock.json ]; then
             npm ci
+          else
+            npm i
           fi
 
       - name: Install XcodeGen
@@ -68,13 +68,13 @@ jobs:
       - name: Verify & export Xcode project
         run: |
           set -euo pipefail
-          FOUND="$(ls -1 ios/*.xcodeproj 2>/dev/null | head -n1 || true)"
+          FOUND="$(/bin/ls -d ios/*.xcodeproj 2>/dev/null | head -n1 || true)"
           if [ -z "${FOUND}" ]; then
-            echo "::error title=Missing Xcode project::No .xcodeproj found under ios/. Commit your Xcode project (e.g., ios/YourApp.xcodeproj)."
+            echo "::error title=Missing Xcode project::No .xcodeproj found under ios/. Commit it or adjust your Podfile 'project' line."
             exit 1
           fi
-          echo "Found Xcode project: ${FOUND}"
           NAME="$(basename "${FOUND}" .xcodeproj)"
+          echo "Found Xcode project: ${FOUND}"
           echo "XCODE_PROJECT_PATH=${FOUND}" >> $GITHUB_ENV
           echo "XCODE_PROJECT_NAME=${NAME}" >> $GITHUB_ENV
           echo "XCODE_WORKSPACE=ios/${NAME}.xcworkspace" >> $GITHUB_ENV

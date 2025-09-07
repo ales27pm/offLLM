@@ -1,6 +1,19 @@
 platform :ios, '13.0'
 
-# --- Auto-detect the .xcodeproj near this Podfile ---
+# Try modern then legacy RN helpers
+begin
+  require_relative '../node_modules/react-native/scripts/react_native_pods'
+rescue LoadError
+  require_relative '../node_modules/react-native/scripts/autolink-ios'
+end
+
+begin
+  require_relative '../node_modules/@react-native-community/cli-platform-ios/native_modules'
+rescue LoadError
+  require_relative '../node_modules/react-native/scripts/native_modules'
+end
+
+# Auto-detect the .xcodeproj next to this Podfile
 project_candidates = Dir.glob(File.join(__dir__, '*.xcodeproj')).sort
 preferred = ENV['XCODE_PROJECT_NAME']
 project_path =
@@ -11,27 +24,18 @@ project_path =
   else
     nil
   end
-
 raise "No .xcodeproj found near Podfile (#{__dir__})" unless project_path
 project File.basename(project_path)
 
 use_frameworks! :linkage => :static
 
-require_relative '../node_modules/react-native/scripts/react_native_pods'
-begin
-  require_relative '../node_modules/@react-native-community/cli-platform-ios/native_modules'
-rescue LoadError
-  require_relative '../node_modules/react-native/scripts/native_modules'
-end
-
-# Ensure glog/src/config.h exists
+# --- glog config.h guard (prevents the 'config.h' not found error) ---
 pre_install do |installer|
   Pod::UI.puts "Ensuring glog/src/config.h exists…"
   glog_src = File.join(installer.sandbox.root.to_s, 'glog', 'src')
   config_h = File.join(glog_src, 'config.h')
   config_ios = File.join(glog_src, 'config_ios.h')
   config_cmake = File.join(glog_src, 'config.h.cmake')
-
   if File.directory?(glog_src) && !File.exist?(config_h)
     if File.exist?(config_ios)
       FileUtils.cp(config_ios, config_h)
@@ -52,6 +56,7 @@ target 'monGARS' do
     :app_path => "#{Pod::Config.instance.installation_root}/.."
   )
 
+  # your pods…
   pod 'RNFS', :path => '../node_modules/react-native-fs'
   pod 'RNDeviceInfo', :path => '../node_modules/react-native-device-info'
   pod 'RNCClipboard', :path => '../node_modules/@react-native-clipboard/clipboard'
@@ -68,7 +73,6 @@ end
 
 post_install do |installer|
   react_native_post_install(installer)
-
   installer.pods_project.targets.each do |t|
     t.build_configurations.each do |c|
       c.build_settings['GCC_TREAT_WARNINGS_AS_ERRORS'] = 'NO'
@@ -76,3 +80,4 @@ post_install do |installer|
     end
   end
 end
+
