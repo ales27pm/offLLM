@@ -68,16 +68,15 @@ jobs:
       - name: Verify & export Xcode project
         run: |
           set -euo pipefail
-          FOUND="$(/bin/ls -d ios/*.xcodeproj 2>/dev/null | head -n1 || true)"
+          FOUND="$(ls -1 ios/*.xcodeproj 2>/dev/null | head -n1 || true)"
           if [ -z "${FOUND}" ]; then
-            echo "::error title=Missing Xcode project::No .xcodeproj found under ios/. Commit it or adjust your Podfile 'project' line."
+            echo "::error title=Missing Xcode project::No .xcodeproj found under ios/. Commit your Xcode project (e.g., ios/YourApp.xcodeproj)."
             exit 1
           fi
-          NAME="$(basename "${FOUND}" .xcodeproj)"
           echo "Found Xcode project: ${FOUND}"
+          NAME="$(basename "${FOUND}" .xcodeproj)"
           echo "XCODE_PROJECT_PATH=${FOUND}" >> $GITHUB_ENV
           echo "XCODE_PROJECT_NAME=${NAME}" >> $GITHUB_ENV
-          echo "XCODE_WORKSPACE=ios/${NAME}.xcworkspace" >> $GITHUB_ENV
 
       - name: Set up Ruby and CocoaPods
         uses: ruby/setup-ruby@v1
