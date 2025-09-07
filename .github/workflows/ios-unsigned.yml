@@ -47,6 +47,12 @@ jobs:
             npm ci
           fi
 
+      - name: Generate Xcode project
+        working-directory: ios
+        run: |
+          set -euo pipefail
+          xcodegen generate
+
       - name: Show iOS tree
         run: |
           echo "ios/ contents:"
