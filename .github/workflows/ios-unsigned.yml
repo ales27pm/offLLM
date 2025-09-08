@@ -62,14 +62,14 @@ jobs:
       - name: Verify project presence
         run: |
           set -euo pipefail
-          FOUND="$(ls -1 ios/*.xcodeproj 2>/dev/null | head -n1 || true)"
+          FOUND="$(/bin/ls -d ios/*.xcodeproj 2>/dev/null | head -n1 || true)"
           if [ -z "${FOUND}" ]; then
             echo "::error title=Missing Xcode project::No .xcodeproj found under ios/. Commit your XcodeGen inputs and rerun."
             exit 1
           fi
           NAME="$(basename "${FOUND}" .xcodeproj)"
-          echo "XCODE_PROJECT_PATH=${FOUND}" >> $GITHUB_ENV
-          echo "XCODE_PROJECT_NAME=${NAME}" >> $GITHUB_ENV
+          echo "XCODE_PROJECT_PATH=${FOUND}" >> "$GITHUB_ENV"
+          echo "XCODE_PROJECT_NAME=${NAME}" >> "$GITHUB_ENV"
           echo "Expect CocoaPods to generate workspace: ios/${NAME}.xcworkspace"
 
       - name: Set up Ruby
