@@ -95,6 +95,23 @@ jobs:
           set -euo pipefail
           ruby scripts/ci/post_install_hardening_hook.rb || true
 
+      - name: Authenticate Git for SPM (avoid GitHub rate limits)
+        run: |
+          set -euo pipefail
+          # Create a netrc for GitHub so SPM uses authenticated HTTPS fetches
+          cat > ~/.netrc <<'NETRC'
+          machine github.com
+            login ${GITHUB_ACTOR}
+            password ${GITHUB_TOKEN}
+          machine api.github.com
+            login ${GITHUB_ACTOR}
+            password ${GITHUB_TOKEN}
+          NETRC
+          chmod 600 ~/.netrc
+          # Normalize any SSH/git protocols to HTTPS (no interactive prompts)
+          git config --global url."https://github.com/".insteadOf git@github.com:
+          git config --global url."https://".insteadOf git://
+
       - name: Install xcbeautify (pretty xcodebuild output)
         run: |
           set -euo pipefail
@@ -103,6 +120,7 @@ jobs:
       - name: Build (Release, iphoneos, deterministic DerivedData)
         env:
           XCODE_WORKSPACE: ios/${{ env.XCODE_PROJECT_NAME }}.xcworkspace
+          GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
         run: |
           set -euo pipefail
           xcodebuild \
