@@ -112,30 +112,31 @@ jobs:
           bundle exec pod install --repo-update
           cd ..
 
-      - name: Detect workspace
-        run: |
-          WS="$(
-            /usr/bin/find ios -maxdepth 1 -name '*.xcworkspace' -exec basename {} \; -quit
-          )"
-          if [ -z "$WS" ]; then
-            echo "::error title=Workspace not found::No ios/*.xcworkspace after pod install"
-            exit 1
-          fi
-          echo "WORKSPACE=$WS" >> "$GITHUB_ENV"
-          echo "Detected: $WS"
-
       - name: iOS Doctor (workspace must exist)
         run: |
           chmod +x scripts/ios_doctor.sh || true
           ./scripts/ios_doctor.sh
 
-      - name: Normalize workspace path
+      - name: "Doctor: verify workspace path"
         run: |
-          echo "WORKSPACE=ios/$WORKSPACE" >> "$GITHUB_ENV"
+          set -euo pipefail
+          WS="${WORKSPACE:-ios/monGARS.xcworkspace}"
+          case "$WS" in
+            /*) WS="${WS#"$GITHUB_WORKSPACE"/}" ;;
+          esac
+          if [ ! -f "$WS" ]; then
+            echo "::error title=Workspace missing::'$WS' not found. Check WORKSPACE env/Pod install."
+            echo "pwd=$(pwd)"
+            ls -la ios || true
+            exit 66
+          fi
+          echo "WORKSPACE=$WS" >> "$GITHUB_ENV"
 
       - name: Resolve SwiftPM packages
         run: |
           set -euxo pipefail
+          RB="$DERIVED_DATA/ResultBundle.xcresult"
+          rm -rf "$RB"
           xcodebuild -resolvePackageDependencies \
             -workspace "$WORKSPACE" \
             -scheme "$SCHEME" \
@@ -322,6 +323,8 @@ jobs:
       - name: Resolve SwiftPM deps
         run: |
           set -euxo pipefail
+          RB="$DERIVED_DATA/ResultBundle.xcresult"
+          rm -rf "$RB"
           xcodebuild -resolvePackageDependencies \
             -${XCODE_CONTAINER_TYPE} "$XCODE_CONTAINER" \
             -scheme "$SCHEME" \
