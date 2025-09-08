@@ -1,6 +1,7 @@
 #!/usr/bin/env bash
 set -euo pipefail
-IOS_DIR="${1:-ios}"
+ROOT_DIR="$(cd "$(dirname "${BASH_SOURCE[0]}")/.." && pwd)"
+IOS_DIR="${1:-"$ROOT_DIR/ios"}"
 WS=""
 for ws in "$IOS_DIR"/*.xcworkspace; do
   if [ -e "$ws" ]; then
