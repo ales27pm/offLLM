@@ -31,6 +31,10 @@ jobs:
           node-version: ${{ env.NODE_VERSION }}
           cache: npm
 
+      - name: Install jq
+        uses: dcarbone/install-jq-action@8867ddb4788346d7c22b72ea2e2ffe4d514c7bcb
+        # jq keeps the parsing simple and resilient
+
       - name: Setup Ruby (3.2) + Bundler cache
         uses: ruby/setup-ruby@44511735964dcb71245e7e55f72539531f7bc0eb
         with:
@@ -99,83 +103,73 @@ jobs:
           RB="${DERIVED_DATA}/ResultBundle_build.xcresult"
           rm -rf "$RB"
 
-          # Collect simulator data (runtimes, devices, device types)
-          SIM_JSON="$(xcrun simctl list -j runtimes devices devicetypes)"
+          # Prime CoreSimulatorService; sometimes the first JSON call races and returns empty.
+          xcodebuild -runFirstLaunch >/dev/null 2>&1 || true
+          xcrun simctl list >/dev/null 2>&1 || true
 
-          # Select preferred runtime (iOS 18.5 if available, else latest >= 18.0)
-          SIM_VALUES="$(echo "$SIM_JSON" | python3 - <<'PY'
-          import json, sys
+          # Retry loop to obtain JSON (prevents JSONDecodeError on momentary empties)
+          SIM_JSON=""
+          for i in 1 2 3; do
+            if SIM_JSON="$(xcrun simctl list -j runtimes devices devicetypes)"; then
+              if [ -n "$SIM_JSON" ] && [ "${#SIM_JSON}" -gt 100 ]; then
+                break
+              fi
+            fi
+            echo "simctl JSON empty on attempt $i; retrying..."
+            sleep 2
+          done
 
-          data = json.load(sys.stdin)
-
-          def parse_version(v: str):
-              return tuple(map(int, v.split('.')))
-
-          runtimes = [
-              rt for rt in data.get("runtimes", [])
-              if rt.get("isAvailable")
-              and rt.get("identifier", "").startswith("com.apple.CoreSimulator.SimRuntime.iOS")
-              and parse_version(rt.get("version", "0"))[0] >= 18
-          ]
-
-          runtime = next((rt for rt in runtimes if rt.get("version", "").startswith("18.5")), None)
-          if runtime is None and runtimes:
-              runtimes.sort(key=lambda rt: parse_version(rt["version"]))
-              runtime = runtimes[-1]
-          if runtime is None:
-              sys.exit(70)
-
-          runtime_id = runtime["identifier"]
-
-          devicetypes = data.get("devicetypes", [])
-          device_type = next((dt for dt in devicetypes if dt.get("name") == "iPhone 16 Pro"), None)
-          if device_type is None:
-              device_type = next((dt for dt in devicetypes if dt.get("name", "").startswith("iPhone")), None)
-          if device_type is None:
-              sys.exit(71)
-
-          device_type_id = device_type["identifier"]
-
-          device_id = ""
-          for dev in data.get("devices", {}).get(runtime_id, []):
-              if dev.get("deviceTypeIdentifier") == device_type_id and dev.get("isAvailable"):
-                  device_id = dev.get("udid", "")
-                  break
-
-          print(runtime_id)
-          print(device_type_id)
-          print(device_id)
-          PY
-          )"
-
-          RUNTIME_ID="$(echo "$SIM_VALUES" | sed -n '1p')"
-          DEVICE_TYPE="$(echo "$SIM_VALUES" | sed -n '2p')"
-          DEVICE_ID="$(echo "$SIM_VALUES" | sed -n '3p')"
-
-          echo "Runtime: $RUNTIME_ID"
-          echo "DeviceType: $DEVICE_TYPE"
-          echo "DeviceID: $DEVICE_ID"
-          xcrun simctl list devices | sed -n '1,120p' || true
-
-          if [ -z "${RUNTIME_ID:-}" ]; then
-            echo "::error::No available iOS Simulator runtime >= 18.0 found."
+          if [ -z "$SIM_JSON" ]; then
+            echo "::error::No simulator JSON available from simctl after retries."
             exit 70
           fi
 
+          # Prefer iOS 18.5 if present and available; else pick latest available iOS>=18
+          HAS_185="$(echo "$SIM_JSON" | jq -r '.runtimes[] | select(.isAvailable and .name=="iOS 18.5") | .identifier' | head -1 || true)"
+          if [ -n "$HAS_185" ]; then
+            RUNTIME_ID="$HAS_185"
+          else
+            RUNTIME_ID="$(echo "$SIM_JSON" | jq -r '
+              def v: .version // "0";
+              def parse: (v | split(".") | map(tonumber));
+              [ .runtimes[]
+                | select(.isAvailable and (.identifier|startswith("com.apple.CoreSimulator.SimRuntime.iOS")))
+                | select(((.version // "0") | startswith("18.")))
+              ]
+              | sort_by(.version | split(".") | map(tonumber))
+              | last
+              | .identifier // empty
+            ' || true)"
+          fi
+
+          if [ -z "${RUNTIME_ID:-}" ]; then
+            echo "::error::No available iOS 18.x Simulator runtime found."
+            echo "$SIM_JSON" | head -c 5000 || true
+            exit 70
+          fi
+
+          DEVICE_TYPE="$(echo "$SIM_JSON" | jq -r '.devicetypes[] | select(.name=="iPhone 16 Pro") | .identifier' | head -1 || true)"
           if [ -z "${DEVICE_TYPE:-}" ]; then
-            echo "::error::No suitable iPhone device type found."
+            DEVICE_TYPE="$(echo "$SIM_JSON" | jq -r '.devicetypes[] | select(.name|startswith("iPhone")) | .identifier' | head -1 || true)"
+          fi
+          if [ -z "${DEVICE_TYPE:-}" ]; then
+            echo "::error::No iPhone device type found in simctl output."
             exit 71
           fi
 
+          # Try to re-use an existing device for that runtime; else create a new one
+          DEVICE_ID="$(echo "$SIM_JSON" | jq -r --arg rt "$RUNTIME_ID" --arg dt "$DEVICE_TYPE" '.devices[$rt][]? | select(.isAvailable and .deviceTypeIdentifier==$dt) | .udid' | head -1 || true)"
           if [ -z "${DEVICE_ID:-}" ]; then
-            DEVICE_ID="$(xcrun simctl create CI-iPhone "$DEVICE_TYPE" "$RUNTIME_ID")"
+            DEVICE_ID="$(xcrun simctl create "CI-iPhone" "$DEVICE_TYPE" "$RUNTIME_ID")"
           fi
-
           if [ -z "${DEVICE_ID:-}" ]; then
             echo "::error::Failed to create or find a simulator for runtime $RUNTIME_ID."
             exit 72
           fi
 
+          echo "Runtime: $RUNTIME_ID"
+          echo "DeviceType: $DEVICE_TYPE"
+          echo "DeviceID: $DEVICE_ID"
           xcrun simctl boot "$DEVICE_ID" >/dev/null 2>&1 || true
           xcrun simctl bootstatus "$DEVICE_ID" -b
           echo "dest=id=$DEVICE_ID" >> "$GITHUB_OUTPUT"
