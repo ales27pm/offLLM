@@ -7,3 +7,6 @@ if [ -z "${WS:-}" ]; then
   exit 1
 fi
 echo "✅ Found workspace: $WS"
+if [[ -n "${GITHUB_ENV:-}" ]]; then
+  echo "WORKSPACE=$WS" >> "$GITHUB_ENV"
+fi
