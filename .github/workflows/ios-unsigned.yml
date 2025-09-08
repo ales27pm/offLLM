@@ -64,7 +64,7 @@ jobs:
           set -euo pipefail
           FOUND="$(/bin/ls -d ios/*.xcodeproj 2>/dev/null | head -n1 || true)"
           if [ -z "${FOUND}" ]; then
-            echo "::error title=Missing Xcode project::No .xcodeproj found under ios/. Commit your XcodeGen inputs and rerun."
+            echo "::error title=Missing Xcode project::No .xcodeproj found under ios/. Commit XcodeGen inputs and rerun."
             exit 1
           fi
           NAME="$(basename "${FOUND}" .xcodeproj)"
@@ -95,23 +95,12 @@ jobs:
           set -euo pipefail
           ruby scripts/ci/post_install_hardening_hook.rb || true
 
-      - name: Patch glog config.h (CI safety net)
+      - name: Install xcbeautify (pretty xcodebuild output)
         run: |
           set -euo pipefail
-          GLOG_SRC="ios/Pods/glog/src"
-          if [ -d "$GLOG_SRC" ] && [ ! -f "$GLOG_SRC/config.h" ]; then
-            if [ -f "$GLOG_SRC/config_ios.h" ]; then
-              cp "$GLOG_SRC/config_ios.h" "$GLOG_SRC/config.h"
-              echo "Patched glog: config_ios.h -> config.h"
-            elif [ -f "$GLOG_SRC/config.h.cmake" ]; then
-              cp "$GLOG_SRC/config.h.cmake" "$GLOG_SRC/config.h"
-              echo "Patched glog: config.h.cmake -> config.h"
-            else
-              echo "::warning::Could not find a glog config template to copy."
-            fi
-          fi
+          brew install xcbeautify || true
 
-      - name: Build (Release, device SDK)
+      - name: Build (Release, iphoneos, deterministic DerivedData)
         env:
           XCODE_WORKSPACE: ios/${{ env.XCODE_PROJECT_NAME }}.xcworkspace
         run: |
@@ -131,44 +120,26 @@ jobs:
             SKIP_INSTALL=NO \
             BUILD_LIBRARY_FOR_DISTRIBUTION=NO \
             "OTHER_CFLAGS=-DOBJC_OLD_DISPATCH_PROTOTYPES=0" \
-            build | xcpretty && exit ${PIPESTATUS[0]}
+          | xcbeautify
 
-      - name: Package unsigned IPA from DerivedData
+      - name: Package unsigned IPA from Release-iphoneos
         run: |
           set -euo pipefail
-          PRODUCTS_DIR="$DERIVED_DATA/Build/Products/Release-iphoneos"
-          echo "Products dir: $PRODUCTS_DIR"
-          APP_PATH="$(/bin/ls -d "$PRODUCTS_DIR"/*.app 2>/dev/null | head -n1 || true)"
-          if [ -z "$APP_PATH" ] || [ ! -d "$APP_PATH" ]; then
-            echo "::error::No .app found under $PRODUCTS_DIR"
-            /bin/ls -la "$PRODUCTS_DIR" || true
+          APP_DIR="$DERIVED_DATA/Build/Products/Release-iphoneos"
+          APP_PATH="$(/bin/ls -d "$APP_DIR"/*.app 2>/dev/null | head -n1 || true)"
+          if [ -z "$APP_PATH" ]; then
+            echo "::error title=App not found::No .app under $APP_DIR (build must have failed earlier)."
             exit 1
           fi
-          echo "Found app: $APP_PATH"
-          rm -rf build/Payload
-          mkdir -p build/Payload
-          cp -R "$APP_PATH" build/Payload/
-          (cd build && /usr/bin/zip -qry offLLM-unsigned.ipa Payload)
-          APP_NAME="$(basename "$APP_PATH")"
-          (cd "$PRODUCTS_DIR" && /usr/bin/zip -qry "../../$APP_NAME.zip" "$APP_NAME")
+          mkdir -p build
+          cd build
+          rm -rf Payload
+          mkdir -p Payload
+          cp -R "$APP_PATH" Payload/
+          /usr/bin/zip -qry offLLM-unsigned.ipa Payload
+          /usr/bin/zip -qry $(basename "$APP_PATH").zip "$APP_PATH"
 
-      - name: Archive logs
-        if: always()
-        run: |
-          mkdir -p artifacts/xcode-log
-          if [ -d "$DERIVED_DATA/Logs/Build" ]; then
-            cp -R "$DERIVED_DATA/Logs/Build" artifacts/xcode-log/
-          fi
-
-      - name: Upload logs
-        if: always()
-        uses: actions/upload-artifact@v4
-        with:
-          name: xcode-logs
-          path: artifacts/xcode-log
-          if-no-files-found: ignore
-
-      - name: Upload unsigned IPA & bundle
+      - name: Upload unsigned IPA, app & logs
         if: always()
         uses: actions/upload-artifact@v4
         with:
@@ -176,13 +147,7 @@ jobs:
           path: |
             build/offLLM-unsigned.ipa
             build/*.app.zip
+            ${{ env.DERIVED_DATA }}/ResultBundle.xcresult
+            ${{ env.DERIVED_DATA }}/Logs/Build
           if-no-files-found: error
           compression-level: 6
-
-      - name: Upload result bundle
-        if: always()
-        uses: actions/upload-artifact@v4
-        with:
-          name: xcode-result-bundle
-          path: ${{ env.DERIVED_DATA }}/ResultBundle.xcresult
-          if-no-files-found: ignore
