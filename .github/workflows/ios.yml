@@ -1,0 +1,151 @@
+---
+name: ios (simulator)
+
+on:
+  push:
+    branches: [main, master]
+  pull_request:
+    branches: [main, master]
+
+env:
+  XCODE_VERSION: "16.2"
+
+jobs:
+  build:
+    runs-on: macos-15 # newer image; arm64
+    env:
+      NODE_VERSION: 20
+      RUBY_VERSION: 3.2
+      DERIVED_DATA: ${{ github.workspace }}/build/DerivedData
+    steps:
+      - uses: actions/checkout@08eba0b27e820071cde6df949e0beb9ba4906955
+
+      - name: Select Xcode
+        uses: maxim-lobanov/setup-xcode@c51a66b42363123fa82a6cfe02c60af4281dab93
+        with:
+          xcode-version: ${{ env.XCODE_VERSION }}
+
+      - name: Set up Node
+        uses: actions/setup-node@49933ea5288caeca8642d1e84afbd3f7d6820020
+        with:
+          node-version: ${{ env.NODE_VERSION }}
+          cache: npm
+
+      - name: Install jq
+        uses: dcarbone/install-jq-action@8867ddb4788346d7c22b72ea2e2ffe4d514c7bcb
+
+      - name: Setup Ruby (3.2) + Bundler cache
+        uses: ruby/setup-ruby@44511735964dcb71245e7e55f72539531f7bc0eb
+        with:
+          ruby-version: "3.2"
+          bundler-cache: true
+
+      - name: Install JS deps
+        run: npm ci
+
+      - name: Install XcodeGen (if needed)
+        run: |
+          if ! command -v xcodegen >/dev/null 2>&1; then
+            brew update
+            brew install xcodegen
+          fi
+
+      - name: Generate Xcode project (XcodeGen)
+        run: |
+          (cd ios && xcodegen generate)
+
+      - name: Install CocoaPods (via bundler)
+        working-directory: ios
+        run: |
+          bundle exec pod install --repo-update
+
+      - name: Detect workspace and scheme
+        id: detect
+        working-directory: ios
+        run: |
+          set -euo pipefail
+          WS=$(ls -1 *.xcworkspace 2>/dev/null | head -n1 || true)
+          if [ -z "${WS:-}" ]; then
+            echo "::error::No .xcworkspace found in ios/. Run XcodeGen and CocoaPods first."
+            exit 2
+          fi
+          SCHEME=$(xcodebuild -list -json -workspace "$WS" | python -c 'import json,sys;j=json.load(sys.stdin);s=j.get("workspace",{}).get("schemes",[]);print(s[0] if s else "")')
+          if [ -z "${SCHEME:-}" ]; then
+            echo "::error::No shared schemes found in $WS"
+            exit 3
+          fi
+          echo "workspace=ios/$WS" >> "$GITHUB_OUTPUT"
+          echo "workspace_name=$WS" >> "$GITHUB_OUTPUT"
+          echo "scheme=$SCHEME" >> "$GITHUB_OUTPUT"
+
+      - name: "Doctor: verify workspace"
+        working-directory: ios
+        env:
+          WORKSPACE: ${{ steps.detect.outputs.workspace_name }}
+          SCHEME: ${{ steps.detect.outputs.scheme }}
+        run: ./scripts/doctor.sh
+
+      - name: Resolve SPM
+        env:
+          WORKSPACE: ${{ steps.detect.outputs.workspace }}
+          SCHEME: ${{ steps.detect.outputs.scheme }}
+          DERIVED_DATA: ${{ env.DERIVED_DATA }}
+        run: |
+          set -euxo pipefail
+          xcodebuild -resolvePackageDependencies \
+            -workspace "$WORKSPACE" \
+            -scheme "$SCHEME" \
+            -clonedSourcePackagesDirPath "$DERIVED_DATA/SourcePackages"
+
+      - name: Prepare Simulator
+        id: sim
+        env:
+          DERIVED_DATA: ${{ env.DERIVED_DATA }}
+        run: |
+          set -euxo pipefail
+          RB="${DERIVED_DATA}/ResultBundle_build.xcresult"
+          rm -rf "$RB"
+
+          if ! command -v jq >/dev/null 2>&1; then
+            echo "::error::jq is required but not installed. Please ensure jq is available on the runner."
+            exit 71
+          fi
+
+          JSON=$(xcrun simctl list -j runtimes devices devicetypes)
+          EXPECTED_RUNTIME="iOS 18.2"
+          RUNTIME=$(echo "$JSON" | jq -r --arg name "$EXPECTED_RUNTIME" '.runtimes[] | select(.isAvailable and .name == $name) | .identifier' || true)
+          if [ -z "${RUNTIME:-}" ]; then
+            echo "::error::Expected iOS Simulator runtime '$EXPECTED_RUNTIME' not found."
+            exit 70
+          fi
+
+          DEVICE_TYPE=$(echo "$JSON" | jq -r '.devicetypes[] | select(.name == "iPhone 16 Pro") | .identifier' | head -1 || true)
+          if [ -z "${DEVICE_TYPE:-}" ]; then
+            DEVICE_TYPE=$(echo "$JSON" | jq -r '.devicetypes[] | select(.name | startswith("iPhone")) | .identifier' | head -1)
+          fi
+
+          SIM_ID=$(echo "$JSON" | jq -r --arg rt "$RUNTIME" '.devices[$rt][] | select(.isAvailable) | .udid' | head -1 || true)
+          if [ -z "${SIM_ID:-}" ]; then
+            SIM_ID=$(xcrun simctl create CI-iPhone "$DEVICE_TYPE" "$RUNTIME")
+          fi
+
+          xcrun simctl boot "$SIM_ID" >/dev/null 2>&1 || true
+          xcrun simctl bootstatus "$SIM_ID" -b
+          echo "dest=id=$SIM_ID" >> "$GITHUB_OUTPUT"
+
+      - name: Build (Simulator)
+        env:
+          WORKSPACE: ${{ steps.detect.outputs.workspace }}
+          SCHEME: ${{ steps.detect.outputs.scheme }}
+          DERIVED_DATA: ${{ env.DERIVED_DATA }}
+          RESULT_BUNDLE: ${{ env.DERIVED_DATA }}/ResultBundle_build.xcresult
+          DEST: ${{ steps.sim.outputs.dest }}
+        run: |
+          set -euxo pipefail
+          xcodebuild -workspace "$WORKSPACE" \
+                     -scheme "$SCHEME" \
+                     -configuration Release \
+                     -destination "$DEST" \
+                     -derivedDataPath "$DERIVED_DATA" \
+                     -resultBundlePath "$RESULT_BUNDLE" \
+                     clean build
