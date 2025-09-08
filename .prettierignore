@@ -3,3 +3,5 @@ ci-reports
 CI-REPORT.md
 report_agent.md
 REPORT.md
+.github/workflows/ios.yml
+# embedded script confuses prettier
