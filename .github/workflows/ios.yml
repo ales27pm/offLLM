@@ -103,23 +103,71 @@ jobs:
           RB="${DERIVED_DATA}/ResultBundle_build.xcresult"
           rm -rf "$RB"
 
-          # Prefer iOS 18.5 if present; otherwise use the newest available iOS runtime
-          if xcrun simctl list runtimes | grep -q "iOS 18.5 .* (available)"; then
-            RUNTIME_ID="com.apple.CoreSimulator.SimRuntime.iOS-18-5"
-          else
-            # Extract last available iOS runtime identifier (e.g., com.apple.CoreSimulator.SimRuntime.iOS-18-4)
-            RUNTIME_ID="$(xcrun simctl list runtimes | awk -F '[()]' '/iOS .* (available)/{print $2}' | tail -1)"
-          fi
+          # Collect simulator data (runtimes, devices, device types)
+          SIM_JSON="$(xcrun simctl list -j runtimes devices devicetypes)"
+
+          # Select preferred runtime (iOS 18.5 if available, else latest >= 18.0)
+          SIM_VALUES="$(echo "$SIM_JSON" | python3 - <<'PY'
+          import json, sys
+
+          data = json.load(sys.stdin)
+
+          def parse_version(v: str):
+              return tuple(map(int, v.split('.')))
+
+          runtimes = [
+              rt for rt in data.get("runtimes", [])
+              if rt.get("isAvailable")
+              and rt.get("identifier", "").startswith("com.apple.CoreSimulator.SimRuntime.iOS")
+              and parse_version(rt.get("version", "0"))[0] >= 18
+          ]
+
+          runtime = next((rt for rt in runtimes if rt.get("version", "").startswith("18.5")), None)
+          if runtime is None and runtimes:
+              runtimes.sort(key=lambda rt: parse_version(rt["version"]))
+              runtime = runtimes[-1]
+          if runtime is None:
+              sys.exit(70)
+
+          runtime_id = runtime["identifier"]
+
+          devicetypes = data.get("devicetypes", [])
+          device_type = next((dt for dt in devicetypes if dt.get("name") == "iPhone 16 Pro"), None)
+          if device_type is None:
+              device_type = next((dt for dt in devicetypes if dt.get("name", "").startswith("iPhone")), None)
+          if device_type is None:
+              sys.exit(71)
+
+          device_type_id = device_type["identifier"]
+
+          device_id = ""
+          for dev in data.get("devices", {}).get(runtime_id, []):
+              if dev.get("deviceTypeIdentifier") == device_type_id and dev.get("isAvailable"):
+                  device_id = dev.get("udid", "")
+                  break
+
+          print(runtime_id)
+          print(device_type_id)
+          print(device_id)
+          PY
+          )"
+
+          RUNTIME_ID="$(echo "$SIM_VALUES" | sed -n '1p')"
+          DEVICE_TYPE="$(echo "$SIM_VALUES" | sed -n '2p')"
+          DEVICE_ID="$(echo "$SIM_VALUES" | sed -n '3p')"
 
           if [ -z "${RUNTIME_ID:-}" ]; then
-            echo "::error::No available iOS Simulator runtime found."
+            echo "::error::No available iOS Simulator runtime >= 18.0 found."
             exit 70
           fi
 
-          DEVICE_TYPE="com.apple.CoreSimulator.SimDeviceType.iPhone-16-Pro"
-          DEVICE_ID="$(xcrun simctl list devices | awk -v t="$DEVICE_TYPE" -v r="$RUNTIME_ID" -F '[() ]+' '$0 ~ t && $0 ~ r && /(Booted|Shutdown)/ {print $6; exit}')"
+          if [ -z "${DEVICE_TYPE:-}" ]; then
+            echo "::error::No suitable iPhone device type found."
+            exit 71
+          fi
+
           if [ -z "${DEVICE_ID:-}" ]; then
-            DEVICE_ID="$(xcrun simctl create "iPhone 16 Pro" "$DEVICE_TYPE" "$RUNTIME_ID")"
+            DEVICE_ID="$(xcrun simctl create CI-iPhone "$DEVICE_TYPE" "$RUNTIME_ID")"
           fi
 
           if [ -z "${DEVICE_ID:-}" ]; then
