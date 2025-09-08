@@ -14,8 +14,8 @@ jobs:
       RUBY_VERSION: "3.2"
       SCHEME: "monGARS"
       DERIVED_DATA: "${{ github.workspace }}/build/DerivedData"
-      XCODE_VERSION: "16.4"
-      DEVELOPER_DIR: /Applications/Xcode_16.4.app/Contents/Developer
+      XCODE_VERSION: "16.2"
+      DEVELOPER_DIR: /Applications/Xcode_16.2.app/Contents/Developer
       GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
 
     steps:
@@ -132,39 +132,23 @@ jobs:
             -scheme "$SCHEME" \
             -clonedSourcePackagesDirPath "$DERIVED_DATA/SourcePackages"
 
-      - name: Build (unsigned, simulator .app)
+      - name: Build (unsigned, device .app)
         env:
           SCHEME: ${{ env.SCHEME }}
           CONFIGURATION: Release
         run: |
           set -euxo pipefail
           RESULT_BUNDLE="$DERIVED_DATA/ResultBundle.xcresult"
-          # Pick a single iPhone 16 Pro (iOS 18.x) simulator UUID to avoid "multiple matching destinations"
-          SIM_ID="$(xcrun simctl list devices 'iOS 18' | awk -F '[() ]+' '/iPhone 16 Pro .* (Booted|Shutdown)/ {print $6; exit}')"
-          if [ -z "${SIM_ID:-}" ]; then
-            echo "No iPhone 16 Pro (iOS 18.x) simulator found; falling back to automatic destination."
-            xcodebuild -workspace "$WORKSPACE" \
-                       -scheme "$SCHEME" \
-                       -sdk iphonesimulator \
-                       -destination "platform=iOS Simulator,name=iPhone 16 Pro" \
-                       -destination-timeout 1 \
-                       -configuration "$CONFIGURATION" \
-                       -derivedDataPath "$DERIVED_DATA" \
-                       -resultBundlePath "$RESULT_BUNDLE" \
-                       clean build
-          else
-            xcodebuild -workspace "$WORKSPACE" \
-                       -scheme "$SCHEME" \
-                       -sdk iphonesimulator \
-                       -destination "id=${SIM_ID}" \
-                       -destination-timeout 1 \
-                       -configuration "$CONFIGURATION" \
-                       -derivedDataPath "$DERIVED_DATA" \
-                       -resultBundlePath "$RESULT_BUNDLE" \
-                       clean build
-          fi
+          xcodebuild -workspace "$WORKSPACE" \
+                     -scheme "$SCHEME" \
+                     -sdk iphoneos \
+                     -destination "generic/platform=iOS" \
+                     -configuration "$CONFIGURATION" \
+                     -derivedDataPath "$DERIVED_DATA" \
+                     -resultBundlePath "$RESULT_BUNDLE" \
+                     clean build
 
-          PRODUCTS_DIR="$DERIVED_DATA/Build/Products/${CONFIGURATION}-iphonesimulator"
+          PRODUCTS_DIR="$DERIVED_DATA/Build/Products/${CONFIGURATION}-iphoneos"
           APP_PATH="$(/usr/bin/find "$PRODUCTS_DIR" -maxdepth 2 -name '*.app' -print -quit || true)"
           if [ -z "$APP_PATH" ]; then
             echo "::error title=App not produced::No .app found under $PRODUCTS_DIR. Check scheme and targets."
@@ -173,7 +157,7 @@ jobs:
           echo "Found app: $APP_PATH"
 
       - name: Extract errors from xcresult
-        if: always()
+        if: success()
         run: |
           set -euo pipefail
           BUNDLE="$DERIVED_DATA/ResultBundle.xcresult"
@@ -186,7 +170,7 @@ jobs:
           fi
 
       - name: Upload result bundle & parsed issues
-        if: always()
+        if: success()
         uses: actions/upload-artifact@v4
         with:
           name: xcresult-and-issues
@@ -199,7 +183,7 @@ jobs:
         run: |
           set -euxo pipefail
           mkdir -p build
-          PRODUCTS_DIR="$DERIVED_DATA/Build/Products/Release-iphonesimulator"
+          PRODUCTS_DIR="$DERIVED_DATA/Build/Products/Release-iphoneos"
           APP_PATH="$(/usr/bin/find "$PRODUCTS_DIR" -maxdepth 2 -name '*.app' -print -quit)"
 
           # Zip .app for inspection
