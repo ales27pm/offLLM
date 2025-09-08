@@ -144,50 +144,59 @@ jobs:
             /usr/bin/grep -E 'PRODUCT_NAME|WRAPPER_NAME|PRODUCT_BUNDLE_IDENTIFIER|PRODUCT_TYPE|CONFIGURATION_BUILD_DIR' || true
           echo "::endgroup::"
 
-      - name: Archive (unsigned, Release, iphoneos)
+      - name: Resolve SwiftPM dependencies
         env:
           XCODE_WORKSPACE: ios/${{ env.XCODE_PROJECT_NAME }}.xcworkspace
-          GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }} # for authenticated SPM fetches
+          GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
         run: |
           set -euo pipefail
-          ARCHIVE_PATH="build/App.xcarchive"
-          # Resolve packages explicitly for clearer logs
-          xcodebuild -resolvePackageDependencies \
-            -workspace "$XCODE_WORKSPACE" \
-            -scheme "$XCODE_SCHEME" | xcbeautify
-          # Create an unsigned archive targeting a generic iOS device
-          xcodebuild archive \
+          xcodebuild \
+            -resolvePackageDependencies \
             -workspace "$XCODE_WORKSPACE" \
             -scheme "$XCODE_SCHEME" \
             -configuration Release \
             -sdk iphoneos \
             -destination 'generic/platform=iOS' \
-            -archivePath "$ARCHIVE_PATH" \
+            -derivedDataPath "$DERIVED_DATA" \
+            -resultBundlePath "$DERIVED_DATA/ResultBundle.xcresult"
+
+      - name: Build (Release, iphoneos)
+        env:
+          XCODE_WORKSPACE: ios/${{ env.XCODE_PROJECT_NAME }}.xcworkspace
+        run: |
+          set -euo pipefail
+          xcodebuild \
+            -workspace "$XCODE_WORKSPACE" \
+            -scheme "$XCODE_SCHEME" \
+            -configuration Release \
+            -sdk iphoneos \
+            -destination 'generic/platform=iOS' \
+            -arch arm64 \
             -derivedDataPath "$DERIVED_DATA" \
             -resultBundlePath "$DERIVED_DATA/ResultBundle.xcresult" \
             CODE_SIGNING_ALLOWED=NO CODE_SIGNING_REQUIRED=NO CODE_SIGN_IDENTITY='' \
             PROVISIONING_PROFILE_SPECIFIER='' SKIP_INSTALL=NO BUILD_LIBRARY_FOR_DISTRIBUTION=NO \
             "OTHER_CFLAGS=-DOBJC_OLD_DISPATCH_PROTOTYPES=0" \
-            | xcbeautify
-      - name: Package unsigned IPA from archive
+            clean build | xcbeautify
+
+      - name: Package unsigned IPA from Release-iphoneos
         run: |
           set -euo pipefail
-          APP_DIR="build/App.xcarchive/Products/Applications"
-          FOUND_APP="$(/usr/bin/find "$APP_DIR" -maxdepth 1 -type d -name '*.app' -print -quit || true)"
-          if [ -z "$FOUND_APP" ]; then
-            echo "::group::Debug: list archive contents"
-            /bin/ls -lahR "build/App.xcarchive" || true
+          APP_PATH="$DERIVED_DATA/Build/Products/Release-iphoneos/${XCODE_SCHEME}.app"
+          if [ ! -d "$APP_PATH" ]; then
+            echo "::group::Debug: list of Build/Products"
+            /bin/ls -lahR "$DERIVED_DATA/Build/Products" || true
             echo "::endgroup::"
-            echo "::error title=App not found::No .app inside $APP_DIR (archive may have failed)."
+            echo "::error title=App not found::No .app found at $APP_PATH (build may have failed earlier)."
             exit 1
           fi
           mkdir -p build
           cd build
           rm -rf Payload
           mkdir -p Payload
-          cp -R "$FOUND_APP" Payload/
+          cp -R "$APP_PATH" Payload/
           /usr/bin/zip -qry monGARS-unsigned.ipa Payload
-          /usr/bin/zip -qry "$(basename "$FOUND_APP").zip" "$FOUND_APP"
+          /usr/bin/zip -qry "$(basename "$APP_PATH").zip" "$APP_PATH"
 
       - name: Upload unsigned IPA, app & logs
         if: always()
