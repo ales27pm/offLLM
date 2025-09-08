@@ -16,13 +16,13 @@ if ! grep -q 'SWIFT_OBJC_BRIDGING_HEADER' "$YML"; then
   BEGIN{added=0}
   {print}
   /settings:/ && added==0 {
-    print "      SWIFT_OBJC_BRIDGING_HEADER: MyOfflineLLMApp/MyOfflineLLMApp-Bridging-Header.h"
+    print "      SWIFT_OBJC_BRIDGING_HEADER: MyOfflineLLMApp/Bridging/MyOfflineLLMApp-Bridging-Header.h"
     added=1
   }
   ' "$YML" > "$YML.tmp" && mv "$YML.tmp" "$YML"
   echo "✅ Added SWIFT_OBJC_BRIDGING_HEADER to project.yml"
 else
-  sed -i.bak 's#SWIFT_OBJC_BRIDGING_HEADER:.*#SWIFT_OBJC_BRIDGING_HEADER: MyOfflineLLMApp/MyOfflineLLMApp-Bridging-Header.h#' "$YML"
+  sed -i.bak 's#SWIFT_OBJC_BRIDGING_HEADER:.*#SWIFT_OBJC_BRIDGING_HEADER: MyOfflineLLMApp/Bridging/MyOfflineLLMApp-Bridging-Header.h#' "$YML"
   echo "✅ Normalized SWIFT_OBJC_BRIDGING_HEADER in project.yml"
 fi
 
@@ -41,7 +41,7 @@ if ! grep -q '^packages:' "$YML"; then
         print "    from: 0.25.6"
         print "  MLXLibraries:"
         print "    url: https://github.com/ml-explore/mlx-swift-examples"
-        print "    from: 2.25.6"
+        print "    from: 2.25.7"
         printed=1
       }
     ' "$YML" > "$YML.tmp" && mv "$YML.tmp" "$YML"
@@ -53,7 +53,7 @@ packages:
     from: 0.25.6
   MLXLibraries:
     url: https://github.com/ml-explore/mlx-swift-examples
-    from: 2.25.6
+    from: 2.25.7
 YAML
     cat "$YML" >> "$YML.tmp" && mv "$YML.tmp" "$YML"
   fi
@@ -64,7 +64,7 @@ else
     sed -i.bak '/^packages:/a\  MLX:\n    url: https://github.com/ml-explore/mlx-swift.git\n    from: 0.25.6' "$YML"
   fi
   if ! grep -q 'mlx-swift-examples' "$YML"; then
-    sed -i.bak '/^packages:/a\  MLXLibraries:\n    url: https://github.com/ml-explore/mlx-swift-examples\n    from: 2.25.6' "$YML"
+    sed -i.bak '/^packages:/a\  MLXLibraries:\n    url: https://github.com/ml-explore/mlx-swift-examples\n    from: 2.25.7' "$YML"
   fi
   echo "✅ Ensured MLX/MLXLibraries packages in project.yml"
 fi
