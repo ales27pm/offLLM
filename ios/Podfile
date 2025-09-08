@@ -1,4 +1,4 @@
-platform :ios, '14.0'
+platform :ios, '18.0'
 
 # --- Auto-detect the .xcodeproj near this Podfile ---
 project_candidates = Dir.glob(File.join(__dir__, '*.xcodeproj')).sort
@@ -112,7 +112,7 @@ post_install do |installer|
   installer.pods_project.targets.each do |t|
     t.build_configurations.each do |c|
       # Match project + satisfy RN 0.81+ minimums
-      c.build_settings['IPHONEOS_DEPLOYMENT_TARGET'] = '14.0'
+      c.build_settings['IPHONEOS_DEPLOYMENT_TARGET'] = '18.0'
       # Keep debug previews off to reduce noise in CI
       if c.name == 'Debug'
         c.build_settings['SWIFT_OPTIMIZATION_LEVEL'] = '-Onone'
