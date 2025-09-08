@@ -8,7 +8,8 @@ if [ ! -f "Pods/Pods.xcodeproj/project.pbxproj" ]; then
   echo "::error title=Missing Pods project::ios/Pods/Pods.xcodeproj not found. Did 'bundle exec pod install' succeed?"
   exit 3
 fi
-if ! xcodebuild -list -workspace monGARS.xcworkspace | grep -q "monGARS"; then
+schemes=$(xcodebuild -list -workspace monGARS.xcworkspace | awk '/Schemes:/ {flag=1; next} /^$/ {flag=0} flag {print}')
+if ! echo "$schemes" | grep -xq "monGARS"; then
   echo "::error title=Missing scheme::Scheme 'monGARS' not found in workspace."
   exit 4
 fi
