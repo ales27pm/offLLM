@@ -8,7 +8,8 @@ options:
 packages:
   mlx-swift:
     url: https://github.com/ml-explore/mlx-swift
-    from: 0.10.0
+    from: 0.11.0
+    # exact: 0.11.0
 
 targets:
   monGARS:
@@ -25,13 +26,16 @@ targets:
 
     dependencies:
       - package: mlx-swift
+        product: MLXLLM
+      - package: mlx-swift
         product: MLX
 
     settings:
       base:
         PRODUCT_BUNDLE_IDENTIFIER: com.offllm.mongars
         INFOPLIST_FILE: MyOfflineLLMApp/Info.plist
-        SWIFT_VERSION: 5.0
+        SWIFT_VERSION: "6.0"
+        IPHONEOS_DEPLOYMENT_TARGET: "18.0"
 
         # Unsigned/device builds in CI
         CODE_SIGNING_ALLOWED: NO
