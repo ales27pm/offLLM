@@ -137,7 +137,7 @@ jobs:
           mkdir -p Payload
           cp -R "$APP_PATH" Payload/
           /usr/bin/zip -qry offLLM-unsigned.ipa Payload
-          /usr/bin/zip -qry $(basename "$APP_PATH").zip "$APP_PATH"
+          /usr/bin/zip -qry "$(basename "$APP_PATH").zip" "$APP_PATH"
 
       - name: Upload unsigned IPA, app & logs
         if: always()

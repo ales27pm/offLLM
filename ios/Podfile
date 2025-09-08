@@ -120,7 +120,7 @@ post_install do |installer|
       end
       # Avoid failing the CI on pod warnings
       c.build_settings['GCC_TREAT_WARNINGS_AS_ERRORS'] = 'NO'
-      # CI stability on Xcode 15+/16+: allow CocoaPods script phases
+      # CI stability: allow CocoaPods script phases on Xcode 15+
       c.build_settings['ENABLE_USER_SCRIPT_SANDBOXING'] = 'NO'
     end
   end
