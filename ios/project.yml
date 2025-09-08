@@ -13,7 +13,8 @@ packages:
   # MLXLLM lives in the examples repo
   mlx-swift-examples:
     url: https://github.com/ml-explore/mlx-swift-examples
-    # track main for latest MLXLLM helpers
+    # choose ONE pin style:
+    # from: 2.25.0
     branch: main
 
 targets:
@@ -30,7 +31,9 @@ targets:
           - "Pods/**"
 
     dependencies:
-      # MLX core APIs
+      - package: mlx-swift-examples
+        product: MLXLLM
+      # If your code imports additional MLX products, keep them here:
       - package: mlx-swift
         product: MLX
       - package: mlx-swift
@@ -39,9 +42,6 @@ targets:
         product: MLXLinalg
       - package: mlx-swift
         product: MLXFFT
-      # LLM utilities live in the examples package
-      - package: mlx-swift-examples
-        product: MLXLLM
       # (optional) If your code imports these, add them too:
       # - package: mlx-swift-examples
       #   product: MLXLMCommon

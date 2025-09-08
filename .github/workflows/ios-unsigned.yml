@@ -7,12 +7,13 @@ on:
     branches: [main, master]
 
 jobs:
-  ios-unsigned:
+  build-ios:
     runs-on: macos-15
     env:
       NODE_VERSION: "20"
       RUBY_VERSION: "3.2"
       SCHEME: "monGARS"
+      WORKSPACE: "ios/monGARS.xcworkspace"
       DERIVED_DATA: "${{ github.workspace }}/build/DerivedData"
       # Prefer a runner image/Xcode that has the latest iOS platform installed.
       # Keep these in sync with the macos-15 image docs. 16.4 works well on GitHub-hosted macos-15.
@@ -129,6 +130,7 @@ jobs:
 
       - name: Resolve SwiftPM packages
         run: |
+          set -euxo pipefail
           xcodebuild -resolvePackageDependencies \
             -workspace "$WORKSPACE" \
             -scheme "$SCHEME" \
@@ -142,76 +144,65 @@ jobs:
           set -euxo pipefail
           RESULT_BUNDLE="$DERIVED_DATA/ResultBundle.xcresult"
           set +e
-          # Try a generic iOS (device) build first, without pinning SDK version.
+          # Try a generic iOS device build first (no hardcoded -sdk)
           xcodebuild -workspace "$WORKSPACE" \
                      -scheme "$SCHEME" \
                      -destination "generic/platform=iOS" \
                      -configuration "$CONFIGURATION" \
                      -derivedDataPath "$DERIVED_DATA" \
                      -resultBundlePath "$RESULT_BUNDLE" \
+                     CODE_SIGNING_ALLOWED=NO CODE_SIGNING_REQUIRED=NO \
                      clean build
           STATUS=$?
           set -e
           if [ $STATUS -ne 0 ]; then
-            echo "Device platform unavailable on this runner — falling back to Simulator build."
-            # Find any iOS 18.x simulator device to avoid 'multiple matching destinations'
+            echo "Device platform unavailable on this runner — falling back to Simulator."
+            # Pick a single iOS 18.x simulator to avoid 'multiple matching destinations'
             SIM_ID="$(xcrun simctl list devices | awk -F '[() ]+' '/iOS 18/ && /iPhone/ && /(Booted|Shutdown)/ {print $6; exit}')"
-            DEST_ARG=${SIM_ID:+id=$SIM_ID}
+            DEST="${SIM_ID:+id=$SIM_ID}"
             xcodebuild -workspace "$WORKSPACE" \
                        -scheme "$SCHEME" \
-                       -destination "${DEST_ARG:-platform=iOS Simulator}" \
+                       -destination "${DEST:-platform=iOS Simulator}" \
                        -configuration "$CONFIGURATION" \
                        -derivedDataPath "$DERIVED_DATA" \
                        -resultBundlePath "$RESULT_BUNDLE" \
                        clean build
           fi
 
-      - name: Extract errors from xcresult
-        if: success()
-        run: |
-          set -euo pipefail
-          BUNDLE="$DERIVED_DATA/ResultBundle.xcresult"
-          if [ -d "$BUNDLE" ]; then
-            mkdir -p build
-            xcrun xcresulttool get --format json --path "$BUNDLE" > build/xcresult.json || true
-            /usr/bin/grep -n '"issue' build/xcresult.json | head -n 200 || true
-          else
-            echo "No xcresult bundle at $BUNDLE"
-          fi
-
-      - name: Upload result bundle & parsed issues
-        if: success()
-        uses: actions/upload-artifact@v4
-        with:
-          name: xcresult-and-issues
-          path: |
-            ${{ env.DERIVED_DATA }}/ResultBundle.xcresult
-            build/xcresult.json
-          if-no-files-found: warn
-
       - name: Package artifacts (zip .app and make unsigned IPA)
         run: |
           set -euxo pipefail
           mkdir -p build
-          # Prefer device output; else simulator output.
           DEV_DIR="$DERIVED_DATA/Build/Products/Release-iphoneos"
           SIM_DIR="$DERIVED_DATA/Build/Products/Release-iphonesimulator"
-          if [ -d "$DEV_DIR" ]; then
-            PRODUCTS_DIR="$DEV_DIR"
-          else
-            PRODUCTS_DIR="$SIM_DIR"
+          PRODUCTS_DIR="$([ -d "$DEV_DIR" ] && echo "$DEV_DIR" || echo "$SIM_DIR")"
+          APP_PATH="$(/usr/bin/find "$PRODUCTS_DIR" -maxdepth 2 -name '*.app' -print -quit || true)"
+          if [ -z "$APP_PATH" ]; then
+            echo "::error title=App not produced::No .app found under $PRODUCTS_DIR. Check scheme and targets."
+            exit 1
           fi
-          APP_PATH="$(/usr/bin/find "$PRODUCTS_DIR" -maxdepth 2 -name '*.app' -print -quit)"
+          # Zip the .app for inspection
+          (cd "$(dirname "$APP_PATH")" && /usr/bin/zip -qry \
+              "$GITHUB_WORKSPACE/build/$(basename "$APP_PATH").zip" "$(basename "$APP_PATH")")
 
-          # Zip .app for inspection
-          (cd "$(dirname "$APP_PATH")" && /usr/bin/zip -qry "$GITHUB_WORKSPACE/build/$(basename "$APP_PATH").zip" "$(basename "$APP_PATH")")
-
-          # Create an unsigned IPA. If Simulator, this IPA is only for inspection (not installable on a device).
+          # Create an unsigned IPA. If it was a Simulator build, this is just for inspection.
           TMP_PAYLOAD="$(mktemp -d)"
           mkdir -p "$TMP_PAYLOAD/Payload"
           cp -R "$APP_PATH" "$TMP_PAYLOAD/Payload/"
           (cd "$TMP_PAYLOAD" && /usr/bin/zip -qry "$GITHUB_WORKSPACE/build/offLLM-unsigned.ipa" "Payload")
           rm -rf "$TMP_PAYLOAD"
+
+      - name: Extract errors from xcresult
+        if: always()
+        run: |
+          set -euo pipefail
+          BUNDLE="$DERIVED_DATA/ResultBundle.xcresult"
+          if [ -d "$BUNDLE" ]; then
+            xcrun xcresulttool get --format json --path "$BUNDLE" > build/xcresult.json || true
+            grep -n '"issue' build/xcresult.json | head -n 200 || true
+          else
+            echo "No xcresult bundle at $BUNDLE"
+          fi
 
       - name: Upload unsigned IPA, app & logs
         if: always()
@@ -223,5 +214,7 @@ jobs:
             build/*.app.zip
             ${{ env.DERIVED_DATA }}/Build/Logs
             ${{ env.DERIVED_DATA }}/Logs/Build
+            ${{ env.DERIVED_DATA }}/ResultBundle.xcresult
+            build/xcresult.json
           if-no-files-found: error
           compression-level: 6
