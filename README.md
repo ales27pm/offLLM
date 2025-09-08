@@ -5,7 +5,7 @@ Offline LLM application with advanced optimizations.
 ## Requirements
 
 - Node **20**, Ruby **3.2**, Bundler
-- **Xcode 16.2** with **iOS 18** SDK (CI uses `macos-15`)
+- **Xcode 16.4** with **iOS 18.5** SDK (CI uses `macos-15`)
 - CocoaPods
 - XcodeGen
 
@@ -71,6 +71,6 @@ See [AGENTS.md](AGENTS.md).
 
 ## Why this matters (very briefly)
 
-- Your CI & local docs now agree on: **macOS-15**, **Xcode 16.2 / iOS 18**, **scheme `monGARS`**, Pods-generated **workspace**, and the **Doctor** step.
+- Your CI & local docs now agree on: **macOS-15**, **Xcode 16.4 / iOS 18.5**, **scheme `monGARS`**, Pods-generated **workspace**, and the **Doctor** step.
 - Prevents future regressions (e.g., re-adding `*.xcfilelist`, pushing `Pods/`, or referencing the old `MyOfflineLLMApp` scheme).
 - Keeps contributors from “fixing” the wrong thing when the workspace isn’t present—Doctor fails early with actionable tips.
