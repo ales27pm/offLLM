@@ -122,6 +122,10 @@ jobs:
           chmod +x scripts/ios_doctor.sh || true
           ./scripts/ios_doctor.sh
 
+      - name: Normalize workspace path
+        run: |
+          echo "WORKSPACE=ios/$WORKSPACE" >> "$GITHUB_ENV"
+
       - name: Build (unsigned, simulator .app)
         env:
           SCHEME: ${{ env.SCHEME }}
