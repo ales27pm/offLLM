@@ -112,6 +112,19 @@ jobs:
           git config --global url."https://github.com/".insteadOf git@github.com:
           git config --global url."https://".insteadOf git://
 
+          # 1) Explicit credential store as an additional fallback SwiftPM will pick up.
+          git config --global credential.helper store
+          printf "https://%s:%s@github.com\n" "${GITHUB_ACTOR}" "${GITHUB_TOKEN}" > ~/.git-credentials
+          chmod 600 ~/.git-credentials
+
+          # 2) Global extraheader so any https://github.com requests include Basic auth.
+          BASIC="$(printf "%s:%s" "${GITHUB_ACTOR}" "${GITHUB_TOKEN}" | base64)"
+          git config --global http.https://github.com/.extraheader "AUTHORIZATION: basic ${BASIC}"
+          git config --global http.https://api.github.com/.extraheader "AUTHORIZATION: basic ${BASIC}"
+
+          # 3) Rewrite plain GitHub URLs to embed credentials (covers libgit/curl edge-cases).
+          git config --global url."https://${GITHUB_ACTOR}:${GITHUB_TOKEN}@github.com/".insteadOf "https://github.com/"
+
       - name: Install xcbeautify (pretty xcodebuild output)
         run: |
           set -euo pipefail
@@ -121,6 +134,7 @@ jobs:
         env:
           XCODE_WORKSPACE: ios/${{ env.XCODE_PROJECT_NAME }}.xcworkspace
           GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }} # for authenticated SPM fetches
+          GITHUB_ACTOR: ${{ github.actor }}
         run: |
           set -euo pipefail
           xcodebuild \
