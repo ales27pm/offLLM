@@ -23,8 +23,9 @@ jobs:
         uses: actions/setup-node@v4
         with:
           node-version: 18
+          cache: npm
 
-      - name: Cache node_modules
+      - name: Cache node_modules & Pods
         uses: actions/cache@v4
         with:
           path: |
@@ -78,13 +79,19 @@ jobs:
           echo "XCODE_PROJECT_PATH=${FOUND}" >> $GITHUB_ENV
           echo "XCODE_PROJECT_NAME=${NAME}" >> $GITHUB_ENV
 
-      - name: Set up Ruby and CocoaPods
+      - name: Set up Ruby
         uses: ruby/setup-ruby@v1
         with:
           ruby-version: "3.2"
           bundler-cache: false
 
-      - name: Install CocoaPods
+      - name: Install CocoaPods and xcpretty
+        run: |
+          set -euo pipefail
+          gem install cocoapods --no-document
+          gem install xcpretty --no-document
+
+      - name: Pod install
         working-directory: ios
         run: |
           set -euo pipefail
@@ -94,6 +101,17 @@ jobs:
           else
             pod install --repo-update
           fi
+
+      - name: Detect & export XCODE_WORKSPACE
+        run: |
+          set -euo pipefail
+          WS="$(ls -1 ios/*.xcworkspace 2>/dev/null | head -n1 || true)"
+          if [ -z "${WS}" ]; then
+            echo "::error title=Missing workspace::No .xcworkspace found under ios/. Did 'pod install' run successfully?"
+            exit 1
+          fi
+          echo "Detected workspace: ${WS}"
+          echo "XCODE_WORKSPACE=${WS}" >> $GITHUB_ENV
 
       - name: Patch glog config.h (CI safety net)
         run: |

@@ -17,8 +17,15 @@ project File.basename(project_path)
 
 use_frameworks! :linkage => :static
 
-require_relative '../node_modules/react-native/scripts/react_native_pods'
-require_relative '../node_modules/@react-native-community/cli-platform-ios/native_modules'
+begin
+  require_relative '../node_modules/react-native/scripts/react_native_pods'
+  require_relative '../node_modules/@react-native-community/cli-platform-ios/native_modules'
+rescue LoadError => e
+  # Provide a clear hint when deps are missing.
+  puts "[Podfile] Could not load React Native pod helpers: #{e.message}"
+  puts "[Podfile] Hint: run 'npm ci' (or 'yarn install') before 'pod install'."
+  raise
+end
 
 # Ensure glog/src/config.h exists
 pre_install do |installer|
