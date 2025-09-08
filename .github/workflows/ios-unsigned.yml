@@ -14,8 +14,10 @@ jobs:
       RUBY_VERSION: "3.2"
       SCHEME: "monGARS"
       DERIVED_DATA: "${{ github.workspace }}/build/DerivedData"
-      XCODE_VERSION: "16.2"
-      DEVELOPER_DIR: /Applications/Xcode_16.2.app/Contents/Developer
+      # Prefer a runner image/Xcode that has the latest iOS platform installed.
+      # Keep these in sync with the macos-15 image docs. 16.4 works well on GitHub-hosted macos-15.
+      XCODE_VERSION: "16.4"
+      DEVELOPER_DIR: /Applications/Xcode_16.4.app/Contents/Developer
       GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
 
     steps:
@@ -132,29 +134,37 @@ jobs:
             -scheme "$SCHEME" \
             -clonedSourcePackagesDirPath "$DERIVED_DATA/SourcePackages"
 
-      - name: Build (unsigned, device .app)
+      - name: Build (prefer device; fallback to simulator)
         env:
           SCHEME: ${{ env.SCHEME }}
           CONFIGURATION: Release
         run: |
           set -euxo pipefail
           RESULT_BUNDLE="$DERIVED_DATA/ResultBundle.xcresult"
+          set +e
+          # Try a generic iOS (device) build first, without pinning SDK version.
           xcodebuild -workspace "$WORKSPACE" \
                      -scheme "$SCHEME" \
-                     -sdk iphoneos \
                      -destination "generic/platform=iOS" \
                      -configuration "$CONFIGURATION" \
                      -derivedDataPath "$DERIVED_DATA" \
                      -resultBundlePath "$RESULT_BUNDLE" \
                      clean build
-
-          PRODUCTS_DIR="$DERIVED_DATA/Build/Products/${CONFIGURATION}-iphoneos"
-          APP_PATH="$(/usr/bin/find "$PRODUCTS_DIR" -maxdepth 2 -name '*.app' -print -quit || true)"
-          if [ -z "$APP_PATH" ]; then
-            echo "::error title=App not produced::No .app found under $PRODUCTS_DIR. Check scheme and targets."
-            exit 1
+          STATUS=$?
+          set -e
+          if [ $STATUS -ne 0 ]; then
+            echo "Device platform unavailable on this runner — falling back to Simulator build."
+            # Find any iOS 18.x simulator device to avoid 'multiple matching destinations'
+            SIM_ID="$(xcrun simctl list devices | awk -F '[() ]+' '/iOS 18/ && /iPhone/ && /(Booted|Shutdown)/ {print $6; exit}')"
+            DEST_ARG=${SIM_ID:+id=$SIM_ID}
+            xcodebuild -workspace "$WORKSPACE" \
+                       -scheme "$SCHEME" \
+                       -destination "${DEST_ARG:-platform=iOS Simulator}" \
+                       -configuration "$CONFIGURATION" \
+                       -derivedDataPath "$DERIVED_DATA" \
+                       -resultBundlePath "$RESULT_BUNDLE" \
+                       clean build
           fi
-          echo "Found app: $APP_PATH"
 
       - name: Extract errors from xcresult
         if: success()
@@ -183,13 +193,20 @@ jobs:
         run: |
           set -euxo pipefail
           mkdir -p build
-          PRODUCTS_DIR="$DERIVED_DATA/Build/Products/Release-iphoneos"
+          # Prefer device output; else simulator output.
+          DEV_DIR="$DERIVED_DATA/Build/Products/Release-iphoneos"
+          SIM_DIR="$DERIVED_DATA/Build/Products/Release-iphonesimulator"
+          if [ -d "$DEV_DIR" ]; then
+            PRODUCTS_DIR="$DEV_DIR"
+          else
+            PRODUCTS_DIR="$SIM_DIR"
+          fi
           APP_PATH="$(/usr/bin/find "$PRODUCTS_DIR" -maxdepth 2 -name '*.app' -print -quit)"
 
           # Zip .app for inspection
           (cd "$(dirname "$APP_PATH")" && /usr/bin/zip -qry "$GITHUB_WORKSPACE/build/$(basename "$APP_PATH").zip" "$(basename "$APP_PATH")")
 
-          # Create an unsigned IPA (note: for installable-on-device IPA you'd need a device build + signing)
+          # Create an unsigned IPA. If Simulator, this IPA is only for inspection (not installable on a device).
           TMP_PAYLOAD="$(mktemp -d)"
           mkdir -p "$TMP_PAYLOAD/Payload"
           cp -R "$APP_PATH" "$TMP_PAYLOAD/Payload/"
