@@ -119,42 +119,8 @@ jobs:
             exit 70
           fi
 
-          # Node helper to select runtime & device without jq
-          SIM_VALUES="$(SIM_JSON="$SIM_JSON" node - <<'NODE'
-          const data = JSON.parse(process.env.SIM_JSON);
-          const rts = data.runtimes.filter(rt => rt.isAvailable && rt.identifier.startsWith('com.apple.CoreSimulator.SimRuntime.iOS'));
-          const byVer = rt => (rt.version||'0').split('.').map(Number);
-          let rtId = '';
-          for (const rt of rts) if (rt.name === 'iOS 18.5') { rtId = rt.identifier; break; }
-          if (!rtId) {
-            const r18 = rts.filter(rt => (rt.version||'').startsWith('18.'));
-            if (r18.length) rtId = r18.sort((a,b)=>{
-              const av=byVer(a), bv=byVer(b);
-              for (let i=0;i<Math.max(av.length,bv.length);i++) {
-                const diff=(av[i]||0)-(bv[i]||0); if (diff) return diff;
-              }
-              return 0;
-            }).slice(-1)[0].identifier;
-            else if (rts.length) rtId = rts.sort((a,b)=>{
-              const av=byVer(a), bv=byVer(b);
-              for (let i=0;i<Math.max(av.length,bv.length);i++) {
-                const diff=(av[i]||0)-(bv[i]||0); if (diff) return diff;
-              }
-              return 0;
-            }).slice(-1)[0].identifier;
-          }
-          const dts = data.devicetypes || [];
-          let dtId = (dts.find(dt => dt.name==='iPhone 16 Pro') || dts.find(dt => (dt.name||'').startsWith('iPhone')) || {}).identifier || '';
-          let devId = '';
-          if (rtId && dtId) {
-            const devs = (data.devices[rtId]||[]).filter(dev => dev.isAvailable && dev.deviceTypeIdentifier===dtId);
-            if (devs.length) devId = devs[0].udid;
-          }
-          console.log(rtId);
-          console.log(dtId);
-          console.log(devId);
-NODE
-)"
+          # Use shared helper to pick runtime/device from simctl JSON
+          SIM_VALUES="$(node scripts/select-simulator.js <<<"$SIM_JSON")"
           RUNTIME_ID="$(echo "$SIM_VALUES" | sed -n '1p')"
           DEVICE_TYPE="$(echo "$SIM_VALUES" | sed -n '2p')"
           DEVICE_ID="$(echo "$SIM_VALUES" | sed -n '3p')"
@@ -210,7 +176,10 @@ NODE
           if [ -d "$RB" ]; then
             # Xcode 16.4+: use `get object`; fall back to legacy if needed
             if ! xcrun xcresulttool get object --path "$RB" --format json > "build/ResultBundle_build.json" 2>/dev/null; then
-              xcrun xcresulttool get --legacy --path "$RB" --format json > "build/ResultBundle_build.json" || true
+              if ! xcrun xcresulttool get --legacy --path "$RB" --format json > "build/ResultBundle_build.json" 2>/dev/null; then
+                echo "Error: Failed to extract xcresult bundle with both 'get object' and legacy 'get'." >&2
+                exit 1
+              fi
             fi
             grep -n '"issue' "build/ResultBundle_build.json" | head -n 200 || true
           fi
