@@ -145,7 +145,7 @@ jobs:
           GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }} # for authenticated SPM fetches
         run: |
           set -euo pipefail
-          xcodebuild build \
+          xcodebuild \
             -resolvePackageDependencies \
             -workspace "$XCODE_WORKSPACE" \
             -scheme "$XCODE_SCHEME" \
@@ -162,15 +162,19 @@ jobs:
             SKIP_INSTALL=NO \
             BUILD_LIBRARY_FOR_DISTRIBUTION=NO \
             "OTHER_CFLAGS=-DOBJC_OLD_DISPATCH_PROTOTYPES=0" \
+            clean build \
           | xcbeautify
 
       - name: Package unsigned IPA from Release-iphoneos
         run: |
           set -euo pipefail
-          APP_DIR="$DERIVED_DATA/Build/Products/Release-iphoneos"
-          APP_PATH="$(/bin/ls -d "$APP_DIR"/*.app 2>/dev/null | head -n1 || true)"
+          PRODUCTS_DIR="$DERIVED_DATA/Build/Products"
+          APP_PATH="$(/usr/bin/find "$PRODUCTS_DIR" -type d -name '*.app' -print -quit || true)"
           if [ -z "$APP_PATH" ]; then
-            echo "::error title=App not found::No .app under $APP_DIR (build must have failed earlier)."
+            echo "::group::Debug: list of Build/Products"
+            /bin/ls -lahR "$PRODUCTS_DIR" || true
+            echo "::endgroup::"
+            echo "::error title=App not found::No .app found under $PRODUCTS_DIR (build may have failed earlier)."
             exit 1
           fi
           mkdir -p build
