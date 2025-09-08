@@ -1,3 +1,4 @@
+#import <React/RCTBridgeModule.h>
 #import "SensorsTurboModule.h"
 #import "React/RCTUtils.h"
 #import <CoreMotion/CoreMotion.h>

@@ -1,3 +1,4 @@
+#import <React/RCTBridgeModule.h>
 #import "PhotosTurboModule.h"
 #import "React/RCTUtils.h"
 #import <Photos/Photos.h>
