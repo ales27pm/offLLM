@@ -13,11 +13,10 @@ jobs:
       NODE_VERSION: "20"
       RUBY_VERSION: "3.2"
       SCHEME: "monGARS"
+      WORKSPACE: "ios/monGARS.xcworkspace"
       DERIVED_DATA: "${{ github.workspace }}/build/DerivedData"
-      # Prefer a runner image/Xcode that has the iOS 18 SDK installed.
-      # Keep these in sync with the macos-15 image docs. 16.2 is expected per repo guidelines.
-      XCODE_VERSION: "16.2"
-      DEVELOPER_DIR: /Applications/Xcode_16.2.app/Contents/Developer
+      XCODE_VERSION: "16.4"
+      DEVELOPER_DIR: "/Applications/Xcode_16.4.app/Contents/Developer"
       GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
 
     steps:
@@ -110,7 +109,9 @@ jobs:
 
       - name: Detect workspace
         run: |
-          WS="$(/usr/bin/find ios -maxdepth 1 -name '*.xcworkspace' -print -quit)"
+          WS="$(
+            /usr/bin/find ios -maxdepth 1 -name '*.xcworkspace' -print -quit
+          )"
           if [ -z "$WS" ]; then
             echo "::error title=Workspace not found::No ios/*.xcworkspace after pod install"
             exit 1
@@ -141,31 +142,38 @@ jobs:
           CONFIGURATION: Release
         run: |
           set -euxo pipefail
-          RESULT_BUNDLE="$DERIVED_DATA/ResultBundle.xcresult"
-          set +e
-          # Try a generic iOS device build first (no hardcoded -sdk)
-          xcodebuild -workspace "$WORKSPACE" \
-                     -scheme "$SCHEME" \
-                     -destination "generic/platform=iOS" \
-                     -configuration "$CONFIGURATION" \
-                     -derivedDataPath "$DERIVED_DATA" \
-                     -resultBundlePath "$RESULT_BUNDLE" \
-                     CODE_SIGNING_ALLOWED=NO CODE_SIGNING_REQUIRED=NO \
-                     clean build
-          STATUS=$?
-          set -e
-          if [ $STATUS -ne 0 ]; then
-            echo "Device platform unavailable on this runner — falling back to Simulator."
-            # Pick a single iOS 18.x simulator to avoid 'multiple matching destinations'
-            SIM_ID="$(xcrun simctl list devices | awk -F '[() ]+' '/iOS 18/ && /iPhone/ && /(Booted|Shutdown)/ {print $6; exit}')"
-            DEST="${SIM_ID:+id=$SIM_ID}"
+          RESULT_DIR="$DERIVED_DATA"
+          RB_DEVICE="$RESULT_DIR/ResultBundle_device.xcresult"
+          RB_SIM="$RESULT_DIR/ResultBundle_sim.xcresult"
+
+          build_with_dest () {
+            local DEST="$1"
+            local RB="$2"
+            rm -rf "$RB"
             xcodebuild -workspace "$WORKSPACE" \
                        -scheme "$SCHEME" \
-                       -destination "${DEST:-platform=iOS Simulator}" \
+                       -destination "$DEST" \
                        -configuration "$CONFIGURATION" \
                        -derivedDataPath "$DERIVED_DATA" \
-                       -resultBundlePath "$RESULT_BUNDLE" \
+                       -resultBundlePath "$RB" \
+                       CODE_SIGNING_ALLOWED=NO CODE_SIGNING_REQUIRED=NO \
                        clean build
+          }
+
+          # Try a generic iOS (device) build first.
+          set +e; build_with_dest "generic/platform=iOS" "$RB_DEVICE"; STATUS=$?; set -e
+          if [ $STATUS -ne 0 ]; then
+            echo "Device platform unavailable on this runner — falling back to Simulator."
+            # Find latest available iOS runtime (e.g. com.apple.CoreSimulator.SimRuntime.iOS-18-6)
+            RUNTIME_ID="$(xcrun simctl list runtimes | awk -F '[() ]+' '/iOS .* (available)/ {print $2}' | tail -1 || true)"
+            # Find or create an iPhone 16 Pro on that runtime
+            SIM_ID="$(xcrun simctl list devices | awk -v R="$RUNTIME_ID" -F '[() ]+' '$0 ~ R && /iPhone 16 Pro/ && /(Booted|Shutdown)/ {print $6; exit}' || true)"
+            if [ -z "${SIM_ID:-}" ] && [ -n "${RUNTIME_ID:-}" ]; then
+              SIM_ID="$(xcrun simctl create 'CI iPhone 16 Pro' 'com.apple.CoreSimulator.SimDeviceType.iPhone-16-Pro' "$RUNTIME_ID")"
+            fi
+            DEST_SIM="${SIM_ID:+id=$SIM_ID}"
+            [ -n "$DEST_SIM" ] || DEST_SIM="platform=iOS Simulator,name=iPhone 16 Pro"
+            build_with_dest "$DEST_SIM" "$RB_SIM"
           fi
 
       - name: Package artifacts (zip .app and make unsigned IPA)
@@ -180,11 +188,9 @@ jobs:
             echo "::error title=App not produced::No .app found under $PRODUCTS_DIR. Check scheme and targets."
             exit 1
           fi
-          # Zip the .app for inspection
-          (cd "$(dirname "$APP_PATH")" && /usr/bin/zip -qry \
-              "$GITHUB_WORKSPACE/build/$(basename "$APP_PATH").zip" "$(basename "$APP_PATH")")
+          (cd "$(dirname "$APP_PATH")" && /usr/bin/zip -qry "$GITHUB_WORKSPACE/build/$(basename "$APP_PATH").zip" "$(basename "$APP_PATH")")
 
-          # Create an unsigned IPA. If it was a Simulator build, this is just for inspection.
+          # Create an unsigned IPA. If Simulator, IPA is for inspection only (not installable on devices).
           TMP_PAYLOAD="$(mktemp -d)"
           mkdir -p "$TMP_PAYLOAD/Payload"
           cp -R "$APP_PATH" "$TMP_PAYLOAD/Payload/"
@@ -195,13 +201,13 @@ jobs:
         if: always()
         run: |
           set -euo pipefail
-          BUNDLE="$DERIVED_DATA/ResultBundle.xcresult"
-          if [ -d "$BUNDLE" ]; then
-            xcrun xcresulttool get --format json --path "$BUNDLE" > build/xcresult.json || true
-            grep -n '"issue' build/xcresult.json | head -n 200 || true
-          else
-            echo "No xcresult bundle at $BUNDLE"
-          fi
+          mkdir -p build
+          for RB in "$DERIVED_DATA/ResultBundle_device.xcresult" "$DERIVED_DATA/ResultBundle_sim.xcresult"; do
+            [ -d "$RB" ] || continue
+            NAME="$(basename "$RB" .xcresult)"
+            xcrun xcresulttool get --format json --path "$RB" > "build/${NAME}.json" || true
+          done
+          grep -n '"issue' build/*.json | head -n 200 || true
 
       - name: Upload unsigned IPA, app & logs
         if: always()
@@ -213,7 +219,8 @@ jobs:
             build/*.app.zip
             ${{ env.DERIVED_DATA }}/Build/Logs
             ${{ env.DERIVED_DATA }}/Logs/Build
-            ${{ env.DERIVED_DATA }}/ResultBundle.xcresult
-            build/xcresult.json
+            ${{ env.DERIVED_DATA }}/ResultBundle_device.xcresult
+            ${{ env.DERIVED_DATA }}/ResultBundle_sim.xcresult
+            build/*.json
           if-no-files-found: error
           compression-level: 6

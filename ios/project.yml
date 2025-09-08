@@ -14,7 +14,7 @@ packages:
   mlx-swift-examples:
     url: https://github.com/ml-explore/mlx-swift-examples
     # pin to a specific version for reproducible CI builds
-    from: 2.25.6
+    from: 2.25.7
 
 targets:
   monGARS:
@@ -53,6 +53,7 @@ targets:
         INFOPLIST_FILE: MyOfflineLLMApp/Info.plist
         SWIFT_VERSION: "6.0"
         IPHONEOS_DEPLOYMENT_TARGET: "18.0"
+        SWIFT_OBJC_BRIDGING_HEADER: ios/MyOfflineLLMApp/Bridging/MyOfflineLLMApp-Bridging-Header.h
 
         # Unsigned/device builds in CI
         CODE_SIGNING_ALLOWED: NO
