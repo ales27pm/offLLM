@@ -17,7 +17,7 @@ if [[ -z "$FOUND" ]]; then
   echo "   Expected one of: ${WORKSPACE_CANDIDATES[*]}"
   echo "   Tips:"
   echo "     - Ensure XcodeGen generated the .xcodeproj (ios/project.yml)."
-  echo "     - Ensure Podfile points to the correct .xcodeproj (autodetect in your Podfile)."
+  echo "     - Ensure Podfile autodetected the .xcodeproj near the Podfile."
   echo "     - Re-run 'bundle exec pod install --repo-update'."
   exit 1
 fi

@@ -9,18 +9,19 @@ on:
 jobs:
   build-ios:
     runs-on: macos-15
-
     env:
       NODE_VERSION: "20"
       RUBY_VERSION: "3.2"
+      SCHEME: "monGARS"
+      WORKSPACE: "ios/monGARS.xcworkspace"
+      DERIVED_DATA: "${{ github.workspace }}/build/DerivedData"
       XCODE_VERSION: "16.2"
-      DEVELOPER_DIR: /Applications/Xcode_16.2.app/Contents/Developer
-      XCODE_SCHEME: monGARS
-      DERIVED_DATA: build/DerivedData
+      GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+      # Do NOT override Info.plist from the workflow; let XcodeGen/Pods define it.
+      # Any old overrides like INFOPLIST_FILE are intentionally removed.
 
     steps:
-      - name: Checkout
-        uses: actions/checkout@v4
+      - uses: actions/checkout@v4
 
       - name: Set up Node
         uses: actions/setup-node@v4
@@ -33,15 +34,6 @@ jobs:
           sw_vers
           xcodebuild -version
           xcode-select -p
-          node -v
-          ruby --version
-          gem --version
-
-      - name: Set up Ruby
-        uses: ruby/setup-ruby@v1
-        with:
-          ruby-version: "3.2"
-          bundler-cache: false
 
       - name: Install Ruby gems (bundler)
         run: |
@@ -50,7 +42,6 @@ jobs:
           bundle install --jobs 4 --retry 3
 
       # ---------- CACHES ----------
-      # Node modules cache (salted by package-lock.json)
       - name: Cache node_modules
         uses: actions/cache@v4
         with:
@@ -61,7 +52,6 @@ jobs:
           restore-keys: |
             ${{ runner.os }}-node-
 
-      # CocoaPods repo cache (~/.cocoapods) and Pods/ (salted by Podfile.lock & Xcode)
       - name: Cache CocoaPods
         uses: actions/cache@v4
         with:
@@ -73,31 +63,22 @@ jobs:
             ${{ runner.os }}-pods-xcode-${{ env.XCODE_VERSION }}-
             ${{ runner.os }}-pods-
 
-      # DerivedData cache (optional; helps incremental builds on PRs)
-      - name: Cache DerivedData
+      - name: Cache DerivedData (optional)
         uses: actions/cache@v4
         with:
-          path: ${{ github.workspace }}/build/DerivedData
+          path: ${{ env.DERIVED_DATA }}
           key: ${{ runner.os }}-deriveddata-xcode-${{ env.XCODE_VERSION }}-${{ github.ref }}-${{ github.sha }}
           restore-keys: |
             ${{ runner.os }}-deriveddata-xcode-${{ env.XCODE_VERSION }}-${{ github.ref }}-
             ${{ runner.os }}-deriveddata-xcode-${{ env.XCODE_VERSION }}-
 
       - name: Install JS deps
-        run: |
-          set -euo pipefail
-          corepack enable || true
-          if [ -f yarn.lock ]; then
-            yarn install --frozen-lockfile
-          elif [ -f package-lock.json ]; then
-            npm ci
-          else
-            npm i
-          fi
+        run: npm ci
 
-      - name: Install XcodeGen
+      - name: Install XcodeGen (if needed)
         run: |
-          if ! command -v xcodegen >/dev/null; then
+          if ! command -v xcodegen >/dev/null 2>&1; then
+            brew update
             brew install xcodegen
           fi
 
@@ -106,21 +87,9 @@ jobs:
           if [ -f "ios/project.yml" ]; then
             (cd ios && xcodegen generate)
           else
-            echo "No ios/project.yml found, skipping XcodeGen"
-          fi
-
-      - name: Verify project presence
-        run: |
-          set -euo pipefail
-          FOUND="$(/bin/ls -d ios/*.xcodeproj 2>/dev/null | head -n1 || true)"
-          if [ -z "${FOUND}" ]; then
-            echo "::error title=Missing Xcode project::No .xcodeproj found under ios/. Commit XcodeGen inputs and rerun."
+            echo "::error title=Missing XcodeGen spec::No ios/project.yml found"
             exit 1
           fi
-          NAME="$(basename "${FOUND}" .xcodeproj)"
-          echo "XCODE_PROJECT_PATH=${FOUND}" >> "$GITHUB_ENV"
-          echo "XCODE_PROJECT_NAME=${NAME}" >> "$GITHUB_ENV"
-          echo "Expect CocoaPods to generate workspace: ios/${NAME}.xcworkspace"
 
       - name: Install CocoaPods
         run: |
@@ -128,178 +97,48 @@ jobs:
           bundle exec pod install --repo-update
           cd ..
 
-      - name: iOS Doctor (validate workspace exists)
+      - name: iOS Doctor (workspace must exist)
         run: |
           chmod +x scripts/ios_doctor.sh || true
           ./scripts/ios_doctor.sh
 
-      - name: Post-install hardening (Pods & App projects)
-        if: always()
-        run: |
-          set -euo pipefail
-          ruby scripts/ci/post_install_hardening_hook.rb || true
-
-      - name: Authenticate Git for SPM (avoid GitHub rate limits)
+      - name: Build (unsigned, simulator .app)
         env:
-          # Provide ephemeral token to the shell step
-          GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+          SCHEME: ${{ env.SCHEME }}
+          CONFIGURATION: Release
         run: |
-          set -euo pipefail
-          TOKEN="${GITHUB_TOKEN:-}"
-          if [ -z "$TOKEN" ]; then
-            echo "::error title=Missing token::GITHUB_TOKEN is empty in this step's environment."
+          set -euxo pipefail
+          xcodebuild -workspace "$WORKSPACE" \
+                     -scheme "$SCHEME" \
+                     -sdk iphonesimulator \
+                     -configuration "$CONFIGURATION" \
+                     -derivedDataPath "$DERIVED_DATA" \
+                     clean build | xcpretty
+
+          PRODUCTS_DIR="$DERIVED_DATA/Build/Products/${CONFIGURATION}-iphonesimulator"
+          APP_PATH="$(/usr/bin/find "$PRODUCTS_DIR" -maxdepth 2 -name '*.app' -print -quit || true)"
+          if [ -z "$APP_PATH" ]; then
+            echo "::error title=App not produced::No .app found under $PRODUCTS_DIR. Check scheme and targets."
             exit 1
           fi
+          echo "Found app: $APP_PATH"
 
-          # 1) netrc so libcurl/libgit can authenticate without prompts
-          {
-            printf "machine github.com\n  login x-access-token\n  password %s\n" "${TOKEN}"
-            printf "machine api.github.com\n  login x-access-token\n  password %s\n" "${TOKEN}"
-          } > ~/.netrc
-          chmod 600 ~/.netrc
-
-          # 2) Normalize SSH/git protocols to HTTPS
-          git config --global url."https://github.com/".insteadOf git@github.com:
-          git config --global url."https://".insteadOf git://
-
-          # 3) (Optional) Extraheader to cover edge HTTP clients
-          BASIC="$(printf "x-access-token:%s" "${TOKEN}" | base64)"
-          git config --global http.https://github.com/.extraheader "AUTHORIZATION: basic ${BASIC}"
-          git config --global http.https://api.github.com/.extraheader "AUTHORIZATION: basic ${BASIC}"
-
-          # 4) (Optional) Fallback credential store (kept in HOME and chmod 600)
-          git config --global credential.helper store
-          printf "https://x-access-token:%s@github.com\n" "${TOKEN}" > ~/.git-credentials
-          chmod 600 ~/.git-credentials
-
-      - name: Install xcbeautify (pretty xcodebuild output)
+      - name: Package artifacts (zip .app and make unsigned IPA)
         run: |
-          set -euo pipefail
-          brew install xcbeautify || true
-
-      - name: Dump Xcode schemes (debug aid)
-        env:
-          XCODE_WORKSPACE: ios/${{ env.XCODE_PROJECT_NAME }}.xcworkspace
-        run: |
-          set -euo pipefail
+          set -euxo pipefail
           mkdir -p build
-          # List all schemes/targets in JSON (handy artifact when builds don’t produce an .app)
-          xcodebuild -list -json -workspace "$XCODE_WORKSPACE" > build/xcode-list.json || true
-          echo "Schemes:"
-          /usr/bin/plutil -p build/xcode-list.json 2>/dev/null | sed 's/^/  /' || cat build/xcode-list.json || true
+          PRODUCTS_DIR="$DERIVED_DATA/Build/Products/Release-iphonesimulator"
+          APP_PATH="$(/usr/bin/find "$PRODUCTS_DIR" -maxdepth 2 -name '*.app' -print -quit)"
 
-      - name: Clean SwiftPM state (fresh resolve)
-        run: |
-          set -euo pipefail
-          rm -rf "$DERIVED_DATA/SourcePackages" || true
-          find . -name "Package.resolved" -maxdepth 3 -print -exec rm -f {} \; || true
+          # Zip .app for inspection
+          (cd "$(dirname "$APP_PATH")" && /usr/bin/zip -qry "$GITHUB_WORKSPACE/build/$(basename "$APP_PATH").zip" "$(basename "$APP_PATH")")
 
-      - name: Compute app output path from build settings (Release/iPhoneOS)
-        env:
-          XCODE_WORKSPACE: ios/${{ env.XCODE_PROJECT_NAME }}.xcworkspace
-        run: |
-          set -euo pipefail
-          mkdir -p build
-          # Try JSON first (available on modern Xcode), then fall back to text parsing.
-          brew install jq || true
-          # JSON (best): select the application product in this scheme, Release + iphoneos
-          ( xcodebuild -showBuildSettings \
-              -workspace "$XCODE_WORKSPACE" \
-              -scheme "$XCODE_SCHEME" \
-              -configuration Release \
-              -sdk iphoneos \
-              -json > build/showBuildSettings.json ) || true
-
-          APP_DIR=""
-          WRAPPER_NAME=""
-          if [ -s build/showBuildSettings.json ] && command -v jq >/dev/null; then
-            APP_DIR="$(jq -r '.[] | .buildSettings | select(.PRODUCT_TYPE=="com.apple.product-type.application") | .CONFIGURATION_BUILD_DIR' build/showBuildSettings.json | tail -n1)"
-            WRAPPER_NAME="$(jq -r '.[] | .buildSettings | select(.PRODUCT_TYPE=="com.apple.product-type.application") | .WRAPPER_NAME' build/showBuildSettings.json | tail -n1)"
-          fi
-
-          # Text fallback: narrow to the application target block and scrape the two lines we need.
-          if [ -z "$APP_DIR" ] || [ -z "$WRAPPER_NAME" ]; then
-            xcodebuild -showBuildSettings \
-              -workspace "$XCODE_WORKSPACE" \
-              -scheme "$XCODE_SCHEME" \
-              -configuration Release \
-              -sdk iphoneos \
-              > build/showBuildSettings.txt 2>&1 || true
-            # Grep the last 'PRODUCT_TYPE = application' block for Release|iphoneos
-            awk '
-              /PRODUCT_TYPE = com\.apple\.product-type\.application/ { inapp=1 }
-              inapp && /CONFIGURATION_BUILD_DIR =/ { gsub(/^[^=]*= /,"" ); gsub(/^ +| +$/,"" ); appdir=$0 }
-              inapp && /WRAPPER_NAME =/             { gsub(/^[^=]*= /,"" ); gsub(/^ +| +$/,"" ); wrapper=$0 }
-              inapp && appdir && wrapper { print appdir; print wrapper; exit }
-            ' build/showBuildSettings.txt > build/appPath.tmp || true
-            if [ -s build/appPath.tmp ]; then
-              APP_DIR="$(sed -n '1p' build/appPath.tmp)"
-              WRAPPER_NAME="$(sed -n '2p' build/appPath.tmp)"
-            fi
-          fi
-
-          # Persist for later steps; also emit for logs.
-          if [ -n "$APP_DIR" ] && [ -n "$WRAPPER_NAME" ]; then
-            echo "Derived app path:"
-            echo "  CONFIGURATION_BUILD_DIR: $APP_DIR"
-            echo "  WRAPPER_NAME:            $WRAPPER_NAME"
-            echo "APP_PATH=$APP_DIR/$WRAPPER_NAME" >> "$GITHUB_ENV"
-          else
-            echo "::warning title=Could not derive app path::The scheme may not include an application target. Packaging will fall back to scanning Build/Products."
-          fi
-
-      - name: Build (Release, iphoneos, deterministic DerivedData)
-        env:
-          XCODE_WORKSPACE: ios/${{ env.XCODE_PROJECT_NAME }}.xcworkspace
-          GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }} # for authenticated SPM fetches
-        run: |
-          set -euo pipefail
-          xcodebuild \
-            -resolvePackageDependencies \
-            -workspace "$XCODE_WORKSPACE" \
-            -scheme "$XCODE_SCHEME" \
-            -configuration Release \
-            -sdk iphoneos \
-            -destination 'generic/platform=iOS' \
-            -arch arm64 \
-            -derivedDataPath "$DERIVED_DATA" \
-            -resultBundlePath "$DERIVED_DATA/ResultBundle.xcresult" \
-            CODE_SIGNING_ALLOWED=NO CODE_SIGNING_REQUIRED=NO CODE_SIGN_IDENTITY='' \
-            PROVISIONING_PROFILE_SPECIFIER='' SKIP_INSTALL=NO BUILD_LIBRARY_FOR_DISTRIBUTION=NO \
-            "OTHER_CFLAGS=-DOBJC_OLD_DISPATCH_PROTOTYPES=0" \
-            build | xcbeautify
-
-      - name: Package unsigned IPA from Release-iphoneos
-        run: |
-          set -euo pipefail
-          PRODUCTS_DIR="$DERIVED_DATA/Build/Products"
-          if [ ! -d "$PRODUCTS_DIR" ]; then
-            echo "::group::Debug: list of DerivedData"
-            /bin/ls -lahR "$DERIVED_DATA" || true
-            echo "::endgroup::"
-            echo "::error title=Products dir missing::No Build/Products directory at $PRODUCTS_DIR (build may have failed earlier)."
-            exit 1
-          fi
-          # Prefer the APP_PATH we derived from build settings; else first *.app we can find.
-          if [ -n "${APP_PATH:-}" ] && [ -d "$APP_PATH" ]; then
-            SELECTED_APP="$APP_PATH"
-          else
-            SELECTED_APP="$(/usr/bin/find "$PRODUCTS_DIR" -type d -name '*.app' -print -quit || true)"
-          fi
-          if [ -z "$SELECTED_APP" ]; then
-            echo "::group::Debug: list of Build/Products"
-            /bin/ls -lahR "$PRODUCTS_DIR" || true
-            echo "::endgroup::"
-            echo "::error title=App not found::No .app found under $PRODUCTS_DIR. The selected scheme may not build an iOS application target."
-            exit 1
-          fi
-          mkdir -p build
-          cd build
-          rm -rf Payload
-          mkdir -p Payload
-          cp -R "$SELECTED_APP" Payload/
-          /usr/bin/zip -qry monGARS-unsigned.ipa Payload
-          /usr/bin/zip -qry "$(basename "$SELECTED_APP").zip" "$SELECTED_APP"
+          # Create an unsigned IPA (note: for installable-on-device IPA you'd need a device build + signing)
+          TMP_PAYLOAD="$(mktemp -d)"
+          mkdir -p "$TMP_PAYLOAD/Payload"
+          cp -R "$APP_PATH" "$TMP_PAYLOAD/Payload/"
+          (cd "$TMP_PAYLOAD" && /usr/bin/zip -qry "$GITHUB_WORKSPACE/build/offLLM-unsigned.ipa" "Payload")
+          rm -rf "$TMP_PAYLOAD"
 
       - name: Upload unsigned IPA, app & logs
         if: always()
@@ -307,12 +146,9 @@ jobs:
         with:
           name: ios-unsigned-ipa
           path: |
-            build/monGARS-unsigned.ipa
+            build/offLLM-unsigned.ipa
             build/*.app.zip
-            ${{ env.DERIVED_DATA }}/ResultBundle.xcresult
+            ${{ env.DERIVED_DATA }}/Build/Logs
             ${{ env.DERIVED_DATA }}/Logs/Build
-            build/xcode-list.json
-            build/showBuildSettings.json
-            build/showBuildSettings.txt
           if-no-files-found: error
           compression-level: 6
