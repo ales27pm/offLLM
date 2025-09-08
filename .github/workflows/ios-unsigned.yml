@@ -143,38 +143,93 @@ jobs:
             -scheme "$SCHEME" \
             -clonedSourcePackagesDirPath "$DERIVED_DATA/SourcePackages"
 
+      - name: Prepare Simulator
+        id: sim
+        run: |
+          set -euxo pipefail
+          SIM_JSON="$(xcrun simctl list -j runtimes devices devicetypes)"
+          SIM_VALUES="$(echo "$SIM_JSON" | python3 - <<'PY'
+          import json, sys
+
+          data = json.load(sys.stdin)
+
+          def parse_version(v: str):
+              return tuple(map(int, v.split('.')))
+
+          runtimes = [
+              rt for rt in data.get("runtimes", [])
+              if rt.get("isAvailable")
+              and rt.get("identifier", "").startswith("com.apple.CoreSimulator.SimRuntime.iOS")
+              and parse_version(rt.get("version", "0"))[0] >= 18
+          ]
+
+          runtime = next((rt for rt in runtimes if rt.get("version", "").startswith("18.5")), None)
+          if runtime is None and runtimes:
+              runtimes.sort(key=lambda rt: parse_version(rt["version"]))
+              runtime = runtimes[-1]
+          if runtime is None:
+              sys.exit(70)
+
+          runtime_id = runtime["identifier"]
+
+          devicetypes = data.get("devicetypes", [])
+          device_type = next((dt for dt in devicetypes if dt.get("name") == "iPhone 16 Pro"), None)
+          if device_type is None:
+              device_type = next((dt for dt in devicetypes if dt.get("name", "").startswith("iPhone")), None)
+          if device_type is None:
+              sys.exit(71)
+
+          device_type_id = device_type["identifier"]
+
+          device_id = ""
+          for dev in data.get("devices", {}).get(runtime_id, []):
+              if dev.get("deviceTypeIdentifier") == device_type_id and dev.get("isAvailable"):
+                  device_id = dev.get("udid", "")
+                  break
+
+          print(runtime_id)
+          print(device_type_id)
+          print(device_id)
+          PY
+          )"
+          RUNTIME_ID="$(echo "$SIM_VALUES" | sed -n '1p')"
+          DEVICE_TYPE="$(echo "$SIM_VALUES" | sed -n '2p')"
+          DEVICE_ID="$(echo "$SIM_VALUES" | sed -n '3p')"
+          if [ -z "${RUNTIME_ID:-}" ]; then
+            echo "::error::No available iOS Simulator runtime >= 18.0 found."
+            exit 70
+          fi
+          if [ -z "${DEVICE_TYPE:-}" ]; then
+            echo "::error::No suitable iPhone device type found."
+            exit 71
+          fi
+          if [ -z "${DEVICE_ID:-}" ]; then
+            DEVICE_ID="$(xcrun simctl create CI-iPhone "$DEVICE_TYPE" "$RUNTIME_ID")"
+          fi
+          if [ -z "${DEVICE_ID:-}" ]; then
+            echo "::error::Failed to create or find a simulator for runtime $RUNTIME_ID."
+            exit 72
+          fi
+          xcrun simctl boot "$DEVICE_ID" >/dev/null 2>&1 || true
+          xcrun simctl bootstatus "$DEVICE_ID" -b
+          echo "dest=id=$DEVICE_ID" >> "$GITHUB_OUTPUT"
+
       - name: Build (simulator)
         env:
           SCHEME: ${{ env.SCHEME }}
           CONFIGURATION: Release
+          DERIVED_DATA: ${{ env.DERIVED_DATA }}
+          RESULT_BUNDLE: ${{ env.RESULT_BUNDLE }}
+          DEST: ${{ steps.sim.outputs.dest }}
         run: |
           set -euxo pipefail
-          RESULT_DIR="$DERIVED_DATA"
           RB="$RESULT_BUNDLE"
           rm -rf "$RB"
-
-          RUNTIME="$(xcrun simctl list runtimes | awk '/iOS .* (available)/{print $2}' | tail -1)"
-          if [ -z "$RUNTIME" ]; then
-            echo "::error::No available iOS Simulator runtime found."
-            exit 70
-          fi
-
-          NAME="iPhone 16 Pro"
-          DEVICE_ID="$(xcrun simctl list devices | awk -v n="$NAME" -v r="$RUNTIME" -F '[() ]+' '$0 ~ n && $0 ~ r && /(Booted|Shutdown)/ {print $6; exit}')"
-          if [ -z "$DEVICE_ID" ]; then
-            DEVICE_ID="$(xcrun simctl create "$NAME" "com.apple.CoreSimulator.SimDeviceType.iPhone-16-Pro" "com.apple.CoreSimulator.SimRuntime.iOS-$RUNTIME")"
-          fi
-
-          STATE="$(xcrun simctl list devices | awk -v id="$DEVICE_ID" -F '[() ]+' '$0 ~ id {print $0}' | grep -oE '(Booted|Shutdown)' || true)"
-          if [ "$STATE" != "Booted" ]; then
-            xcrun simctl boot "$DEVICE_ID" || true
-          fi
-
           xcodebuild \
             -workspace "$WORKSPACE" \
             -scheme "$SCHEME" \
             -sdk iphonesimulator \
-            -destination "id=$DEVICE_ID" \
+            -destination "$DEST" \
             -configuration "$CONFIGURATION" \
             -derivedDataPath "$DERIVED_DATA" \
             -resultBundlePath "$RB" \
