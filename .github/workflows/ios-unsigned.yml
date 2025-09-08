@@ -101,6 +101,9 @@ jobs:
             exit 1
           fi
 
+      - name: Run codegen
+        run: npm run codegen
+
       - name: Install CocoaPods
         run: |
           cd ios
