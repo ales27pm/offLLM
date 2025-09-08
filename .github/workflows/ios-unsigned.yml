@@ -14,7 +14,8 @@ jobs:
       RUBY_VERSION: "3.2"
       SCHEME: "monGARS"
       DERIVED_DATA: "${{ github.workspace }}/build/DerivedData"
-      XCODE_VERSION: "16.2"
+      XCODE_VERSION: "16.4"
+      DEVELOPER_DIR: /Applications/Xcode_16.4.app/Contents/Developer
       GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
 
     steps:
@@ -87,11 +88,6 @@ jobs:
             brew install xcodegen
           fi
 
-      - name: Install xcpretty (formatter)
-        run: |
-          gem install xcpretty --no-document || true
-          xcpretty --version || true
-
       - name: Generate Xcode project (XcodeGen)
         run: |
           if [ -f "ios/project.yml" ]; then
@@ -137,26 +133,17 @@ jobs:
           set -euxo pipefail
           DESTINATION="platform=iOS Simulator,name=iPhone 16 Pro,OS=18.6"
           RESULT_BUNDLE="$DERIVED_DATA/ResultBundle.xcresult"
-          if command -v xcpretty >/dev/null 2>&1; then
-            xcodebuild -workspace "$WORKSPACE" \
-                       -scheme "$SCHEME" \
-                       -sdk iphonesimulator \
-                       -destination "$DESTINATION" \
-                       -configuration "$CONFIGURATION" \
-                       -derivedDataPath "$DERIVED_DATA" \
-                       -resultBundlePath "$RESULT_BUNDLE" \
-                       clean build | xcpretty --color --simple
-          else
-            echo "xcpretty not available; showing raw xcodebuild output"
-            xcodebuild -workspace "$WORKSPACE" \
-                       -scheme "$SCHEME" \
-                       -sdk iphonesimulator \
-                       -destination "$DESTINATION" \
-                       -configuration "$CONFIGURATION" \
-                       -derivedDataPath "$DERIVED_DATA" \
-                       -resultBundlePath "$RESULT_BUNDLE" \
-                       clean build
-          fi
+          xcodebuild -workspace "$WORKSPACE" \
+                     -scheme "$SCHEME" \
+                     -sdk iphonesimulator \
+                     -destination "$DESTINATION" \
+                     -destination-timeout 1 \
+                     -arch arm64 \
+                     ONLY_ACTIVE_ARCH=YES \
+                     -configuration "$CONFIGURATION" \
+                     -derivedDataPath "$DERIVED_DATA" \
+                     -resultBundlePath "$RESULT_BUNDLE" \
+                     clean build
 
           PRODUCTS_DIR="$DERIVED_DATA/Build/Products/${CONFIGURATION}-iphonesimulator"
           APP_PATH="$(/usr/bin/find "$PRODUCTS_DIR" -maxdepth 2 -name '*.app' -print -quit || true)"
@@ -165,6 +152,29 @@ jobs:
             exit 1
           fi
           echo "Found app: $APP_PATH"
+
+      - name: Extract errors from xcresult
+        if: always()
+        run: |
+          set -euo pipefail
+          BUNDLE="$DERIVED_DATA/ResultBundle.xcresult"
+          if [ -d "$BUNDLE" ]; then
+            mkdir -p build
+            xcrun xcresulttool get --format json --path "$BUNDLE" > build/xcresult.json || true
+            /usr/bin/grep -n '"issue' build/xcresult.json | head -n 200 || true
+          else
+            echo "No xcresult bundle at $BUNDLE"
+          fi
+
+      - name: Upload result bundle & parsed issues
+        if: always()
+        uses: actions/upload-artifact@v4
+        with:
+          name: xcresult-and-issues
+          path: |
+            ${{ env.DERIVED_DATA }}/ResultBundle.xcresult
+            build/xcresult.json
+          if-no-files-found: warn
 
       - name: Package artifacts (zip .app and make unsigned IPA)
         run: |
@@ -193,6 +203,5 @@ jobs:
             build/*.app.zip
             ${{ env.DERIVED_DATA }}/Build/Logs
             ${{ env.DERIVED_DATA }}/Logs/Build
-            ${{ env.DERIVED_DATA }}/ResultBundle.xcresult
           if-no-files-found: error
           compression-level: 6
