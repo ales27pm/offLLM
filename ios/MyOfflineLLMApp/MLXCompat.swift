@@ -1,9 +1,17 @@
+// Guard optional MLX modules so builds succeed even if packages fail to resolve.
+#if canImport(MLXLLM) || canImport(MLXLMCommon)
 import Foundation
 #if canImport(MLXLLM)
 import MLXLLM
 #endif
 #if canImport(MLXLMCommon)
 import MLXLMCommon
+#endif
+#if canImport(MLX)
+import MLX
+#endif
+#if canImport(MLXNN)
+import MLXNN
 #endif
 
 /// Cross-version shims for MLX LLM snapshots.
@@ -59,3 +67,4 @@ public enum MLXCompat {
     #endif
     #endif
 }
+#endif

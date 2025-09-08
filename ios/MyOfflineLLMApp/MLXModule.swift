@@ -1,8 +1,16 @@
 import Foundation
 import React
 import Darwin
+// MLXLLM is provided by the Swift package "mlx-swift-examples".
+// Guard imports so builds still succeed if SPM fails to resolve.
+#if canImport(MLXLLM)
 import MLXLLM
+#endif
+#if canImport(MLXLMCommon)
 import MLXLMCommon
+#endif
+
+#if canImport(MLXLLM) || canImport(MLXLMCommon)
 
 /// The native module that exposes MLX-based functionality to the
 /// React Native bridge.  It manages an optional `ChatSession` instance
@@ -170,3 +178,88 @@ extension MLXModule {
     resolve(Int.max)
   }
 }
+#else
+
+@objc(MLXModule)
+public final class MLXModule: NSObject {
+  public enum MLXNotAvailable: Error { case missingPackage }
+  private var kvCache: [String: String] = [:]
+  @objc public static func requiresMainQueueSetup() -> Bool { false }
+}
+
+extension MLXModule: RCTBridgeModule {
+  public static func moduleName() -> String! { "MLXModule" }
+
+  @objc(loadModel:resolver:rejecter:)
+  public func loadModel(_ modelPath: String,
+                        resolver resolve: @escaping RCTPromiseResolveBlock,
+                        rejecter reject: @escaping RCTPromiseRejectBlock) {
+    reject("MLX_NOT_AVAILABLE", "MLXLLM not available", MLXNotAvailable.missingPackage)
+  }
+
+  @objc(generate:maxTokens:temperature:resolver:rejecter:)
+  public func generate(_ prompt: String,
+                       maxTokens: NSNumber,
+                       temperature: NSNumber,
+                       resolver resolve: @escaping RCTPromiseResolveBlock,
+                       rejecter reject: @escaping RCTPromiseRejectBlock) {
+    reject("MLX_NOT_AVAILABLE", "MLXLLM not available", MLXNotAvailable.missingPackage)
+  }
+}
+
+// MARK: - Convenience APIs matching Android’s surface
+
+extension MLXModule {
+  @objc(unloadModel:rejecter:)
+  public func unloadModel(_ resolve: @escaping RCTPromiseResolveBlock,
+                          rejecter reject: @escaping RCTPromiseRejectBlock) {
+    kvCache.removeAll()
+    resolve(true)
+  }
+
+  @objc(getPerformanceMetrics:rejecter:)
+  public func getPerformanceMetrics(_ resolve: @escaping RCTPromiseResolveBlock,
+                                    rejecter reject: @escaping RCTPromiseRejectBlock) {
+    resolve(["memoryUsage": 0.0, "cpuUsage": 0.0])
+  }
+
+  @objc(adjustPerformanceMode:resolver:rejecter:)
+  public func adjustPerformanceMode(_ mode: NSString,
+                                    resolver resolve: @escaping RCTPromiseResolveBlock,
+                                    rejecter reject: @escaping RCTPromiseRejectBlock) {
+    resolve(false)
+  }
+
+  @objc(embed:resolver:rejecter:)
+  public func embed(_ text: NSString,
+                    resolver resolve: @escaping RCTPromiseResolveBlock,
+                    rejecter reject: @escaping RCTPromiseRejectBlock) {
+    resolve([])
+  }
+
+  @objc(clearKVCache:rejecter:)
+  public func clearKVCache(_ resolve: @escaping RCTPromiseResolveBlock,
+                           rejecter reject: @escaping RCTPromiseRejectBlock) {
+    kvCache.removeAll()
+    resolve(true)
+  }
+
+  @objc(addMessageBoundary:rejecter:)
+  public func addMessageBoundary(_ resolve: @escaping RCTPromiseResolveBlock,
+                                 rejecter reject: @escaping RCTPromiseRejectBlock) {
+    resolve(true)
+  }
+
+  @objc(getKVCacheSize:rejecter:)
+  public func getKVCacheSize(_ resolve: @escaping RCTPromiseResolveBlock,
+                             rejecter reject: @escaping RCTPromiseRejectBlock) {
+    resolve(kvCache.count)
+  }
+
+  @objc(getKVCacheMaxSize:rejecter:)
+  public func getKVCacheMaxSize(_ resolve: @escaping RCTPromiseResolveBlock,
+                                rejecter reject: @escaping RCTPromiseRejectBlock) {
+    resolve(Int.max)
+  }
+}
+#endif
