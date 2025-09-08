@@ -78,11 +78,11 @@ jobs:
       - name: Install JS deps
         run: npm ci
 
-      - name: Install XcodeGen (if needed)
+      - name: Install XcodeGen and xcbeautify (if needed)
         run: |
-          if ! command -v xcodegen >/dev/null 2>&1; then
+          if ! command -v xcodegen >/dev/null 2>&1 || ! command -v xcbeautify >/dev/null 2>&1; then
             brew update
-            brew install xcodegen
+            brew install xcodegen xcbeautify
           fi
 
       - name: Generate Xcode project (XcodeGen)
@@ -116,7 +116,7 @@ jobs:
                      -sdk iphonesimulator \
                      -configuration "$CONFIGURATION" \
                      -derivedDataPath "$DERIVED_DATA" \
-                     clean build | xcpretty
+                     clean build | xcbeautify
 
           PRODUCTS_DIR="$DERIVED_DATA/Build/Products/${CONFIGURATION}-iphonesimulator"
           APP_PATH="$(/usr/bin/find "$PRODUCTS_DIR" -maxdepth 2 -name '*.app' -print -quit || true)"
