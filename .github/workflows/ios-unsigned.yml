@@ -96,53 +96,62 @@ jobs:
           ruby scripts/ci/post_install_hardening_hook.rb || true
 
       - name: Authenticate Git for SPM (avoid GitHub rate limits)
+        env:
+          # Provide ephemeral token to the shell step
+          GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
         run: |
           set -euo pipefail
-          # Create a netrc for GitHub so SPM uses authenticated HTTPS fetches
-          cat > ~/.netrc <<'NETRC'
-          machine github.com
-            login ${GITHUB_ACTOR}
-            password ${GITHUB_TOKEN}
-          machine api.github.com
-            login ${GITHUB_ACTOR}
-            password ${GITHUB_TOKEN}
-          NETRC
+          TOKEN="${GITHUB_TOKEN:-}"
+          if [ -z "$TOKEN" ]; then
+            echo "::error title=Missing token::GITHUB_TOKEN is empty in this step's environment."
+            exit 1
+          fi
+
+          # 1) netrc so libcurl/libgit can authenticate without prompts
+          {
+            printf "machine github.com\n  login x-access-token\n  password %s\n" "${TOKEN}"
+            printf "machine api.github.com\n  login x-access-token\n  password %s\n" "${TOKEN}"
+          } > ~/.netrc
           chmod 600 ~/.netrc
-          # Normalize any SSH/git protocols to HTTPS (no interactive prompts)
+
+          # 2) Normalize SSH/git protocols to HTTPS
           git config --global url."https://github.com/".insteadOf git@github.com:
           git config --global url."https://".insteadOf git://
 
-          # 1) Explicit credential store as an additional fallback SwiftPM will pick up.
-          git config --global credential.helper store
-          printf "https://%s:%s@github.com\n" "${GITHUB_ACTOR}" "${GITHUB_TOKEN}" > ~/.git-credentials
-          chmod 600 ~/.git-credentials
-
-          # 2) Global extraheader so any https://github.com requests include Basic auth.
-          BASIC="$(printf "%s:%s" "${GITHUB_ACTOR}" "${GITHUB_TOKEN}" | base64)"
+          # 3) (Optional) Extraheader to cover edge HTTP clients
+          BASIC="$(printf "x-access-token:%s" "${TOKEN}" | base64)"
           git config --global http.https://github.com/.extraheader "AUTHORIZATION: basic ${BASIC}"
           git config --global http.https://api.github.com/.extraheader "AUTHORIZATION: basic ${BASIC}"
 
-          # 3) Rewrite plain GitHub URLs to embed credentials (covers libgit/curl edge-cases).
-          git config --global url."https://${GITHUB_ACTOR}:${GITHUB_TOKEN}@github.com/".insteadOf "https://github.com/"
+          # 4) (Optional) Fallback credential store (kept in HOME and chmod 600)
+          git config --global credential.helper store
+          printf "https://x-access-token:%s@github.com\n" "${TOKEN}" > ~/.git-credentials
+          chmod 600 ~/.git-credentials
 
       - name: Install xcbeautify (pretty xcodebuild output)
         run: |
           set -euo pipefail
           brew install xcbeautify || true
 
+      - name: Clean SwiftPM state (fresh resolve)
+        run: |
+          set -euo pipefail
+          rm -rf "$DERIVED_DATA/SourcePackages" || true
+          find . -name "Package.resolved" -maxdepth 3 -print -exec rm -f {} \; || true
+
       - name: Build (Release, iphoneos, deterministic DerivedData)
         env:
           XCODE_WORKSPACE: ios/${{ env.XCODE_PROJECT_NAME }}.xcworkspace
           GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }} # for authenticated SPM fetches
-          GITHUB_ACTOR: ${{ github.actor }}
         run: |
           set -euo pipefail
-          xcodebuild \
+          xcodebuild build \
             -resolvePackageDependencies \
             -workspace "$XCODE_WORKSPACE" \
             -scheme "$XCODE_SCHEME" \
             -configuration Release \
             -sdk iphoneos \
+            -destination 'generic/platform=iOS' \
             -arch arm64 \
             -derivedDataPath "$DERIVED_DATA" \
             -resultBundlePath "$DERIVED_DATA/ResultBundle.xcresult" \
