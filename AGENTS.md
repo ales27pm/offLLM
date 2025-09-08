@@ -53,7 +53,7 @@
 
 - Run `npm test` before committing.
 - Update or create Jest tests for new code.
-- `test -f eslint.config.js && npm run lint || echo "lint skipped: no eslint.config.js"`
+- `test -f eslint.config.mjs && npm run lint || echo "lint skipped: no eslint.config.mjs"`
 - Run `npm run format:check`.
 
 ## CI Playbook
