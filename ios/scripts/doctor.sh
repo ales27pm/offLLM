@@ -14,13 +14,13 @@ if [ ! -f "Pods/Pods.xcodeproj/project.pbxproj" ]; then
   exit 3
 fi
 
-schemes=$(xcodebuild -list -json -workspace "$WS" | python - <<'PY'
+if ! xcodebuild -list -json -workspace "$WS" | python - "$SCHEME" <<'PY'
 import json,sys
-j=json.load(sys.stdin)
-print('\n'.join(j.get('workspace', {}).get('schemes', [])))
+scheme = sys.argv[1]
+j = json.load(sys.stdin)
+print(1 if scheme in j.get('workspace', {}).get('schemes', []) else 0)
 PY
-)
-if ! echo "$schemes" | grep -xq "$SCHEME"; then
+then
   echo "::error title=Missing scheme::Scheme '$SCHEME' not found in workspace."
   exit 4
 fi
