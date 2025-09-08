@@ -61,6 +61,13 @@
 - `test -f eslint.config.mjs && npm run lint || echo "lint skipped: no eslint.config.mjs"`
 - Run `npm run format:check`.
 
+## Logging & Debugging
+
+- Enable file logging by setting `DEBUG_LOGGING=1` in the env (via `react-native-config`).
+- Logs are written under `logs/` in the app's document directory (`logs/app.log`).
+- Open the in-app Debug Console (dev builds or `DEBUG_PANEL=1`) to view, copy, share, or clear logs.
+- Attach `app.log` when filing issues to aid triage.
+
 ## CI Playbook
 
 - `ios-unsigned.yml` workflow: xcodegen → pod install → unsigned simulator build → uploads `offLLM-unsigned-ipa` artifact.

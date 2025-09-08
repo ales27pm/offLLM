@@ -64,7 +64,7 @@ jobs:
           set -euo pipefail
           FOUND="$(/bin/ls -d ios/*.xcodeproj 2>/dev/null | head -n1 || true)"
           if [ -z "${FOUND}" ]; then
-            echo "::error title=Missing Xcode project::No .xcodeproj found under ios/. Commit your XcodeGen inputs and rerun."
+            echo "::error title=Missing Xcode project::No .xcodeproj found under ios/. Commit XcodeGen inputs and rerun."
             exit 1
           fi
           NAME="$(basename "${FOUND}" .xcodeproj)"
@@ -89,49 +89,98 @@ jobs:
             pod install --repo-update
           fi
 
-      - name: Patch glog config.h (CI safety net)
+      - name: Post-install hardening (Pods & App projects)
+        if: always()
         run: |
           set -euo pipefail
-          GLOG_SRC="ios/Pods/glog/src"
-          if [ -d "$GLOG_SRC" ] && [ ! -f "$GLOG_SRC/config.h" ]; then
-            if [ -f "$GLOG_SRC/config_ios.h" ]; then
-              cp "$GLOG_SRC/config_ios.h" "$GLOG_SRC/config.h"
-              echo "Patched glog: config_ios.h -> config.h"
-            elif [ -f "$GLOG_SRC/config.h.cmake" ]; then
-              cp "$GLOG_SRC/config.h.cmake" "$GLOG_SRC/config.h"
-              echo "Patched glog: config.h.cmake -> config.h"
-            else
-              echo "::warning::Could not find a glog config template to copy."
-            fi
-          fi
+          ruby scripts/ci/post_install_hardening_hook.rb || true
 
-      - name: Build (Release, device SDK)
+      - name: Authenticate Git for SPM (avoid GitHub rate limits)
+        run: |
+          set -euo pipefail
+          # Create a netrc for GitHub so SPM uses authenticated HTTPS fetches
+          cat > ~/.netrc <<'NETRC'
+          machine github.com
+            login ${GITHUB_ACTOR}
+            password ${GITHUB_TOKEN}
+          machine api.github.com
+            login ${GITHUB_ACTOR}
+            password ${GITHUB_TOKEN}
+          NETRC
+          chmod 600 ~/.netrc
+          # Normalize any SSH/git protocols to HTTPS (no interactive prompts)
+          git config --global url."https://github.com/".insteadOf git@github.com:
+          git config --global url."https://".insteadOf git://
+
+          # 1) Explicit credential store as an additional fallback SwiftPM will pick up.
+          git config --global credential.helper store
+          printf "https://%s:%s@github.com\n" "${GITHUB_ACTOR}" "${GITHUB_TOKEN}" > ~/.git-credentials
+          chmod 600 ~/.git-credentials
+
+          # 2) Global extraheader so any https://github.com requests include Basic auth.
+          BASIC="$(printf "%s:%s" "${GITHUB_ACTOR}" "${GITHUB_TOKEN}" | base64)"
+          git config --global http.https://github.com/.extraheader "AUTHORIZATION: basic ${BASIC}"
+          git config --global http.https://api.github.com/.extraheader "AUTHORIZATION: basic ${BASIC}"
+
+          # 3) Rewrite plain GitHub URLs to embed credentials (covers libgit/curl edge-cases).
+          git config --global url."https://${GITHUB_ACTOR}:${GITHUB_TOKEN}@github.com/".insteadOf "https://github.com/"
+
+      - name: Install xcbeautify (pretty xcodebuild output)
+        run: |
+          set -euo pipefail
+          brew install xcbeautify || true
+
+      - name: Build (Release, iphoneos, deterministic DerivedData)
         env:
           XCODE_WORKSPACE: ios/${{ env.XCODE_PROJECT_NAME }}.xcworkspace
+          GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }} # for authenticated SPM fetches
+          GITHUB_ACTOR: ${{ github.actor }}
         run: |
           set -euo pipefail
           xcodebuild \
+            -resolvePackageDependencies \
             -workspace "$XCODE_WORKSPACE" \
             -scheme "$XCODE_SCHEME" \
             -configuration Release \
             -sdk iphoneos \
             -arch arm64 \
             -derivedDataPath "$DERIVED_DATA" \
+            -resultBundlePath "$DERIVED_DATA/ResultBundle.xcresult" \
             CODE_SIGNING_ALLOWED=NO \
-            build | xcpretty && exit ${PIPESTATUS[0]}
+            CODE_SIGNING_REQUIRED=NO \
+            CODE_SIGN_IDENTITY="" \
+            PROVISIONING_PROFILE_SPECIFIER="" \
+            SKIP_INSTALL=NO \
+            BUILD_LIBRARY_FOR_DISTRIBUTION=NO \
+            "OTHER_CFLAGS=-DOBJC_OLD_DISPATCH_PROTOTYPES=0" \
+          | xcbeautify
 
-      - name: Archive logs
-        if: always()
+      - name: Package unsigned IPA from Release-iphoneos
         run: |
-          mkdir -p artifacts/xcode-log
-          if [ -d "$DERIVED_DATA/Logs/Build" ]; then
-            cp -R "$DERIVED_DATA/Logs/Build" artifacts/xcode-log/
+          set -euo pipefail
+          APP_DIR="$DERIVED_DATA/Build/Products/Release-iphoneos"
+          APP_PATH="$(/bin/ls -d "$APP_DIR"/*.app 2>/dev/null | head -n1 || true)"
+          if [ -z "$APP_PATH" ]; then
+            echo "::error title=App not found::No .app under $APP_DIR (build must have failed earlier)."
+            exit 1
           fi
+          mkdir -p build
+          cd build
+          rm -rf Payload
+          mkdir -p Payload
+          cp -R "$APP_PATH" Payload/
+          /usr/bin/zip -qry offLLM-unsigned.ipa Payload
+          /usr/bin/zip -qry "$(basename "$APP_PATH").zip" "$APP_PATH"
 
-      - name: Upload logs
+      - name: Upload unsigned IPA, app & logs
         if: always()
         uses: actions/upload-artifact@v4
         with:
-          name: xcode-logs
-          path: artifacts/xcode-log
-          if-no-files-found: ignore
+          name: ios-unsigned-ipa
+          path: |
+            build/offLLM-unsigned.ipa
+            build/*.app.zip
+            ${{ env.DERIVED_DATA }}/ResultBundle.xcresult
+            ${{ env.DERIVED_DATA }}/Logs/Build
+          if-no-files-found: error
+          compression-level: 6

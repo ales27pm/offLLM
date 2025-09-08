@@ -1,7 +1,17 @@
 name: monGARS
 
 options:
-  bundleIdPrefix: com.27pm
+  bundleIdPrefix: com.offllm
+  deploymentTarget:
+    iOS: "18.0"
+
+packages:
+  MLX:
+    url: https://github.com/ml-explore/mlx-swift
+    from: 0.8.0
+  MLXLLM:
+    url: https://github.com/ml-explore/mlx-llm-swift
+    from: 0.3.0
 
 targets:
   monGARS:
@@ -16,9 +26,13 @@ targets:
           - "../build/**"
           - "Pods/**"
 
+    dependencies:
+      - package: MLX
+      - package: MLXLLM
+
     settings:
       base:
-        PRODUCT_BUNDLE_IDENTIFIER: com.27pm.monGARS
+        PRODUCT_BUNDLE_IDENTIFIER: com.offllm.monGARS
         INFOPLIST_FILE: MyOfflineLLMApp/Info.plist
         SWIFT_VERSION: 5.0
 

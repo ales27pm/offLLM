@@ -1,10 +1,12 @@
 import { useEffect, useState } from "react";
+/* global __DEV__ */
 import {
   View,
   Text,
   ActivityIndicator,
   StyleSheet,
   Platform,
+  Button,
 } from "react-native";
 import LLMService from "./services/llmService";
 import { ensureModelDownloaded } from "./utils/modelDownloader";
@@ -41,6 +43,7 @@ import {
 import { PluginManager } from "./architecture/pluginManager";
 import { DependencyInjector } from "./architecture/dependencyInjector";
 import ChatInterface from "./components/ChatInterface";
+import DebugConsole from "./debug/DebugConsole";
 import { useSpeechRecognition } from "./hooks/useSpeechRecognition";
 import { useChat } from "./hooks/useChat";
 import useLLMStore from "./store/llmStore";
@@ -49,6 +52,7 @@ function App() {
   const [initialized, setInitialized] = useState(false);
   const [error, setError] = useState(null);
   const [input, setInput] = useState("");
+  const [showDebug, setShowDebug] = useState(false);
   const { send } = useChat();
   const { messages } = useLLMStore();
   const { isRecording, start } = useSpeechRecognition(send, (err) =>
@@ -137,14 +141,27 @@ function App() {
   }
 
   return (
-    <ChatInterface
-      messages={messages}
-      input={input}
-      onInputChange={setInput}
-      onSend={() => handleSend()}
-      isRecording={isRecording}
-      onMicPress={start}
-    />
+    <>
+      <ChatInterface
+        messages={messages}
+        input={input}
+        onInputChange={setInput}
+        onSend={() => handleSend()}
+        isRecording={isRecording}
+        onMicPress={start}
+      />
+      {(__DEV__ || process.env.DEBUG_PANEL === "1") && (
+        <>
+          <DebugConsole
+            visible={showDebug}
+            onClose={() => setShowDebug(false)}
+          />
+          <View style={styles.debugButton}>
+            <Button title="Debug" onPress={() => setShowDebug(true)} />
+          </View>
+        </>
+      )}
+    </>
   );
 }
 
@@ -156,6 +173,11 @@ const styles = StyleSheet.create({
   },
   loading: { marginTop: 20 },
   errorText: { color: "red" },
+  debugButton: {
+    position: "absolute",
+    bottom: 20,
+    right: 20,
+  },
 });
 
 export default App;
