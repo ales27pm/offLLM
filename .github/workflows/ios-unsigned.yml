@@ -59,26 +59,6 @@ jobs:
           set -euo pipefail
           xcodegen generate
 
-      - name: Show iOS tree
-        run: |
-          echo "ios/ contents:"
-          ls -la ios
-          echo "Find .xcodeproj:"
-          find ios -maxdepth 2 -name "*.xcodeproj" -print || true
-
-      - name: Verify & export Xcode project
-        run: |
-          set -euo pipefail
-          FOUND="$(ls -1 ios/*.xcodeproj 2>/dev/null | head -n1 || true)"
-          if [ -z "${FOUND}" ]; then
-            echo "::error title=Missing Xcode project::No .xcodeproj found under ios/. Commit your Xcode project (e.g., ios/YourApp.xcodeproj)."
-            exit 1
-          fi
-          echo "Found Xcode project: ${FOUND}"
-          NAME="$(basename "${FOUND}" .xcodeproj)"
-          echo "XCODE_PROJECT_PATH=${FOUND}" >> $GITHUB_ENV
-          echo "XCODE_PROJECT_NAME=${NAME}" >> $GITHUB_ENV
-
       - name: Set up Ruby
         uses: ruby/setup-ruby@v1
         with:
@@ -91,7 +71,7 @@ jobs:
           gem install cocoapods --no-document
           gem install xcpretty --no-document
 
-      - name: Pod install
+      - name: Install CocoaPods
         working-directory: ios
         run: |
           set -euo pipefail
@@ -102,16 +82,22 @@ jobs:
             pod install --repo-update
           fi
 
-      - name: Detect & export XCODE_WORKSPACE
+      - name: Detect Xcode workspace/project
         run: |
           set -euo pipefail
           WS="$(ls -1 ios/*.xcworkspace 2>/dev/null | head -n1 || true)"
-          if [ -z "${WS}" ]; then
-            echo "::error title=Missing workspace::No .xcworkspace found under ios/. Did 'pod install' run successfully?"
+          PRJ="$(ls -1 ios/*.xcodeproj 2>/dev/null | head -n1 || true)"
+          if [ -n "$WS" ]; then
+            echo "XCODE_WORKSPACE=$WS" >> "$GITHUB_ENV"
+          fi
+          if [ -n "$PRJ" ]; then
+            echo "XCODE_PROJECT_PATH=$PRJ" >> "$GITHUB_ENV"
+            echo "XCODE_PROJECT_NAME=$(basename "$PRJ" .xcodeproj)" >> "$GITHUB_ENV"
+          fi
+          if [ -z "$WS" ] && [ -z "$PRJ" ]; then
+            echo "::error title=Missing Xcode project::No .xcworkspace or .xcodeproj found under ios/."
             exit 1
           fi
-          echo "Detected workspace: ${WS}"
-          echo "XCODE_WORKSPACE=${WS}" >> $GITHUB_ENV
 
       - name: Patch glog config.h (CI safety net)
         run: |
@@ -136,15 +122,27 @@ jobs:
       - name: Build (Release, device SDK)
         run: |
           set -euo pipefail
-          xcodebuild \
-            -workspace "$XCODE_WORKSPACE" \
-            -scheme "$XCODE_SCHEME" \
-            -configuration Release \
-            -sdk iphoneos \
-            -arch arm64 \
-            -derivedDataPath "$DERIVED_DATA" \
-            CODE_SIGNING_ALLOWED=NO \
-            build | xcpretty && exit ${PIPESTATUS[0]}
+          if [ -n "${XCODE_WORKSPACE:-}" ]; then
+            xcodebuild \
+              -workspace "$XCODE_WORKSPACE" \
+              -scheme "$XCODE_SCHEME" \
+              -configuration Release \
+              -sdk iphoneos \
+              -arch arm64 \
+              -derivedDataPath "$DERIVED_DATA" \
+              CODE_SIGNING_ALLOWED=NO \
+              build | xcpretty && exit ${PIPESTATUS[0]}
+          else
+            xcodebuild \
+              -project "$XCODE_PROJECT_PATH" \
+              -scheme "$XCODE_SCHEME" \
+              -configuration Release \
+              -sdk iphoneos \
+              -arch arm64 \
+              -derivedDataPath "$DERIVED_DATA" \
+              CODE_SIGNING_ALLOWED=NO \
+              build | xcpretty && exit ${PIPESTATUS[0]}
+          fi
 
       - name: Archive artifacts (optional)
         if: always()
