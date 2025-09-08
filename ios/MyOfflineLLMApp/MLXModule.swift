@@ -1,7 +1,7 @@
 import Foundation
 import React
 import Darwin
-// MLXLLM is provided by the Swift package "mlx-swift".
+// MLXLLM is provided by the Swift package "mlx-swift-examples".
 // Guard imports so builds still succeed if SPM fails to resolve.
 #if canImport(MLXLLM)
 import MLXLLM

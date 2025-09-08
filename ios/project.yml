@@ -8,8 +8,13 @@ options:
 packages:
   mlx-swift:
     url: https://github.com/ml-explore/mlx-swift
-    from: 0.11.0
-    # exact: 0.11.0
+    # keep in sync with what CI resolved in the log
+    from: 0.25.6
+  # MLXLLM lives in the examples repo
+  mlx-swift-examples:
+    url: https://github.com/ml-explore/mlx-swift-examples
+    # track main for latest MLXLLM helpers
+    branch: main
 
 targets:
   monGARS:
@@ -25,10 +30,23 @@ targets:
           - "Pods/**"
 
     dependencies:
-      - package: mlx-swift
-        product: MLXLLM
+      # MLX core APIs
       - package: mlx-swift
         product: MLX
+      - package: mlx-swift
+        product: MLXNN
+      - package: mlx-swift
+        product: MLXLinalg
+      - package: mlx-swift
+        product: MLXFFT
+      # LLM utilities live in the examples package
+      - package: mlx-swift-examples
+        product: MLXLLM
+      # (optional) If your code imports these, add them too:
+      # - package: mlx-swift-examples
+      #   product: MLXLMCommon
+      # - package: mlx-swift-examples
+      #   product: Tokenizers
 
     settings:
       base:

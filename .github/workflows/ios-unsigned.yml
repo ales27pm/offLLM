@@ -125,6 +125,13 @@ jobs:
         run: |
           echo "WORKSPACE=ios/$WORKSPACE" >> "$GITHUB_ENV"
 
+      - name: Resolve SwiftPM packages
+        run: |
+          xcodebuild -resolvePackageDependencies \
+            -workspace "$WORKSPACE" \
+            -scheme "$SCHEME" \
+            -clonedSourcePackagesDirPath "$DERIVED_DATA/SourcePackages"
+
       - name: Build (unsigned, simulator .app)
         env:
           SCHEME: ${{ env.SCHEME }}
