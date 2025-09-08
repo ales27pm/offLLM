@@ -22,8 +22,15 @@ if ! grep -q 'SWIFT_OBJC_BRIDGING_HEADER' "$YML"; then
   ' "$YML" > "$YML.tmp" && mv "$YML.tmp" "$YML"
   echo "✅ Added SWIFT_OBJC_BRIDGING_HEADER to project.yml"
 else
-  sed -i.bak 's#SWIFT_OBJC_BRIDGING_HEADER:.*#SWIFT_OBJC_BRIDGING_HEADER: MyOfflineLLMApp/Bridging/MyOfflineLLMApp-Bridging-Header.h#' "$YML"
-  echo "✅ Normalized SWIFT_OBJC_BRIDGING_HEADER in project.yml"
+  awk '
+    BEGIN{in_settings=0}
+    /^settings:/ {in_settings=1}
+    in_settings && /^\s*SWIFT_OBJC_BRIDGING_HEADER:/ {
+      sub(/SWIFT_OBJC_BRIDGING_HEADER:.*/,"SWIFT_OBJC_BRIDGING_HEADER: MyOfflineLLMApp/Bridging/MyOfflineLLMApp-Bridging-Header.h")
+    }
+    {print}
+  ' "$YML" > "$YML.tmp" && mv "$YML.tmp" "$YML"
+  echo "✅ Normalized SWIFT_OBJC_BRIDGING_HEADER in project.yml (scoped to settings)"
 fi
 
 # 2) Ensure packages block for MLX & MLXLibraries
