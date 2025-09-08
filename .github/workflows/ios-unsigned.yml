@@ -2,9 +2,9 @@ name: iOS CI
 
 on:
   push:
-    branches: [ main, master ]
+    branches: [main, master]
   pull_request:
-    branches: [ main, master ]
+    branches: [main, master]
 
 jobs:
   build-ios:
@@ -13,7 +13,6 @@ jobs:
     env:
       DEVELOPER_DIR: /Applications/Xcode_16.2.app/Contents/Developer
       XCODE_SCHEME: monGARS
-      XCODE_WORKSPACE: ios/monGARS.xcworkspace
       DERIVED_DATA: build/DerivedData
 
     steps:
@@ -23,9 +22,10 @@ jobs:
       - name: Set up Node
         uses: actions/setup-node@v4
         with:
-          node-version: 18
+          node-version: "20.19.4"
+          cache: npm
 
-      - name: Cache node_modules
+      - name: Cache node_modules/Pods
         uses: actions/cache@v4
         with:
           path: |
@@ -37,34 +37,45 @@ jobs:
 
       - name: Install JS deps
         run: |
+          set -euo pipefail
+          corepack enable || true
           if [ -f yarn.lock ]; then
-            corepack enable
             yarn install --frozen-lockfile
-          elif [ -f pnpm-lock.yaml ]; then
-            corepack enable
-            pnpm i --frozen-lockfile
-          else
+          elif [ -f package-lock.json ]; then
             npm ci
+          else
+            npm i
           fi
 
-      - name: Show iOS tree
+      - name: Install XcodeGen
         run: |
-          echo "ios/ contents:"
-          ls -la ios
-          echo "Find .xcodeproj:"
-          find ios -maxdepth 2 -name "*.xcodeproj" -print || true
+          if ! command -v xcodegen >/dev/null; then
+            brew install xcodegen
+          fi
 
-      - name: Verify Xcode project exists
+      - name: Generate Xcode project
+        working-directory: ios
         run: |
-          if [ ! -d "ios/monGARS.xcodeproj" ]; then
-            echo "::error title=Missing Xcode project::ios/monGARS.xcodeproj not found. Check Podfile 'project' line or commit the project."
+          set -euo pipefail
+          xcodegen generate
+
+      - name: Verify project presence
+        run: |
+          set -euo pipefail
+          FOUND="$(/bin/ls -d ios/*.xcodeproj 2>/dev/null | head -n1 || true)"
+          if [ -z "${FOUND}" ]; then
+            echo "::error title=Missing Xcode project::No .xcodeproj found under ios/. Commit your XcodeGen inputs and rerun."
             exit 1
           fi
+          NAME="$(basename "${FOUND}" .xcodeproj)"
+          echo "XCODE_PROJECT_PATH=${FOUND}" >> "$GITHUB_ENV"
+          echo "XCODE_PROJECT_NAME=${NAME}" >> "$GITHUB_ENV"
+          echo "Expect CocoaPods to generate workspace: ios/${NAME}.xcworkspace"
 
-      - name: Set up Ruby and CocoaPods
+      - name: Set up Ruby
         uses: ruby/setup-ruby@v1
         with:
-          ruby-version: '3.2'
+          ruby-version: "3.2"
           bundler-cache: false
 
       - name: Install CocoaPods
@@ -82,23 +93,21 @@ jobs:
         run: |
           set -euo pipefail
           GLOG_SRC="ios/Pods/glog/src"
-          if [ -d "$GLOG_SRC" ]; then
-            if [ ! -f "$GLOG_SRC/config.h" ]; then
-              if [ -f "$GLOG_SRC/config_ios.h" ]; then
-                cp "$GLOG_SRC/config_ios.h" "$GLOG_SRC/config.h"
-                echo "Patched glog: config_ios.h -> config.h"
-              elif [ -f "$GLOG_SRC/config.h.cmake" ]; then
-                cp "$GLOG_SRC/config.h.cmake" "$GLOG_SRC/config.h"
-                echo "Patched glog: config.h.cmake -> config.h"
-              else
-                echo "::warning::Could not find a glog config template to copy."
-              fi
+          if [ -d "$GLOG_SRC" ] && [ ! -f "$GLOG_SRC/config.h" ]; then
+            if [ -f "$GLOG_SRC/config_ios.h" ]; then
+              cp "$GLOG_SRC/config_ios.h" "$GLOG_SRC/config.h"
+              echo "Patched glog: config_ios.h -> config.h"
+            elif [ -f "$GLOG_SRC/config.h.cmake" ]; then
+              cp "$GLOG_SRC/config.h.cmake" "$GLOG_SRC/config.h"
+              echo "Patched glog: config.h.cmake -> config.h"
+            else
+              echo "::warning::Could not find a glog config template to copy."
             fi
-          else
-            echo "::warning::glog src folder not found at $GLOG_SRC"
           fi
 
       - name: Build (Release, device SDK)
+        env:
+          XCODE_WORKSPACE: ios/${{ env.XCODE_PROJECT_NAME }}.xcworkspace
         run: |
           set -euo pipefail
           xcodebuild \
@@ -111,16 +120,15 @@ jobs:
             CODE_SIGNING_ALLOWED=NO \
             build | xcpretty && exit ${PIPESTATUS[0]}
 
-      - name: Archive artifacts (optional)
+      - name: Archive logs
         if: always()
         run: |
           mkdir -p artifacts/xcode-log
           if [ -d "$DERIVED_DATA/Logs/Build" ]; then
             cp -R "$DERIVED_DATA/Logs/Build" artifacts/xcode-log/
           fi
-        continue-on-error: true
 
-      - name: Upload artifacts (optional)
+      - name: Upload logs
         if: always()
         uses: actions/upload-artifact@v4
         with:

@@ -1,0 +1,56 @@
+name: macOS Tests
+
+on:
+  push:
+    branches: [main]
+  pull_request:
+
+jobs:
+  macos:
+    runs-on: macos-14
+    steps:
+      - name: Checkout
+        uses: actions/checkout@v4
+
+      - name: Set up Node
+        uses: actions/setup-node@v4
+        with:
+          node-version: 18
+          cache: npm
+
+      - name: Install JS deps
+        run: npm ci
+
+      - name: Run tests
+        run: npm test
+
+      - name: Run lint
+        run: npm run lint
+
+      - name: Run format check
+        run: npm run format:check
+
+      - name: Install XcodeGen
+        run: |
+          if ! command -v xcodegen >/dev/null; then
+            brew install xcodegen
+          fi
+
+      - name: Generate Xcode project
+        run: |
+          set -euo pipefail
+          if [ -f ios/project.yml ]; then
+            (cd ios && xcodegen generate)
+          fi
+
+      - name: Install Ruby and CocoaPods
+        run: |
+          gem install bundler cocoapods --no-document
+          (cd ios && bundle install --path vendor/bundle)
+
+      - name: Update and install pods
+        run: |
+          set -euo pipefail
+          cd ios
+          bundle exec pod update hermes-engine --no-repo-update
+          bundle exec pod install --repo-update

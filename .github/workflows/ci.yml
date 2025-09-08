@@ -62,7 +62,7 @@ jobs:
       - name: Select Xcode 16.2
         uses: maxim-lobanov/setup-xcode@v1
         with:
-          xcode-version: '16.2'
+          xcode-version: "16.2"
 
       - name: Verify Xcode is >= 16.1
         run: |
@@ -279,7 +279,7 @@ jobs:
       - name: Select Xcode 16.2
         uses: maxim-lobanov/setup-xcode@v1
         with:
-          xcode-version: '16.2'
+          xcode-version: "16.2"
 
       - name: Verify Xcode is >= 16.1
         run: |
