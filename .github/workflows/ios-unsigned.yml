@@ -124,7 +124,7 @@ jobs:
           case "$WS" in
             /*) WS="${WS#"$GITHUB_WORKSPACE"/}" ;;
           esac
-          if [ ! -f "$WS" ]; then
+          if [ ! -e "$WS" ]; then
             echo "::error title=Workspace missing::'$WS' not found. Check WORKSPACE env/Pod install."
             echo "pwd=$(pwd)"
             ls -la ios || true
