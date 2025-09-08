@@ -29,17 +29,20 @@ jobs:
           node-version: ${{ env.NODE_VERSION }}
           cache: "npm"
 
+      - name: Set up Ruby
+        uses: ruby/setup-ruby@v1
+        with:
+          ruby-version: ${{ env.RUBY_VERSION }}
+          bundler-cache: true
+
       - name: Show toolchain versions
         run: |
           sw_vers
           xcodebuild -version
           xcode-select -p
-
-      - name: Install Ruby gems (bundler)
-        run: |
-          gem install bundler --no-document
-          bundle config set path 'vendor/bundle'
-          bundle install --jobs 4 --retry 3
+          node -v
+          ruby --version
+          gem --version
 
       # ---------- CACHES ----------
       - name: Cache node_modules
