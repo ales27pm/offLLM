@@ -1,12 +1,12 @@
 {
-  "name": "MyOfflineLLMApp",
-  "displayName": "MyOfflineLLMApp",
+  "name": "monGARS",
+  "displayName": "monGARS",
   "ios": {
-    "bundleIdentifier": "com.myofflinellmapp",
+    "bundleIdentifier": "com.offllm.mongars",
     "buildNumber": "1",
     "target": "18.0"
   },
   "android": {
-    "package": "com.myofflinellmapp"
+    "package": "com.mongars"
   }
 }

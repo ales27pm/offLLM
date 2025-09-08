@@ -53,18 +53,18 @@ cd ..
 kill $BUNDLER_PID 2>/dev/null || true
 echo "🔨 Performing clean Xcode build..."
 cd ios
-if [ ! -d "MyOfflineLLMApp.xcworkspace" ]; then
-  echo "❌ Xcode workspace 'MyOfflineLLMApp.xcworkspace' not found."
+if [ ! -d "monGARS.xcworkspace" ]; then
+  echo "❌ Xcode workspace 'monGARS.xcworkspace' not found."
   exit 1
 fi
-xcodebuild clean -workspace MyOfflineLLMApp.xcworkspace -scheme MyOfflineLLMApp
+xcodebuild clean -workspace monGARS.xcworkspace -scheme monGARS
 mkdir -p build
 xcodebuild \
-  -workspace MyOfflineLLMApp.xcworkspace \
-  -scheme MyOfflineLLMApp \
+  -workspace monGARS.xcworkspace \
+  -scheme monGARS \
   -configuration Release \
   -destination 'generic/platform=iOS' \
-  -archivePath "build/MyOfflineLLMApp.xcarchive" \
+  -archivePath "build/monGARS.xcarchive" \
   archive \
   CODE_SIGNING_ALLOWED=NO \
   CODE_SIGNING_REQUIRED=NO
@@ -72,22 +72,22 @@ xcodebuild \
 # Step 6: Export the unsigned IPA
 # Step 6: Export the unsigned IPA (manual packaging to avoid signing requirements)
 OUT_DIR="build/unsigned_ipa"
-APP_PATH="build/MyOfflineLLMApp.xcarchive/Products/Applications/MyOfflineLLMApp.app"
+APP_PATH="build/monGARS.xcarchive/Products/Applications/monGARS.app"
 mkdir -p "$OUT_DIR/Payload"
 if [ ! -d "$APP_PATH" ]; then
   echo "❌ Error: App not found at $APP_PATH"; exit 1
 fi
 cp -R "$APP_PATH" "$OUT_DIR/Payload/"
 # Ensure truly unsigned bundle
-rm -rf "$OUT_DIR/Payload/MyOfflineLLMApp.app/_CodeSignature" "$OUT_DIR/Payload/MyOfflineLLMApp.app/embedded.mobileprovision"
+rm -rf "$OUT_DIR/Payload/monGARS.app/_CodeSignature" "$OUT_DIR/Payload/monGARS.app/embedded.mobileprovision"
 # Zip to IPA
 (
   cd "$OUT_DIR"
-  zip -qry "MyOfflineLLMApp.ipa" "Payload"
+  zip -qry "monGARS.ipa" "Payload"
 )
 # Clean up temporary Payload folder
 rm -rf "$OUT_DIR/Payload"
 cd ..
-echo "🎉 Unsigned IPA generated at ./ios/build/unsigned_ipa/MyOfflineLLMApp.ipa"
+echo "🎉 Unsigned IPA generated at ./ios/build/unsigned_ipa/monGARS.ipa"
 
 echo "✅ Failproof iOS build process completed successfully."

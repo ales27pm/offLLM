@@ -310,7 +310,7 @@ fi
 rm -rf "${BUILD_DIR}/Payload"
 mkdir -p "${BUILD_DIR}/Payload"
 cp -R "$APP_PATH" "${BUILD_DIR}/Payload/"
-( cd "${BUILD_DIR}" && /usr/bin/zip -qry offLLM-unsigned.ipa Payload )
+( cd "${BUILD_DIR}" && /usr/bin/zip -qry monGARS-unsigned.ipa Payload )
 ( cd "$APP_DIR" && /usr/bin/zip -qry "$PWD/../../${SCHEME}.app.zip" "${SCHEME}.app" )
 
-echo "✅ Done. IPA at ${BUILD_DIR}/offLLM-unsigned.ipa"
+echo "✅ Done. IPA at ${BUILD_DIR}/monGARS-unsigned.ipa"

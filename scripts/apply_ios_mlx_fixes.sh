@@ -2,7 +2,7 @@
 set -euo pipefail
 
 # Helper to keep MLX sample project aligned with RN's iOS 18.0 minimum.
-YML="ios/MyOfflineLLMApp/project.yml"
+YML="ios/project.yml"
 PODFILE="ios/Podfile"
 
 if [ ! -f "$YML" ]; then
@@ -77,12 +77,12 @@ fi
 
 # 4) Ensure target dependencies include MLX + MLXLLM
 if ! grep -q 'product: MLX$' "$YML"; then
-  # Add under MyOfflineLLMApp target dependencies
+  # Add under monGARS target dependencies
   awk '
   BEGIN{inTarget=0; deps=0}
   /^targets:/ {print; next}
   {
-    if ($0 ~ /^  MyOfflineLLMApp:/) inTarget=1
+    if ($0 ~ /^  monGARS:/) inTarget=1
     if (inTarget && $0 ~ /dependencies:/) deps=1
     print
     if (inTarget && deps && $0 ~ /dependencies:/) {

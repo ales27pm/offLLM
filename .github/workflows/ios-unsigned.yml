@@ -184,7 +184,7 @@ jobs:
           rm -rf Payload
           mkdir -p Payload
           cp -R "$APP_PATH" Payload/
-          /usr/bin/zip -qry offLLM-unsigned.ipa Payload
+          /usr/bin/zip -qry monGARS-unsigned.ipa Payload
           /usr/bin/zip -qry "$(basename "$APP_PATH").zip" "$APP_PATH"
 
       - name: Upload unsigned IPA, app & logs
@@ -193,7 +193,7 @@ jobs:
         with:
           name: ios-unsigned-ipa
           path: |
-            build/offLLM-unsigned.ipa
+            build/monGARS-unsigned.ipa
             build/*.app.zip
             ${{ env.DERIVED_DATA }}/ResultBundle.xcresult
             ${{ env.DERIVED_DATA }}/Logs/Build

@@ -239,7 +239,7 @@ private:
 };
 
 extern "C" JNIEXPORT jlong JNICALL
-Java_com_myofflinellmapp_LlamaTurboModule_loadModel(JNIEnv *env, jobject thiz,
+Java_com_mongars_LlamaTurboModule_loadModel(JNIEnv *env, jobject thiz,
                                                     jstring model_path,
                                                     jint context_size,
                                                     jint n_threads) {
@@ -284,7 +284,7 @@ Java_com_myofflinellmapp_LlamaTurboModule_loadModel(JNIEnv *env, jobject thiz,
 }
 
 extern "C" JNIEXPORT jstring JNICALL
-Java_com_myofflinellmapp_LlamaTurboModule_generate(
+Java_com_mongars_LlamaTurboModule_generate(
     JNIEnv *env, jobject thiz, jlong ctx_ptr, jstring prompt, jint max_tokens,
     jfloat temperature, jboolean use_sparse_attention) {
   return jniWithCtx<jstring>(
@@ -305,7 +305,7 @@ Java_com_myofflinellmapp_LlamaTurboModule_generate(
 }
 
 extern "C" JNIEXPORT jfloatArray JNICALL
-Java_com_myofflinellmapp_LlamaTurboModule_embed(JNIEnv *env, jobject thiz,
+Java_com_mongars_LlamaTurboModule_embed(JNIEnv *env, jobject thiz,
                                                 jlong ctx_ptr, jstring text) {
   return jniWithCtx<jfloatArray>(
       env, ctx_ptr, env->NewFloatArray(0), [&](LlamaContext *ctx) {
@@ -319,7 +319,7 @@ Java_com_myofflinellmapp_LlamaTurboModule_embed(JNIEnv *env, jobject thiz,
 }
 
 extern "C" JNIEXPORT void JNICALL
-Java_com_myofflinellmapp_LlamaTurboModule_clearKVCache(JNIEnv *env,
+Java_com_mongars_LlamaTurboModule_clearKVCache(JNIEnv *env,
                                                        jobject thiz,
                                                        jlong ctx_ptr) {
   LlamaContext *ctx = reinterpret_cast<LlamaContext *>(ctx_ptr);
@@ -329,7 +329,7 @@ Java_com_myofflinellmapp_LlamaTurboModule_clearKVCache(JNIEnv *env,
 }
 
 extern "C" JNIEXPORT jint JNICALL
-Java_com_myofflinellmapp_LlamaTurboModule_getKVCacheSize(JNIEnv *env,
+Java_com_mongars_LlamaTurboModule_getKVCacheSize(JNIEnv *env,
                                                          jobject thiz,
                                                          jlong ctx_ptr) {
   LlamaContext *ctx = reinterpret_cast<LlamaContext *>(ctx_ptr);
@@ -340,7 +340,7 @@ Java_com_myofflinellmapp_LlamaTurboModule_getKVCacheSize(JNIEnv *env,
 }
 
 extern "C" JNIEXPORT jint JNICALL
-Java_com_myofflinellmapp_LlamaTurboModule_getKVCacheMaxSize(JNIEnv *env,
+Java_com_mongars_LlamaTurboModule_getKVCacheMaxSize(JNIEnv *env,
                                                             jobject thiz,
                                                             jlong ctx_ptr) {
   LlamaContext *ctx = reinterpret_cast<LlamaContext *>(ctx_ptr);
@@ -351,7 +351,7 @@ Java_com_myofflinellmapp_LlamaTurboModule_getKVCacheMaxSize(JNIEnv *env,
 }
 
 extern "C" JNIEXPORT void JNICALL
-Java_com_myofflinellmapp_LlamaTurboModule_addMessageBoundary(JNIEnv *env,
+Java_com_mongars_LlamaTurboModule_addMessageBoundary(JNIEnv *env,
                                                              jobject thiz,
                                                              jlong ctx_ptr) {
   LlamaContext *ctx = reinterpret_cast<LlamaContext *>(ctx_ptr);
@@ -361,14 +361,14 @@ Java_com_myofflinellmapp_LlamaTurboModule_addMessageBoundary(JNIEnv *env,
 }
 
 extern "C" JNIEXPORT void JNICALL
-Java_com_myofflinellmapp_LlamaTurboModule_freeModel(JNIEnv *env, jobject thiz,
+Java_com_mongars_LlamaTurboModule_freeModel(JNIEnv *env, jobject thiz,
                                                     jlong ctx_ptr) {
   LlamaContext *ctx = reinterpret_cast<LlamaContext *>(ctx_ptr);
   delete ctx;
 }
 
 extern "C" JNIEXPORT jobject JNICALL
-Java_com_myofflinellmapp_LlamaTurboModule_getPerformanceMetrics(JNIEnv *env,
+Java_com_mongars_LlamaTurboModule_getPerformanceMetrics(JNIEnv *env,
                                                                 jobject thiz,
                                                                 jlong ctx_ptr) {
   if (ctx_ptr == 0) {
@@ -404,7 +404,7 @@ Java_com_myofflinellmapp_LlamaTurboModule_getPerformanceMetrics(JNIEnv *env,
 }
 
 extern "C" JNIEXPORT void JNICALL
-Java_com_myofflinellmapp_LlamaTurboModule_adjustPerformanceMode(JNIEnv *env,
+Java_com_mongars_LlamaTurboModule_adjustPerformanceMode(JNIEnv *env,
                                                                 jobject thiz,
                                                                 jlong ctx_ptr,
                                                                 jstring mode) {

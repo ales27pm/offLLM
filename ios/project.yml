@@ -29,7 +29,7 @@ targets:
 
     settings:
       base:
-        PRODUCT_BUNDLE_IDENTIFIER: com.offllm.monGARS
+        PRODUCT_BUNDLE_IDENTIFIER: com.offllm.mongars
         INFOPLIST_FILE: MyOfflineLLMApp/Info.plist
         SWIFT_VERSION: 5.0
 

@@ -81,7 +81,7 @@ if [ -d "$APP_PATH" ]; then
   rm -rf "$BUILD_DIR/Payload"
   mkdir -p "$BUILD_DIR/Payload"
   cp -R "$APP_PATH" "$BUILD_DIR/Payload/"
-  (cd "$BUILD_DIR" && zip -qry offLLM-unsigned.ipa Payload)
+  (cd "$BUILD_DIR" && zip -qry monGARS-unsigned.ipa Payload)
   (cd "$APP_DIR" && zip -qry "$PWD/../../$SCHEME.app.zip" "$SCHEME.app")
 fi
 

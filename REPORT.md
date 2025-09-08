@@ -10,4 +10,4 @@
 
 ## Pointers
 - Full log: `/Users/runner/work/offLLM/offLLM/build/xcodebuild.log`
-- Result bundle: `/Users/runner/work/offLLM/offLLM/build/MyOfflineLLMApp.xcresult`
+- Result bundle: `/Users/runner/work/offLLM/offLLM/build/monGARS.xcresult`

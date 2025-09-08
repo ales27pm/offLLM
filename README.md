@@ -28,7 +28,7 @@ npm run codegen
 ```bash
 npx react-native run-ios
 # unsigned
-(cd ios && xcodebuild -workspace MyOfflineLLMApp.xcworkspace -scheme MyOfflineLLMApp -configuration Release -sdk iphonesimulator CODE_SIGNING_ALLOWED=NO CODE_SIGN_IDENTITY='' CODE_SIGNING_REQUIRED=NO)
+(cd ios && xcodebuild -workspace monGARS.xcworkspace -scheme monGARS -configuration Release -sdk iphonesimulator CODE_SIGNING_ALLOWED=NO CODE_SIGN_IDENTITY='' CODE_SIGNING_REQUIRED=NO)
 ```
 
 ### Run tests
@@ -76,7 +76,7 @@ npm test
 - React Native 0.81.x with **New Architecture** enabled (TurboModules).
 - Swift-first TurboModule pattern: TS spec → Swift class → minimal `.mm` glue.
 - JS retrieves modules with `TurboModuleRegistry.getOptional` and falls back to `MLXModule` (iOS) or `LlamaTurboModule` (Android).
-- Specs live in [src/specs/](src/specs/); iOS Turbo sources in [ios/MyOfflineLLMApp/Turbo](ios/MyOfflineLLMApp/Turbo).
+- Specs live in [src/specs/](src/specs/); iOS Turbo sources for monGARS live in [ios/MyOfflineLLMApp/Turbo](ios/MyOfflineLLMApp/Turbo).
 
 ## Scripts Reference
 
@@ -93,10 +93,10 @@ npm test
 ## iOS Unsigned Build (Simulator)
 
 ```bash
-cd ios && xcodebuild -workspace MyOfflineLLMApp.xcworkspace -scheme MyOfflineLLMApp -configuration Release -sdk iphonesimulator CODE_SIGNING_ALLOWED=NO CODE_SIGN_IDENTITY='' CODE_SIGNING_REQUIRED=NO
+cd ios && xcodebuild -workspace monGARS.xcworkspace -scheme monGARS -configuration Release -sdk iphonesimulator CODE_SIGNING_ALLOWED=NO CODE_SIGN_IDENTITY='' CODE_SIGNING_REQUIRED=NO
 ```
 
-The `.github/workflows/ios-unsigned.yml` workflow automates these steps and uploads an `offLLM-unsigned-ipa.zip` artifact.
+The `.github/workflows/ios-unsigned.yml` workflow automates these steps and uploads a `monGARS-unsigned-ipa.zip` artifact.
 
 ## iOS Signed Build (GitHub Actions)
 
