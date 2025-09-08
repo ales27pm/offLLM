@@ -18,7 +18,11 @@ project File.basename(project_path)
 use_frameworks! :linkage => :static
 
 require_relative '../node_modules/react-native/scripts/react_native_pods'
-require_relative '../node_modules/@react-native-community/cli-platform-ios/native_modules'
+begin
+  require_relative '../node_modules/@react-native-community/cli-platform-ios/native_modules'
+rescue LoadError
+  require_relative '../node_modules/react-native/scripts/native_modules'
+end
 
 # Ensure glog/src/config.h exists
 pre_install do |installer|

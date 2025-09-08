@@ -62,7 +62,7 @@ jobs:
       - name: Verify & export Xcode project
         run: |
           set -euo pipefail
-          FOUND="$(ls -1 ios/*.xcodeproj 2>/dev/null | head -n1 || true)"
+          FOUND="$($(/bin/ls -d ios/*.xcodeproj 2>/dev/null | head -n1) || true)"
           if [ -z "${FOUND}" ]; then
             echo "::error title=Missing Xcode project::No .xcodeproj found under ios/. Commit your Xcode project (e.g., ios/YourApp.xcodeproj)."
             exit 1
