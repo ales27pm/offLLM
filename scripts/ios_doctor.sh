@@ -1,26 +1,19 @@
 #!/usr/bin/env bash
 set -euo pipefail
 ROOT_DIR="$(cd "$(dirname "${BASH_SOURCE[0]}")/.." && pwd)"
-IOS_DIR="$ROOT_DIR/ios"
-WORKSPACE_CANDIDATES=("monGARS.xcworkspace" "MyOfflineLLMApp.xcworkspace")
-echo "🔎 iOS Doctor: verifying CocoaPods created an .xcworkspace…"
-cd "$IOS_DIR"
-FOUND=""
-for ws in "${WORKSPACE_CANDIDATES[@]}"; do
-  if [[ -f "$ws/contents.xcworkspacedata" || -d "$ws" ]]; then
-    FOUND="$ws"
+IOS_DIR="${1:-"$ROOT_DIR/ios"}"
+WS=""
+for ws in "$IOS_DIR"/*.xcworkspace; do
+  if [ -e "$ws" ]; then
+    WS="$ws"
     break
   fi
 done
-if [[ -z "$FOUND" ]]; then
+if [ -z "${WS:-}" ]; then
   echo "❌ No .xcworkspace found after 'pod install' in: $IOS_DIR"
-  echo "   Expected one of: ${WORKSPACE_CANDIDATES[*]}"
-  echo "   Tips:"
-  echo "     - Ensure XcodeGen generated the .xcodeproj (ios/project.yml)."
-  echo "     - Ensure Podfile autodetected the .xcodeproj near the Podfile."
-  echo "     - Re-run 'bundle exec pod install --repo-update'."
   exit 1
 fi
-echo "✅ Found workspace: $FOUND"
-[[ -n "${GITHUB_ENV:-}" ]] && echo "WORKSPACE=$FOUND" >> "$GITHUB_ENV"
-
+echo "✅ Found workspace: $WS"
+if [[ -n "${GITHUB_ENV:-}" ]]; then
+  echo "WORKSPACE=$WS" >> "$GITHUB_ENV"
+fi
