@@ -15,9 +15,43 @@ jobs:
     env:
       NODE_VERSION: 20
       RUBY_VERSION: 3.2
-      WORKSPACE: ios/monGARS.xcworkspace
-      SCHEME: monGARS
-      DERIVED_DATA: ${{ github.workspace }}/build/DerivedData
+      - uses: actions/checkout@08eba0b27e820071cde6df949e0beb9ba4906955
+
+      - name: Detect workspace and scheme
+        id: detect
+        working-directory: ios
+        run: |
+          set -euo pipefail
+          WS="$(ls -1 *.xcworkspace 2>/dev/null | head -n1 || true)"
+          if [ -z "${WS:-}" ]; then
+            echo "::error::No .xcworkspace found in ios/. Run XcodeGen and CocoaPods first."
+            exit 2
+          fi
+          # Pick first shared scheme
+          SCHEME="$(xcodebuild -list -json -workspace "$WS" | python - "$WS" <<'PY'
+import json,sys; j=json.load(sys.stdin)
+schemes=j.get("workspace",{}).get("schemes",[])
+print(schemes[0] if schemes else "")
+PY
+)"
+          if [ -z "${SCHEME:-}" ]; then
+            echo "::error::No shared schemes found in $WS"
+            exit 3
+          fi
+          echo "workspace=ios/$WS" >> "$GITHUB_OUTPUT"
+          echo "scheme=$SCHEME" >> "$GITHUB_OUTPUT"
+
+      - name: Resolve SPM
+        env:
+          WORKSPACE: ${{ steps.detect.outputs.workspace }}
+          SCHEME: ${{ steps.detect.outputs.scheme }}
+          DERIVED_DATA: ${{ env.DERIVED_DATA }}
+
+      - name: Build (Simulator)
+        env:
+          WORKSPACE: ${{ steps.detect.outputs.workspace }}
+          SCHEME: ${{ steps.detect.outputs.scheme }}
+          DERIVED_DATA: ${{ env.DERIVED_DATA }}
     steps:
       - uses: actions/checkout@v4
 
