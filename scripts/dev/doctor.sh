@@ -3,7 +3,7 @@
 # Reproduces CI steps, generates REPORT.md and report_agent.md you can commit.
 # Usage:
 #   bash scripts/dev/doctor.sh
-#   SCHEME=MyOfflineLLMApp CONFIGURATION=Debug bash scripts/dev/doctor.sh
+#   SCHEME=monGARS CONFIGURATION=Debug bash scripts/dev/doctor.sh
 #   NO_INSTALL=1 SKIP_XCODEGEN=1 bash scripts/dev/doctor.sh
 
 set -euo pipefail
@@ -11,7 +11,7 @@ set -euo pipefail
 ### ───────────────────────────────────────────────────────────────────────────────────
 ### Config (defaults can be overridden via env)
 ### ───────────────────────────────────────────────────────────────────────────────────
-SCHEME="${SCHEME:-MyOfflineLLMApp}"
+SCHEME="${SCHEME:-monGARS}"
 CONFIGURATION="${CONFIGURATION:-Release}"
 BUILD_DIR="${BUILD_DIR:-build}"
 IOS_DIR="${IOS_DIR:-ios}"
@@ -82,7 +82,7 @@ USE_HERMES="${USE_HERMES:-true}"
 ### ───────────────────────────────────────────────────────────────────────────────────
  if [[ -f "scripts/strip_hermes_phase.rb" ]]; then
    log "Scrubbing Hermes 'Replace Hermes' phases in Pods + app projects…"
-   (cd "$IOS_DIR" && bundle exec ruby ../scripts/strip_hermes_phase.rb Pods/Pods.xcodeproj ../ios/MyOfflineLLMApp.xcodeproj) || true
+   (cd "$IOS_DIR" && bundle exec ruby ../scripts/strip_hermes_phase.rb Pods/Pods.xcodeproj ../ios/monGARS.xcodeproj) || true
  else
    log "strip_hermes_phase.rb not found; continuing…"
  fi
@@ -94,7 +94,7 @@ USE_HERMES="${USE_HERMES:-true}"
 
  log "Resolve SPM dependencies…"
  xcodebuild -resolvePackageDependencies \
-   -workspace "$IOS_DIR/MyOfflineLLMApp.xcworkspace" \
+   -workspace "$IOS_DIR/monGARS.xcworkspace" \
    -scheme "$SCHEME" -UseModernBuildSystem=YES || true
 
  log "Archive (or build for simulator) with logs to $BUILD_DIR/xcodebuild.log…"
@@ -102,18 +102,18 @@ USE_HERMES="${USE_HERMES:-true}"
    if [[ "$DESTINATION" == generic/* ]]; then
      # Device archive (unsigned)
      xcodebuild clean archive \
-       -workspace "$IOS_DIR/MyOfflineLLMApp.xcworkspace" \
+       -workspace "$IOS_DIR/monGARS.xcworkspace" \
        -scheme "$SCHEME" \
        -configuration "$CONFIGURATION" \
        -destination "$DESTINATION" \
-       -archivePath "$BUILD_DIR/MyOfflineLLMApp.xcarchive" \
-       -resultBundlePath "$BUILD_DIR/MyOfflineLLMApp.xcresult" \
+       -archivePath "$BUILD_DIR/monGARS.xcarchive" \
+       -resultBundlePath "$BUILD_DIR/monGARS.xcresult" \
        -UseModernBuildSystem=YES \
        CODE_SIGN_IDENTITY="" CODE_SIGNING_REQUIRED=NO CODE_SIGNING_ALLOWED=NO
    else
      # Simulator build
      xcodebuild \
-       -workspace "$IOS_DIR/MyOfflineLLMApp.xcworkspace" \
+       -workspace "$IOS_DIR/monGARS.xcworkspace" \
        -scheme "$SCHEME" \
        -configuration "$CONFIGURATION" \
        -sdk iphonesimulator \
@@ -128,13 +128,13 @@ USE_HERMES="${USE_HERMES:-true}"
 ### Diagnose: summarize xcodebuild.log + parse .xcresult → write reports
 ### ───────────────────────────────────────────────────────────────────────────────────
  LOG="$BUILD_DIR/xcodebuild.log"
- XCRESULT="$BUILD_DIR/MyOfflineLLMApp.xcresult"
+XCRESULT="$BUILD_DIR/monGARS.xcresult"
 
  cp "$LOG" "$REPORT_DIR/" 2>/dev/null || true
  if [[ -d "$XCRESULT" ]]; then
    log "Copying xcresult bundle to report dir…"
    # xcresult can be huge; copy the JSON summary + keep a symlink to the original bundle
-   (cd "$REPORT_DIR" && ln -sf "../../$XCRESULT" "MyOfflineLLMApp.xcresult")
+   (cd "$REPORT_DIR" && ln -sf "../../$XCRESULT" "monGARS.xcresult")
  fi
 
  # Extract issues from xcresult (if present)
@@ -184,7 +184,7 @@ USE_HERMES="${USE_HERMES:-true}"
    echo "## Top XCResult issues"
    if [[ -f "$XC_SUMMARY_JSON" ]]; then
      echo
-     echo "Parsed from \`MyOfflineLLMApp.xcresult\`:"
+     echo "Parsed from \`monGARS.xcresult\`:"
      echo
      # Pull out topDiagnostics if present (keep it short)
      /usr/bin/python3 - "$XC_SUMMARY_JSON" <<'PY' || true

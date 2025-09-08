@@ -50,7 +50,7 @@ jobs:
       - name: Upload APKs/AABs
         uses: actions/upload-artifact@v4
         with:
-          name: offLLM-android-artifacts
+          name: monGARS-android-artifacts
           path: |
             android/app/build/outputs/apk/release/**/*.apk
             android/app/build/outputs/bundle/release/**/*.aab

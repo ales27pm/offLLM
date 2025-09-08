@@ -3,8 +3,8 @@ node_modules/
 vector_memory.dat
 ios/Pods/
 ios/vendor/
-ios/MyOfflineLLMApp.xcodeproj/
-ios/MyOfflineLLMApp.xcworkspace/
+ios/monGARS.xcodeproj/
+ios/monGARS.xcworkspace/
 ios/.bundle/
 ios/.xcode.env.local
 /build/
@@ -12,7 +12,7 @@ android/app/build/
 .env
 *.xcfilelist
 ios/build/
-ios/MyOfflineLLMApp/*.xcodeproj/project.xcworkspace/xcshareddata/WorkspaceSettings.xcsettings
+ios/monGARS.xcodeproj/project.xcworkspace/xcshareddata/WorkspaceSettings.xcsettings
 !ios/build/generated/
 !ios/build/generated/ios/**
-ios/MyOfflineLLMApp.xcresult
+ios/monGARS.xcresult

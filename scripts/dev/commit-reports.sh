@@ -60,7 +60,7 @@ if [[ "${ARCHIVE:-0}" == "1" ]]; then
   # rsync to preserve structure but avoid copying giant xcresult bundle content; link it instead
   rsync -a --delete --exclude '*.xcresult' "$REPORT_DIR/" "$DEST_DIR/"
   # Create a lightweight pointer to the xcresult if present
-  if [[ -d "$REPORT_DIR/MyOfflineLLMApp.xcresult" ]]; then
+  if [[ -d "$REPORT_DIR/monGARS.xcresult" ]]; then
     echo "(xcresult present in build dir; not copied here to keep repo light)" > "$DEST_DIR/NOTE_xcresult.txt"
   fi
 fi

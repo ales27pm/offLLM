@@ -2,11 +2,12 @@
 set -euo pipefail
 
 # Configuration
-: "${SCHEME:=MyOfflineLLMApp}"
+# Default to the monGARS scheme
+: "${SCHEME:=monGARS}"
 # Resolve the iOS project path to an absolute location to avoid
 # issues when the caller provides IOS_PROJECT_DIR as a relative path.
 IOS_PROJECT_DIR=$(cd "${IOS_PROJECT_DIR:-${PWD}/ios}" && pwd)
-: "${WORKSPACE:=${IOS_PROJECT_DIR}/MyOfflineLLMApp.xcworkspace}"
+: "${WORKSPACE:=${IOS_PROJECT_DIR}/monGARS.xcworkspace}"
 : "${BUILD_DIR:=build}"
 : "${REQUIRED_NODE_VERSION:=20.0.0}"
 
@@ -91,7 +92,7 @@ PAYLOAD_DIR="$BUILD_DIR/Payload"
 rm -rf "$PAYLOAD_DIR"
 mkdir -p "$PAYLOAD_DIR"
 cp -R "$APP_PATH" "$PAYLOAD_DIR/"
-(cd "$BUILD_DIR" && zip -qr offLLM-unsigned-ipa.zip Payload)
-echo "✅ Artifact created at $BUILD_DIR/offLLM-unsigned-ipa.zip"
+(cd "$BUILD_DIR" && zip -qr monGARS-unsigned-ipa.zip Payload)
+echo "✅ Artifact created at $BUILD_DIR/monGARS-unsigned-ipa.zip"
 
 echo "✅ Build script completed."

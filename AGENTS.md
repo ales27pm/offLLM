@@ -40,7 +40,7 @@
 ## iOS Rules
 
 - Build with Xcode 16.x (command line tools installed).
-- Deployment target stays **18.0** in [`ios/project.yml`](ios/project.yml), [`ios/MyOfflineLLMApp/project.yml`](ios/MyOfflineLLMApp/project.yml), and `Podfile` post_install.
+- Deployment target stays **18.0** in [`ios/project.yml`](ios/project.yml) and `Podfile` post_install.
 - When editing these files, update comments and re-run `bundle exec pod update hermes-engine --no-repo-update && bundle exec pod install --repo-update`.
 - **Do not enable CocoaPods input/output file lists** with static pods (`:disable_input_output_paths => true` stays). Set `ENABLE_USER_SCRIPT_SANDBOXING` to `NO` in `post_install` for CI stability.
 - When editing project.yml or Podfile, ensure no legacy .xcfilelist references or invalid Podfile hooks are reintroduced.
@@ -70,7 +70,7 @@
 
 ## CI Playbook
 
-- `ios-unsigned.yml` workflow: xcodegen → pod install → unsigned simulator build → uploads `offLLM-unsigned-ipa` artifact.
+- `ios-unsigned.yml` workflow: xcodegen → pod install → unsigned simulator build → uploads `monGARS-unsigned-ipa` artifact.
 - If CI fails on pods or project generation, try `pod repo update`, `rm -rf ios/Pods`, and rerun xcodegen.
 
 ## PR Checklist

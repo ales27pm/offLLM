@@ -1,4 +1,4 @@
-package com.myofflinellmapp;
+package com.mongars;
 
 import android.content.Context;
 import android.content.pm.PackageManager;

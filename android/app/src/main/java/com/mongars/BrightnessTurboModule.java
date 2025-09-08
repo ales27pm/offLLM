@@ -1,4 +1,4 @@
-package com.myofflinellmapp;
+package com.mongars;
 
 import android.app.Activity;
 import android.view.Window;

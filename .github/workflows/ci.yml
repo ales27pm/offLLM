@@ -364,18 +364,18 @@ jobs:
           rm -rf Payload
           mkdir -p Payload
           cp -R "$APP_PATH" Payload/
-          /usr/bin/zip -qry offLLM-unsigned.ipa Payload
-          /usr/bin/zip -qry MyOfflineLLMApp.app.zip "$APP_PATH"
+          /usr/bin/zip -qry monGARS-unsigned.ipa Payload
+          /usr/bin/zip -qry monGARS.app.zip "$APP_PATH"
 
       - name: Upload unsigned IPA & logs
         uses: actions/upload-artifact@v4
         with:
           name: ios-unsigned-ipa
           path: |
-            build/offLLM-unsigned.ipa
-            build/MyOfflineLLMApp.app.zip
+            build/monGARS-unsigned.ipa
+            build/monGARS.app.zip
             build/xcodebuild_ipa.log
-            build/MyOfflineLLMApp.xcarchive
-            build/MyOfflineLLMApp_ipa.xcresult
+            build/monGARS.xcarchive
+            build/monGARS_ipa.xcresult
           if-no-files-found: error
           compression-level: 6

@@ -1,4 +1,4 @@
-package com.myofflinellmapp;
+package com.mongars;
 
 import androidx.annotation.NonNull;
 import com.facebook.react.bridge.ReactApplicationContext;
@@ -16,7 +16,7 @@ import com.facebook.react.module.annotations.ReactModule;
  * Native. This class replaces the previous LlamaRNModule name to align with
  * the C++ JNI symbols defined in {@code llama_jni.cpp}. The name constant and
  * React module annotation must match the JNI function prefixes
- * (e.g. Java_com_myofflinellmapp_LlamaTurboModule_...).
+ * (e.g. Java_com_mongars_LlamaTurboModule_...).
  */
 @ReactModule(name = LlamaTurboModule.NAME)
 public class LlamaTurboModule extends ReactContextBaseJavaModule {

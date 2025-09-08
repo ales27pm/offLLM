@@ -1,4 +1,4 @@
-package com.myofflinellmapp;
+package com.mongars;
 
 import com.facebook.react.ReactPackage;
 import com.facebook.react.bridge.NativeModule;
@@ -9,7 +9,7 @@ import java.util.Collections;
 import java.util.List;
 
 /**
- * MyOfflineLLMAppPackage registers the custom TurboModules implemented in this
+ * MonGarsPackage registers the custom TurboModules implemented in this
  * application with the React Native bridge. Older architectures rely on
  * explicit registration via a ReactPackage, whereas the new architecture
  * will auto-link modules annotated with @ReactModule. Including this
@@ -17,7 +17,7 @@ import java.util.List;
  * package to your MainApplication#getPackages() method to ensure modules
  * are available.
  */
-public class MyOfflineLLMAppPackage implements ReactPackage {
+public class MonGarsPackage implements ReactPackage {
     @Override
     public List<NativeModule> createNativeModules(ReactApplicationContext reactContext) {
         List<NativeModule> modules = new ArrayList<>();

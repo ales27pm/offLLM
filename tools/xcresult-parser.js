@@ -56,8 +56,7 @@ export function parseXCResult(xcresultPath) {
 }
 
 if (process.argv[1] === fileURLToPath(import.meta.url)) {
-  const target =
-    process.argv[2] || path.join("build", "MyOfflineLLMApp.xcresult");
+  const target = process.argv[2] || path.join("build", "monGARS.xcresult");
   const res = parseXCResult(target);
   if (!res.ok) {
     console.error(JSON.stringify(res, null, 2));

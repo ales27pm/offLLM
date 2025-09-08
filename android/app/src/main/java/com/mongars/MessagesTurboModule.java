@@ -1,4 +1,4 @@
-package com.myofflinellmapp;
+package com.mongars;
 
 import android.content.Intent;
 import android.net.Uri;

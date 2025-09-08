@@ -9,7 +9,7 @@
   // Prepare the React Native environment.
   RCTAppSetupPrepareApp(application);
   // Name must match the "name" field in app.json.
-  self.moduleName = @"MyOfflineLLMApp";
+  self.moduleName = @"monGARS";
   return [super application:application didFinishLaunchingWithOptions:launchOptions];
 }
 

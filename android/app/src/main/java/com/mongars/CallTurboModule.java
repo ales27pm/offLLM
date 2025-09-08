@@ -1,4 +1,4 @@
-package com.myofflinellmapp;
+package com.mongars;
 
 import android.database.Cursor;
 import android.provider.CallLog;
