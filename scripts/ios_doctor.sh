@@ -1,7 +1,13 @@
 #!/usr/bin/env bash
 set -euo pipefail
 IOS_DIR="${1:-ios}"
-WS="$(/usr/bin/find "$IOS_DIR" -maxdepth 1 -name '*.xcworkspace' -print -quit || true)"
+WS=""
+for ws in "$IOS_DIR"/*.xcworkspace; do
+  if [ -e "$ws" ]; then
+    WS="$ws"
+    break
+  fi
+done
 if [ -z "${WS:-}" ]; then
   echo "❌ No .xcworkspace found after 'pod install' in: $IOS_DIR"
   exit 1
