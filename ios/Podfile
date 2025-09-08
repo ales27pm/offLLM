@@ -93,7 +93,7 @@ target 'monGARS' do
     add_pod_if_present 'RNCClipboard', '../node_modules/@react-native-community/clipboard'
   end
   # Slider: rely on autolinking only to avoid podspec name mismatches
-  # (historically declared as `RNCSlider` with `react-native-slider.podspec`).
+  # (historically exposed as `RNCSlider` with `react-native-slider.podspec`).
   # If needed, autolink will add it; do not declare manually here.
   add_pod_if_present 'react-native-voice', '../node_modules/@react-native-voice/voice'
   add_pod_if_present 'RNFS', '../node_modules/react-native-fs'
@@ -120,7 +120,7 @@ post_install do |installer|
       end
       # Avoid failing the CI on pod warnings
       c.build_settings['GCC_TREAT_WARNINGS_AS_ERRORS'] = 'NO'
-      # CI stability: allow CocoaPods script phases on Xcode 15+
+      # CI stability on Xcode 15+/16+: allow CocoaPods script phases
       c.build_settings['ENABLE_USER_SCRIPT_SANDBOXING'] = 'NO'
     end
   end

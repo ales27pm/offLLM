@@ -89,6 +89,12 @@ jobs:
             pod install --repo-update
           fi
 
+      - name: Post-install hardening (Pods & App projects)
+        if: always()
+        run: |
+          set -euo pipefail
+          ruby scripts/ci/post_install_hardening_hook.rb || true
+
       - name: Patch glog config.h (CI safety net)
         run: |
           set -euo pipefail
@@ -119,7 +125,32 @@ jobs:
             -derivedDataPath "$DERIVED_DATA" \
             -resultBundlePath "$DERIVED_DATA/ResultBundle.xcresult" \
             CODE_SIGNING_ALLOWED=NO \
+            CODE_SIGNING_REQUIRED=NO \
+            CODE_SIGN_IDENTITY="" \
+            PROVISIONING_PROFILE_SPECIFIER="" \
+            SKIP_INSTALL=NO \
+            BUILD_LIBRARY_FOR_DISTRIBUTION=NO \
+            "OTHER_CFLAGS=-DOBJC_OLD_DISPATCH_PROTOTYPES=0" \
             build | xcpretty && exit ${PIPESTATUS[0]}
+
+      - name: Package unsigned IPA from DerivedData
+        run: |
+          set -euo pipefail
+          PRODUCTS_DIR="$DERIVED_DATA/Build/Products/Release-iphoneos"
+          echo "Products dir: $PRODUCTS_DIR"
+          APP_PATH="$(/bin/ls -d "$PRODUCTS_DIR"/*.app 2>/dev/null | head -n1 || true)"
+          if [ -z "$APP_PATH" ] || [ ! -d "$APP_PATH" ]; then
+            echo "::error::No .app found under $PRODUCTS_DIR"
+            /bin/ls -la "$PRODUCTS_DIR" || true
+            exit 1
+          fi
+          echo "Found app: $APP_PATH"
+          rm -rf build/Payload
+          mkdir -p build/Payload
+          cp -R "$APP_PATH" build/Payload/
+          (cd build && /usr/bin/zip -qry offLLM-unsigned.ipa Payload)
+          APP_NAME="$(basename "$APP_PATH")"
+          (cd "$PRODUCTS_DIR" && /usr/bin/zip -qry "../../$APP_NAME.zip" "$APP_NAME")
 
       - name: Archive logs
         if: always()
@@ -136,6 +167,17 @@ jobs:
           name: xcode-logs
           path: artifacts/xcode-log
           if-no-files-found: ignore
+
+      - name: Upload unsigned IPA & bundle
+        if: always()
+        uses: actions/upload-artifact@v4
+        with:
+          name: ios-unsigned-ipa
+          path: |
+            build/offLLM-unsigned.ipa
+            build/*.app.zip
+          if-no-files-found: error
+          compression-level: 6
 
       - name: Upload result bundle
         if: always()
