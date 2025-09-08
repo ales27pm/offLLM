@@ -5,6 +5,8 @@ import Darwin
 // Guard imports so builds still succeed if SPM fails to resolve.
 #if canImport(MLXLLM)
 import MLXLLM
+#elseif canImport(MLX)
+import MLX  // fallback to core MLX so project builds; update calls accordingly
 #endif
 #if canImport(MLXLMCommon)
 import MLXLMCommon

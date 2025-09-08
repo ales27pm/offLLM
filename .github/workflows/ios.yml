@@ -1,0 +1,123 @@
+---
+name: ios (simulator)
+
+on:
+  push:
+    branches: [main, master]
+  pull_request:
+    branches: [main, master]
+
+env:
+  XCODE_VERSION: "16.2"
+
+jobs:
+  build:
+    runs-on: macos-15 # newer image; arm64
+    env:
+      NODE_VERSION: 20
+      RUBY_VERSION: 3.2
+      WORKSPACE: ios/monGARS.xcworkspace
+      SCHEME: monGARS
+      DERIVED_DATA: ${{ github.workspace }}/build/DerivedData
+    steps:
+      - uses: actions/checkout@v4
+
+      - name: Select Xcode
+        uses: maxim-lobanov/setup-xcode@v1
+        with:
+          xcode-version: ${{ env.XCODE_VERSION }}
+
+      - name: Set up Node
+        uses: actions/setup-node@v4
+        with:
+          node-version: ${{ env.NODE_VERSION }}
+          cache: npm
+
+      - name: Setup Ruby (3.2) + Bundler cache
+        uses: ruby/setup-ruby@v1
+        with:
+          ruby-version: "3.2"
+          bundler-cache: true
+
+      - name: Install JS deps
+        run: npm ci
+
+      - name: Install XcodeGen (if needed)
+        run: |
+          if ! command -v xcodegen >/dev/null 2>&1; then
+            brew update
+            brew install xcodegen
+          fi
+
+      - name: Generate Xcode project (XcodeGen)
+        run: |
+          (cd ios && xcodegen generate)
+
+      - name: Install CocoaPods (via bundler)
+        working-directory: ios
+        run: |
+          bundle exec pod install --repo-update
+
+      - name: "Doctor: verify workspace"
+        working-directory: ios
+        run: ./scripts/doctor.sh
+
+      - name: Resolve SPM
+        env:
+          WORKSPACE: ${{ env.WORKSPACE }}
+          SCHEME: ${{ env.SCHEME }}
+          DERIVED_DATA: ${{ env.DERIVED_DATA }}
+        run: |
+          set -euxo pipefail
+          xcodebuild -resolvePackageDependencies \
+            -workspace "$WORKSPACE" \
+            -scheme "$SCHEME" \
+            -clonedSourcePackagesDirPath "$DERIVED_DATA/SourcePackages"
+
+      - name: Prepare Simulator (pick or create; download platform if needed)
+        id: sim
+        env:
+          DERIVED_DATA: ${{ env.DERIVED_DATA }}
+        run: |
+          set -euxo pipefail
+          RB="${DERIVED_DATA}/ResultBundle_build.xcresult"
+          rm -rf "$RB"
+
+          command -v jq >/dev/null 2>&1 || brew install jq
+          JSON=$(xcrun simctl list -j runtimes devices devicetypes)
+          RUNTIME=$(echo "$JSON" | jq -r '.runtimes[] | select(.isAvailable and (.name | startswith("iOS"))) | .identifier' | tail -1 || true)
+          if [ -z "${RUNTIME:-}" ]; then
+            echo "No Simulator runtimes found. Attempting to download iOS platform..."
+            xcodebuild -downloadPlatform iOS || true
+            JSON=$(xcrun simctl list -j runtimes devices devicetypes)
+            RUNTIME=$(echo "$JSON" | jq -r '.runtimes[] | select(.isAvailable and (.name | startswith("iOS"))) | .identifier' | tail -1 || true)
+          fi
+          if [ -z "${RUNTIME:-}" ]; then
+            echo "::error::No available iOS Simulator runtime found after download attempt."
+            exit 70
+          fi
+
+          DEVICE_TYPE=$(echo "$JSON" | jq -r '.devicetypes[] | select(.name | startswith("iPhone")) | .identifier' | head -1)
+          SIM_ID=$(echo "$JSON" | jq -r --arg rt "$RUNTIME" '.devices[$rt][] | select(.isAvailable) | .udid' | head -1 || true)
+          if [ -z "${SIM_ID:-}" ]; then
+            SIM_ID=$(xcrun simctl create CI-iPhone "$DEVICE_TYPE" "$RUNTIME")
+          fi
+          xcrun simctl boot "$SIM_ID" >/dev/null 2>&1 || true
+          xcrun simctl bootstatus "$SIM_ID" -b
+          echo "dest=id=$SIM_ID" >> "$GITHUB_OUTPUT"
+
+      - name: Build (Simulator)
+        env:
+          WORKSPACE: ${{ env.WORKSPACE }}
+          SCHEME: ${{ env.SCHEME }}
+          DERIVED_DATA: ${{ env.DERIVED_DATA }}
+          RESULT_BUNDLE: ${{ env.DERIVED_DATA }}/ResultBundle_build.xcresult
+        run: |
+          set -euxo pipefail
+          xcodebuild -workspace "$WORKSPACE" \
+                     -scheme "$SCHEME" \
+                     -configuration Release \
+                     -destination "${{ steps.sim.outputs.dest }}" \
+                     -derivedDataPath "$DERIVED_DATA" \
+                     -resultBundlePath "$RESULT_BUNDLE" \
+                     clean build
