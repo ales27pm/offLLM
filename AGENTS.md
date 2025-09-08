@@ -10,26 +10,47 @@
 - Create feature branches and keep commits atomic.
 - Use Conventional Commit style (e.g., `feat(turbo): ...`, `fix(ios): ...`).
 
+## Toolchain & Targets (source of truth)
+
+- **iOS:** deployment target **18.0**
+- **Xcode:** **16.2** (iOS 18 SDK)
+- **CI runner:** **`macos-15`**
+- **Scheme / target:** **`monGARS`**
+- **Workspace:** produced by CocoaPods → `ios/monGARS.xcworkspace`
+
+### Do not commit (kept out of VCS)
+
+- `ios/Pods/`, any generated `*.xcworkspace`, `DerivedData/`, and any `*.xcfilelist` artifacts.
+- Let CI generate these deterministically.
+
 ## Install & Build Playbook
 
-- **Local dev**
-  ```bash
-  npm ci
-  (cd ios && xcodegen generate && bundle install)
-  npm run codegen
-  (cd ios && bundle exec pod update hermes-engine --no-repo-update && bundle exec pod install --repo-update)
-  ```
-- **Deterministic CI**
-  ```bash
-  npm run ci:install
-  ```
+### iOS build
+
+1. **XcodeGen:** `cd ios && xcodegen generate`
+2. **Bundler:** `bundle install`
+3. **Codegen (if needed):** `npm run codegen`
+4. **Pods:** `bundle exec pod install --repo-update`
+5. **Doctor:** `./scripts/ios_doctor.sh` (fails early if no `.xcworkspace`)
+6. Build locally (sim): `npx react-native run-ios --scheme monGARS`  
+   _or_ with xcodebuild:  
+   `xcodebuild -workspace ios/monGARS.xcworkspace -scheme monGARS -sdk iphonesimulator -configuration Debug build`
+
+> Unsigned **IPA** is generated in CI by `.github/workflows/ios-unsigned.yml`.  
+> Artifacts: `ios-unsigned-ipa` (IPA, zipped .app, `.xcresult`, logs).
+
+### Deterministic CI
+
+```bash
+npm run ci:install
+```
 
 ## Codegen Rules
 
 - Specs live in [src/specs/](src/specs/).
 - After changing specs:
   - Run `npm run codegen`.
-  - Re-run `bundle exec pod update hermes-engine --no-repo-update && bundle exec pod install` for iOS.
+  - Re-run `bundle exec pod install --repo-update` for iOS.
 
 ## TurboModules Rules
 
@@ -39,9 +60,9 @@
 
 ## iOS Rules
 
-- Build with Xcode 16.x (command line tools installed).
+- Build with Xcode 16.2 (command line tools installed).
 - Deployment target stays **18.0** in [`ios/project.yml`](ios/project.yml) and `Podfile` post_install.
-- When editing these files, update comments and re-run `bundle exec pod update hermes-engine --no-repo-update && bundle exec pod install --repo-update`.
+- When editing these files, update comments and re-run `bundle exec pod install --repo-update`.
 - **Do not enable CocoaPods input/output file lists** with static pods (`:disable_input_output_paths => true` stays). Set `ENABLE_USER_SCRIPT_SANDBOXING` to `NO` in `post_install` for CI stability.
 - When editing project.yml or Podfile, ensure no legacy .xcfilelist references or invalid Podfile hooks are reintroduced.
 - **CocoaPods version:** CI expects CocoaPods **1.16.2** via the root `Gemfile` and lockfile.
@@ -68,10 +89,24 @@
 - Open the in-app Debug Console (dev builds or `DEBUG_PANEL=1`) to view, copy, share, or clear logs.
 - Attach `app.log` when filing issues to aid triage.
 
-## CI Playbook
+## CI Guidance
 
-- `ios-unsigned.yml` workflow: xcodegen → pod install → unsigned simulator build → uploads `monGARS-unsigned-ipa` artifact.
-- If CI fails on pods or project generation, try `pod repo update`, `rm -rf ios/Pods`, and rerun xcodegen.
+**Runner:** `macos-15` (matches Xcode 16.x/iOS 18 SDKs).  
+**Caches:**
+
+- Node: key `hashFiles('package-lock.json')`
+- Pods: key `hashFiles('ios/Podfile.lock')` + `XCODE_VERSION`
+- (Opt.) DerivedData for faster PR rebuilds.  
+  **Order:** XcodeGen → Bundler → `pod install` → `scripts/ios_doctor.sh` → build.
+
+**Pods I/O lists:** We set `DISABLE_INPUT_OUTPUT_PATHS=YES` in `post_install` to avoid fragile `*.xcfilelist` checks.
+
+## Troubleshooting
+
+- **npm ERESOLVE**: use `npm ci` in CI; locally, try `npm i --legacy-peer-deps` only if necessary.
+- **No `.xcworkspace` after Pods**: run the **Doctor**; fix Podfile detection of `.xcodeproj` or re-run XcodeGen.
+- **Xcode mismatch**: CI prints versions; pin to Xcode 16.2 locally (`xcode-select -p` to verify).
+- **File-list errors**: `DISABLE_INPUT_OUTPUT_PATHS=YES` (already applied in `post_install`).
 
 ## PR Checklist
 
