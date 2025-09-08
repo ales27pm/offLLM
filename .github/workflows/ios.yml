@@ -152,6 +152,11 @@ jobs:
           DEVICE_TYPE="$(echo "$SIM_VALUES" | sed -n '2p')"
           DEVICE_ID="$(echo "$SIM_VALUES" | sed -n '3p')"
 
+          echo "Runtime: $RUNTIME_ID"
+          echo "DeviceType: $DEVICE_TYPE"
+          echo "DeviceID: $DEVICE_ID"
+          xcrun simctl list devices | sed -n '1,120p' || true
+
           if [ -z "${RUNTIME_ID:-}" ]; then
             echo "::error::No available iOS Simulator runtime >= 18.0 found."
             exit 70
