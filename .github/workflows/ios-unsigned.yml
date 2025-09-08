@@ -106,6 +106,7 @@ jobs:
         run: |
           set -euo pipefail
           xcodebuild \
+            -resolvePackageDependencies \
             -workspace "$XCODE_WORKSPACE" \
             -scheme "$XCODE_SCHEME" \
             -configuration Release \
