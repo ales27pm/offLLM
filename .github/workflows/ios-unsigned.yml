@@ -224,3 +224,122 @@ jobs:
             build/*.json
           if-no-files-found: error
           compression-level: 6
+
+  archive-ipa:
+    name: Archive (device) & make unsigned IPA
+    needs: [build-ios] # or remove this line to run in parallel
+    runs-on: macos-15
+    env:
+      WORKSPACE: ios/monGARS.xcworkspace
+      SCHEME: monGARS
+      DERIVED_DATA: ${{ github.workspace }}/build/DerivedData
+      XCODE_VERSION: "16.4"
+      DEVELOPER_DIR: "/Applications/Xcode_16.4.app/Contents/Developer"
+
+    steps:
+      - uses: actions/checkout@v4
+
+      - uses: actions/setup-node@v4
+        with:
+          node-version: 20
+          cache: npm
+
+      - name: Set up Ruby (3.2) with bundler cache
+        uses: ruby/setup-ruby@v1
+        with:
+          ruby-version: "3.2"
+          bundler-cache: true
+
+      - name: NPM install (root)
+        run: npm ci
+
+      - name: Bundle install (ios/)
+        working-directory: ios
+        run: |
+          bundle config set path 'vendor/bundle'
+          bundle install --jobs 4
+
+      - name: CocoaPods install
+        working-directory: ios
+        env:
+          COCOAPODS_DISABLE_STATS: "true"
+        run: bundle exec pod install
+
+      - name: "Doctor: verify workspace exists"
+        run: |
+          test -f "${WORKSPACE}" || { echo "::error title=Workspace missing::${WORKSPACE} not found after pod install"; exit 1; }
+
+      - name: Resolve SwiftPM deps
+        run: |
+          xcodebuild -resolvePackageDependencies \
+            -workspace "${WORKSPACE}" \
+            -scheme "${SCHEME}" \
+            -clonedSourcePackagesDirPath "${DERIVED_DATA}/SourcePackages"
+
+      - name: Archive (device) — try generic iOS
+        id: archive
+        continue-on-error: true
+        run: |
+          set -euxo pipefail
+          ARCHIVE_PATH="${DERIVED_DATA}/Archive.xcarchive"
+          RB_ARCHIVE="${DERIVED_DATA}/ResultBundle_archive.xcresult"
+          rm -rf "$ARCHIVE_PATH" "$RB_ARCHIVE"
+          xcodebuild archive \
+            -workspace "${WORKSPACE}" \
+            -scheme "${SCHEME}" \
+            -destination "generic/platform=iOS" \
+            -configuration Release \
+            -derivedDataPath "${DERIVED_DATA}" \
+            -resultBundlePath "${RB_ARCHIVE}" \
+            CODE_SIGNING_ALLOWED=NO CODE_SIGNING_REQUIRED=NO \
+            -archivePath "$ARCHIVE_PATH"
+          echo "ok=true" >> "$GITHUB_OUTPUT"
+
+      - name: Fallback note if device platform is missing
+        if: steps.archive.outcome == 'failure'
+        run: |
+          echo "::warning title=Device platform unavailable::This runner image lacks the iOS Device platform. See uploaded xcresult for details."
+
+      - name: Package unsigned IPA from archive (if archive succeeded)
+        if: steps.archive.outputs.ok == 'true'
+        run: |
+          set -euxo pipefail
+          ARCHIVE_PATH="${DERIVED_DATA}/Archive.xcarchive"
+          APP_PATH="$(/usr/bin/find "$ARCHIVE_PATH/Products/Applications" -maxdepth 2 -name '*.app' -print -quit || true)"
+          if [ -z "$APP_PATH" ]; then
+            echo "::error title=No .app in archive::Archive succeeded but no .app found under Products/Applications."
+            exit 1
+          fi
+          mkdir -p build
+          # zip .app for inspection
+          (cd "$(dirname "$APP_PATH")" && /usr/bin/zip -qry "$GITHUB_WORKSPACE/build/$(basename "$APP_PATH").zip" "$(basename "$APP_PATH")")
+          # create unsigned IPA (device build; still unsigned)
+          TMP="$(mktemp -d)"; mkdir -p "$TMP/Payload"
+          cp -R "$APP_PATH" "$TMP/Payload/"
+          (cd "$TMP" && /usr/bin/zip -qry "$GITHUB_WORKSPACE/build/offLLM-device-unsigned.ipa" "Payload")
+          rm -rf "$TMP"
+
+      - name: Extract errors from xcresult (archive)
+        if: always()
+        run: |
+          set -euo pipefail
+          mkdir -p build
+          RB="${DERIVED_DATA}/ResultBundle_archive.xcresult"
+          if [ -d "$RB" ]; then
+            xcrun xcresulttool get --format json --path "$RB" > "build/ResultBundle_archive.json" || true
+            grep -n '"issue' "build/ResultBundle_archive.json" | head -n 200 || true
+          fi
+
+      - name: Upload archive artifacts
+        if: always()
+        uses: actions/upload-artifact@v4
+        with:
+          name: ios-archive-and-ipa
+          path: |
+            build/offLLM-device-unsigned.ipa
+            build/*.app.zip
+            ${{ env.DERIVED_DATA }}/Archive.xcarchive
+            ${{ env.DERIVED_DATA }}/ResultBundle_archive.xcresult
+            build/ResultBundle_archive.json
+          if-no-files-found: warn
+          compression-level: 6
