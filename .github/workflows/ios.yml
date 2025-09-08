@@ -8,7 +8,7 @@ on:
     branches: [main, master]
 
 env:
-  XCODE_VERSION: "16.2"
+  XCODE_VERSION: "16.4"
 
 jobs:
   build:
@@ -30,9 +30,6 @@ jobs:
         with:
           node-version: ${{ env.NODE_VERSION }}
           cache: npm
-
-      - name: Install jq
-        uses: dcarbone/install-jq-action@8867ddb4788346d7c22b72ea2e2ffe4d514c7bcb
 
       - name: Setup Ruby (3.2) + Bundler cache
         uses: ruby/setup-ruby@44511735964dcb71245e7e55f72539531f7bc0eb
@@ -106,32 +103,33 @@ jobs:
           RB="${DERIVED_DATA}/ResultBundle_build.xcresult"
           rm -rf "$RB"
 
-          if ! command -v jq >/dev/null 2>&1; then
-            echo "::error::jq is required but not installed. Please ensure jq is available on the runner."
-            exit 71
+          # Prefer iOS 18.5 if present; otherwise use the newest available iOS runtime
+          if xcrun simctl list runtimes | grep -q "iOS 18.5 .* (available)"; then
+            RUNTIME_ID="com.apple.CoreSimulator.SimRuntime.iOS-18-5"
+          else
+            # Extract last available iOS runtime identifier (e.g., com.apple.CoreSimulator.SimRuntime.iOS-18-4)
+            RUNTIME_ID="$(xcrun simctl list runtimes | awk -F '[()]' '/iOS .* (available)/{print $2}' | tail -1)"
           fi
 
-          JSON=$(xcrun simctl list -j runtimes devices devicetypes)
-          EXPECTED_RUNTIME="iOS 18.2"
-          RUNTIME=$(echo "$JSON" | jq -r --arg name "$EXPECTED_RUNTIME" '.runtimes[] | select(.isAvailable and .name == $name) | .identifier' || true)
-          if [ -z "${RUNTIME:-}" ]; then
-            echo "::error::Expected iOS Simulator runtime '$EXPECTED_RUNTIME' not found."
+          if [ -z "${RUNTIME_ID:-}" ]; then
+            echo "::error::No available iOS Simulator runtime found."
             exit 70
           fi
 
-          DEVICE_TYPE=$(echo "$JSON" | jq -r '.devicetypes[] | select(.name == "iPhone 16 Pro") | .identifier' | head -1 || true)
-          if [ -z "${DEVICE_TYPE:-}" ]; then
-            DEVICE_TYPE=$(echo "$JSON" | jq -r '.devicetypes[] | select(.name | startswith("iPhone")) | .identifier' | head -1)
+          DEVICE_TYPE="com.apple.CoreSimulator.SimDeviceType.iPhone-16-Pro"
+          DEVICE_ID="$(xcrun simctl list devices | awk -v t="$DEVICE_TYPE" -v r="$RUNTIME_ID" -F '[() ]+' '$0 ~ t && $0 ~ r && /(Booted|Shutdown)/ {print $6; exit}')"
+          if [ -z "${DEVICE_ID:-}" ]; then
+            DEVICE_ID="$(xcrun simctl create "iPhone 16 Pro" "$DEVICE_TYPE" "$RUNTIME_ID")"
           fi
 
-          SIM_ID=$(echo "$JSON" | jq -r --arg rt "$RUNTIME" '.devices[$rt][] | select(.isAvailable) | .udid' | head -1 || true)
-          if [ -z "${SIM_ID:-}" ]; then
-            SIM_ID=$(xcrun simctl create CI-iPhone "$DEVICE_TYPE" "$RUNTIME")
+          if [ -z "${DEVICE_ID:-}" ]; then
+            echo "::error::Failed to create or find a simulator for runtime $RUNTIME_ID."
+            exit 72
           fi
 
-          xcrun simctl boot "$SIM_ID" >/dev/null 2>&1 || true
-          xcrun simctl bootstatus "$SIM_ID" -b
-          echo "dest=id=$SIM_ID" >> "$GITHUB_OUTPUT"
+          xcrun simctl boot "$DEVICE_ID" >/dev/null 2>&1 || true
+          xcrun simctl bootstatus "$DEVICE_ID" -b
+          echo "dest=id=$DEVICE_ID" >> "$GITHUB_OUTPUT"
 
       - name: Build (Simulator)
         env:

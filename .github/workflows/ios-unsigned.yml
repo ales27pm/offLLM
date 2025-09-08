@@ -7,7 +7,7 @@ on:
     branches: [main, master]
 
 env:
-  XCODE_VERSION: "16.2"
+  XCODE_VERSION: "16.4"
 
 jobs:
   build-ios:

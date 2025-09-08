@@ -13,10 +13,11 @@
 ## Toolchain & Targets (source of truth)
 
 - **iOS:** deployment target **18.0**
-- **Xcode:** **16.2** (iOS 18 SDK)
+- **Xcode:** **16.4** (iOS 18.5 SDK)
 - **CI runner:** **`macos-15`**
 - **Scheme / target:** **`monGARS`**
 - **Workspace:** produced by CocoaPods → `ios/monGARS.xcworkspace`
+  - Simulator preference: **iOS 18.5** when available; workflows auto-fallback to the latest available iOS runtime.
 
 ### Do not commit (kept out of VCS)
 
@@ -60,7 +61,7 @@ npm run ci:install
 
 ## iOS Rules
 
-- Build with Xcode 16.2 (command line tools installed).
+- Build with Xcode 16.4 (command line tools installed).
 - Deployment target stays **18.0** in [`ios/project.yml`](ios/project.yml) and `Podfile` post_install.
 - When editing these files, update comments and re-run `bundle exec pod install --repo-update`.
 - **Do not enable CocoaPods input/output file lists** with static pods (`:disable_input_output_paths => true` stays). Set `ENABLE_USER_SCRIPT_SANDBOXING` to `NO` in `post_install` for CI stability.
@@ -91,7 +92,7 @@ npm run ci:install
 
 ## CI Guidance
 
-**Runner:** `macos-15` (matches Xcode 16.x/iOS 18 SDKs).  
+**Runner:** `macos-15` (matches Xcode 16.4 / iOS 18.5 SDKs).
 **Caches:**
 
 - Node: key `hashFiles('package-lock.json')`
@@ -105,7 +106,7 @@ npm run ci:install
 
 - **npm ERESOLVE**: use `npm ci` in CI; locally, try `npm i --legacy-peer-deps` only if necessary.
 - **No `.xcworkspace` after Pods**: run the **Doctor**; fix Podfile detection of `.xcodeproj` or re-run XcodeGen.
-- **Xcode mismatch**: CI prints versions; pin to Xcode 16.2 locally (`xcode-select -p` to verify).
+- **Xcode mismatch**: CI prints versions; pin to Xcode 16.4 locally (`xcode-select -p` to verify).
 - **File-list errors**: `DISABLE_INPUT_OUTPUT_PATHS=YES` (already applied in `post_install`).
 
 ## PR Checklist
