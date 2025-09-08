@@ -131,19 +131,31 @@ jobs:
           CONFIGURATION: Release
         run: |
           set -euxo pipefail
-          DESTINATION="platform=iOS Simulator,name=iPhone 16 Pro,OS=18.6"
           RESULT_BUNDLE="$DERIVED_DATA/ResultBundle.xcresult"
-          xcodebuild -workspace "$WORKSPACE" \
-                     -scheme "$SCHEME" \
-                     -sdk iphonesimulator \
-                     -destination "$DESTINATION" \
-                     -destination-timeout 1 \
-                     -arch arm64 \
-                     ONLY_ACTIVE_ARCH=YES \
-                     -configuration "$CONFIGURATION" \
-                     -derivedDataPath "$DERIVED_DATA" \
-                     -resultBundlePath "$RESULT_BUNDLE" \
-                     clean build
+          # Pick a single iPhone 16 Pro (iOS 18.x) simulator UUID to avoid "multiple matching destinations"
+          SIM_ID="$(xcrun simctl list devices 'iOS 18' | awk -F '[() ]+' '/iPhone 16 Pro .* (Booted|Shutdown)/ {print $6; exit}')"
+          if [ -z "${SIM_ID:-}" ]; then
+            echo "No iPhone 16 Pro (iOS 18.x) simulator found; falling back to automatic destination."
+            xcodebuild -workspace "$WORKSPACE" \
+                       -scheme "$SCHEME" \
+                       -sdk iphonesimulator \
+                       -destination "platform=iOS Simulator,name=iPhone 16 Pro" \
+                       -destination-timeout 1 \
+                       -configuration "$CONFIGURATION" \
+                       -derivedDataPath "$DERIVED_DATA" \
+                       -resultBundlePath "$RESULT_BUNDLE" \
+                       clean build
+          else
+            xcodebuild -workspace "$WORKSPACE" \
+                       -scheme "$SCHEME" \
+                       -sdk iphonesimulator \
+                       -destination "id=${SIM_ID}" \
+                       -destination-timeout 1 \
+                       -configuration "$CONFIGURATION" \
+                       -derivedDataPath "$DERIVED_DATA" \
+                       -resultBundlePath "$RESULT_BUNDLE" \
+                       clean build
+          fi
 
           PRODUCTS_DIR="$DERIVED_DATA/Build/Products/${CONFIGURATION}-iphonesimulator"
           APP_PATH="$(/usr/bin/find "$PRODUCTS_DIR" -maxdepth 2 -name '*.app' -print -quit || true)"
