@@ -108,6 +108,13 @@ target 'monGARS' do
 end
 
 post_install do |installer|
+  # Safe even if not strictly needed: prevents stale I/O path analysis issues on CI
+  installer.pods_project.targets.each do |t|
+    t.build_configurations.each do |c|
+      c.build_settings['DISABLE_INPUT_OUTPUT_PATHS'] = 'YES'
+    end
+  end
+
   react_native_post_install(installer)
 
   # Soften Xcode's strict input/output file list checks.
