@@ -22,4 +22,5 @@ if [[ -z "$FOUND" ]]; then
   exit 1
 fi
 echo "✅ Found workspace: $FOUND"
+[[ -n "${GITHUB_ENV:-}" ]] && echo "WORKSPACE=$FOUND" >> "$GITHUB_ENV"
 
