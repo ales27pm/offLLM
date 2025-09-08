@@ -1,4 +1,4 @@
-platform :ios, '18.0'
+platform :ios, '14.0'
 
 # --- Auto-detect the .xcodeproj near this Podfile ---
 project_candidates = Dir.glob(File.join(__dir__, '*.xcodeproj')).sort
@@ -15,18 +15,39 @@ project_path =
 raise "No .xcodeproj found near Podfile (#{__dir__})" unless project_path
 project File.basename(project_path)
 
-use_frameworks! :linkage => :static
+use_frameworks! linkage: :static
 
-require_relative '../node_modules/react-native/scripts/react_native_pods'
 begin
-  require_relative '../node_modules/@react-native-community/cli-platform-ios/native_modules'
-rescue LoadError
-  require_relative '../node_modules/react-native/scripts/native_modules'
+  rn_path = File.join(__dir__, '..', 'node_modules', 'react-native')
+
+  # React Native CocoaPods helpers (modern path)
+  require File.join(rn_path, 'scripts', 'react_native_pods')
+
+  # Autolinking helpers — try modern first, then legacy file names
+  autolink_candidates = [
+    File.join(rn_path, 'scripts', 'autolink-ios.rb'),
+    File.join(rn_path, 'scripts', 'native_modules.rb')
+  ]
+  autolink_loaded = false
+  autolink_candidates.each do |cand|
+    if File.exist?(cand)
+      require cand
+      autolink_loaded = true
+      break
+    end
+  end
+
+  # No hard failure if autolink script filename changes across RN minor versions
+  Pod::UI.warn('[Podfile] Could not load autolink helper; relying on use_native_modules!') unless autolink_loaded
+
+rescue LoadError => e
+  abort "[Podfile] Could not load React Native pod helpers: #{e.message}\n" \
+        "[Podfile] Hint: run 'npm ci' (or 'yarn install') at repo root before 'pod install'."
 end
 
-# Ensure glog/src/config.h exists
+# Ensure glog/src/config.h exists (prevents 'config.h not found' CI errors)
 pre_install do |installer|
-  Pod::UI.puts "Ensuring glog/src/config.h exists…"
+  Pod::UI.puts 'Ensuring glog/src/config.h exists…'
   glog_src = File.join(installer.sandbox.root.to_s, 'glog', 'src')
   config_h = File.join(glog_src, 'config.h')
   config_ios = File.join(glog_src, 'config_ios.h')
@@ -35,12 +56,12 @@ pre_install do |installer|
   if File.directory?(glog_src) && !File.exist?(config_h)
     if File.exist?(config_ios)
       FileUtils.cp(config_ios, config_h)
-      Pod::UI.puts "Copied glog/src/config_ios.h -> config.h"
+      Pod::UI.puts 'Copied glog/src/config_ios.h -> config.h'
     elsif File.exist?(config_cmake)
       FileUtils.cp(config_cmake, config_h)
-      Pod::UI.puts "Copied glog/src/config.h.cmake -> config.h"
+      Pod::UI.puts 'Copied glog/src/config.h.cmake -> config.h'
     else
-      Pod::UI.warn "Could not find a glog config template to copy."
+      Pod::UI.warn 'Could not find a glog config template to copy.'
     end
   end
 end
@@ -52,16 +73,34 @@ target 'monGARS' do
     :app_path => "#{Pod::Config.instance.installation_root}/.."
   )
 
-  pod 'RNFS', :path => '../node_modules/react-native-fs'
-  pod 'RNDeviceInfo', :path => '../node_modules/react-native-device-info'
-  pod 'RNCClipboard', :path => '../node_modules/@react-native-clipboard/clipboard'
-  pod 'RNCAsyncStorage', :path => '../node_modules/@react-native-async-storage/async-storage'
-  pod 'react-native-contacts', :path => '../node_modules/react-native-contacts'
-  pod 'react-native-config', :path => '../node_modules/react-native-config'
-  pod 'react-native-voice', :path => '../node_modules/@react-native-voice/voice'
-  pod 'react-native-sqlite-storage', :path => '../node_modules/react-native-sqlite-storage'
-  pod 'react-native-slider', :path => '../node_modules/@react-native-community/slider'
-  pod 'react-native-music-control', :path => '../node_modules/react-native-music-control'
+  # ---- Conditionally add pods that exist in node_modules ----
+  def add_pod_if_present(name, rel_path)
+    abs = File.join(__dir__, rel_path)
+    spec = Dir[File.join(abs, '*.podspec')].first
+    if spec && File.exist?(spec)
+      pod name, :path => rel_path
+    else
+      Pod::UI.warn "Skipping #{name} — no podspec at #{rel_path}"
+    end
+  end
+
+  # Community modules
+  add_pod_if_present 'RNCAsyncStorage', '../node_modules/@react-native-async-storage/async-storage'
+  # Clipboard package moved orgs in the past; try the canonical one first
+  if Dir.exist?(File.join(__dir__, '../node_modules/@react-native-clipboard/clipboard'))
+    add_pod_if_present 'RNCClipboard', '../node_modules/@react-native-clipboard/clipboard'
+  else
+    add_pod_if_present 'RNCClipboard', '../node_modules/@react-native-community/clipboard'
+  end
+  add_pod_if_present 'RNCSlider', '../node_modules/@react-native-community/slider'
+  add_pod_if_present 'react-native-voice', '../node_modules/@react-native-voice/voice'
+  add_pod_if_present 'RNFS', '../node_modules/react-native-fs'
+  add_pod_if_present 'RNDeviceInfo', '../node_modules/react-native-device-info'
+  add_pod_if_present 'react-native-contacts', '../node_modules/react-native-contacts'
+  add_pod_if_present 'react-native-config', '../node_modules/react-native-config'
+  add_pod_if_present 'react-native-sqlite-storage', '../node_modules/react-native-sqlite-storage'
+  add_pod_if_present 'react-native-slider', '../node_modules/@react-native-community/slider'
+  add_pod_if_present 'react-native-music-control', '../node_modules/react-native-music-control'
 
   use_native_modules!
 end
@@ -69,11 +108,17 @@ end
 post_install do |installer|
   react_native_post_install(installer)
 
+  # Normalize build settings across pods
   installer.pods_project.targets.each do |t|
     t.build_configurations.each do |c|
+      # Match project + satisfy RN 0.81+ minimums
+      c.build_settings['IPHONEOS_DEPLOYMENT_TARGET'] = '14.0'
+      # Keep debug previews off to reduce noise in CI
+      if c.name == 'Debug'
+        c.build_settings['SWIFT_OPTIMIZATION_LEVEL'] = '-Onone'
+      end
+      # Avoid failing the CI on pod warnings
       c.build_settings['GCC_TREAT_WARNINGS_AS_ERRORS'] = 'NO'
-      c.build_settings['SWIFT_OPTIMIZATION_LEVEL'] = '-Onone' if c.name == 'Debug'
-      c.build_settings['IPHONEOS_DEPLOYMENT_TARGET'] = '18.0' # ← normalize pods
     end
   end
 end

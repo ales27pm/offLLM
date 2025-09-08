@@ -7,7 +7,7 @@ targets:
   monGARS:
     type: application
     platform: iOS
-    deploymentTarget: "18.0"
+    deploymentTarget: "14.0"
 
     sources:
       - path: MyOfflineLLMApp
@@ -35,7 +35,6 @@ targets:
         # Allow CocoaPods header symlink scripts to write in Xcode 15+
         ENABLE_USER_SCRIPT_SANDBOXING: NO
 
-      # Ensure dSYMs on Release/Archive
       configurations:
         Release:
           DEBUG_INFORMATION_FORMAT: dwarf-with-dsym

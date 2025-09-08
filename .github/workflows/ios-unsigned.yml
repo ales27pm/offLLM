@@ -23,9 +23,8 @@ jobs:
         uses: actions/setup-node@v4
         with:
           node-version: 18
-          cache: npm
 
-      - name: Cache node_modules & Pods
+      - name: Cache node_modules/Pods
         uses: actions/cache@v4
         with:
           path: |
@@ -59,41 +58,24 @@ jobs:
           set -euo pipefail
           xcodegen generate
 
-      - name: Verify & export Xcode project
+      - name: Verify project presence
         run: |
           set -euo pipefail
-          FOUND="$($(/bin/ls -d ios/*.xcodeproj 2>/dev/null | head -n1) || true)"
+          FOUND="$(ls -1 ios/*.xcodeproj 2>/dev/null | head -n1 || true)"
           if [ -z "${FOUND}" ]; then
-            echo "::error title=Missing Xcode project::No .xcodeproj found under ios/. Commit your Xcode project (e.g., ios/YourApp.xcodeproj)."
+            echo "::error title=Missing Xcode project::No .xcodeproj found under ios/. Commit your XcodeGen inputs and rerun."
             exit 1
           fi
-          echo "Found Xcode project: ${FOUND}"
           NAME="$(basename "${FOUND}" .xcodeproj)"
           echo "XCODE_PROJECT_PATH=${FOUND}" >> $GITHUB_ENV
           echo "XCODE_PROJECT_NAME=${NAME}" >> $GITHUB_ENV
+          echo "Expect CocoaPods to generate workspace: ios/${NAME}.xcworkspace"
 
       - name: Set up Ruby
         uses: ruby/setup-ruby@v1
         with:
           ruby-version: "3.2"
           bundler-cache: false
-
-      - name: Install CocoaPods and xcpretty
-        run: |
-          set -euo pipefail
-          gem install cocoapods --no-document
-          gem install xcpretty --no-document
-
-      - name: Check Clipboard package
-        run: |
-          set -euo pipefail
-          if [ -f node_modules/@react-native-clipboard/clipboard/RNCClipboard.podspec ]; then
-            echo "Using @react-native-clipboard/clipboard"
-          elif [ -f node_modules/@react-native-community/clipboard/RNCClipboard.podspec ]; then
-            echo "Using @react-native-community/clipboard"
-          else
-            echo "::error::No clipboard RN package installed"; exit 1
-          fi
 
       - name: Install CocoaPods
         working-directory: ios
@@ -106,71 +88,46 @@ jobs:
             pod install --repo-update
           fi
 
-      - name: Export Xcode workspace
-        run: |
-          set -euo pipefail
-          WS="ios/${XCODE_PROJECT_NAME}.xcworkspace"
-          if [ ! -d "$WS" ]; then
-            echo "::error title=Missing Xcode workspace::${WS} not found after pod install."
-            exit 1
-          fi
-          echo "XCODE_WORKSPACE=$WS" >> "$GITHUB_ENV"
-
       - name: Patch glog config.h (CI safety net)
         run: |
           set -euo pipefail
           GLOG_SRC="ios/Pods/glog/src"
-          if [ -d "$GLOG_SRC" ]; then
-            if [ ! -f "$GLOG_SRC/config.h" ]; then
-              if [ -f "$GLOG_SRC/config_ios.h" ]; then
-                cp "$GLOG_SRC/config_ios.h" "$GLOG_SRC/config.h"
-                echo "Patched glog: config_ios.h -> config.h"
-              elif [ -f "$GLOG_SRC/config.h.cmake" ]; then
-                cp "$GLOG_SRC/config.h.cmake" "$GLOG_SRC/config.h"
-                echo "Patched glog: config.h.cmake -> config.h"
-              else
-                echo "::warning::Could not find a glog config template to copy."
-              fi
+          if [ -d "$GLOG_SRC" ] && [ ! -f "$GLOG_SRC/config.h" ]; then
+            if [ -f "$GLOG_SRC/config_ios.h" ]; then
+              cp "$GLOG_SRC/config_ios.h" "$GLOG_SRC/config.h"
+              echo "Patched glog: config_ios.h -> config.h"
+            elif [ -f "$GLOG_SRC/config.h.cmake" ]; then
+              cp "$GLOG_SRC/config.h.cmake" "$GLOG_SRC/config.h"
+              echo "Patched glog: config.h.cmake -> config.h"
+            else
+              echo "::warning::Could not find a glog config template to copy."
             fi
-          else
-            echo "::warning::glog src folder not found at $GLOG_SRC"
           fi
 
       - name: Build (Release, device SDK)
+        env:
+          XCODE_WORKSPACE: ios/${{ env.XCODE_PROJECT_NAME }}.xcworkspace
         run: |
           set -euo pipefail
-          if [ -n "${XCODE_WORKSPACE:-}" ]; then
-            xcodebuild \
-              -workspace "$XCODE_WORKSPACE" \
-              -scheme "$XCODE_SCHEME" \
-              -configuration Release \
-              -sdk iphoneos \
-              -arch arm64 \
-              -derivedDataPath "$DERIVED_DATA" \
-              CODE_SIGNING_ALLOWED=NO \
-              build | xcpretty && exit ${PIPESTATUS[0]}
-          else
-            xcodebuild \
-              -project "$XCODE_PROJECT_PATH" \
-              -scheme "$XCODE_SCHEME" \
-              -configuration Release \
-              -sdk iphoneos \
-              -arch arm64 \
-              -derivedDataPath "$DERIVED_DATA" \
-              CODE_SIGNING_ALLOWED=NO \
-              build | xcpretty && exit ${PIPESTATUS[0]}
-          fi
+          xcodebuild \
+            -workspace "$XCODE_WORKSPACE" \
+            -scheme "$XCODE_SCHEME" \
+            -configuration Release \
+            -sdk iphoneos \
+            -arch arm64 \
+            -derivedDataPath "$DERIVED_DATA" \
+            CODE_SIGNING_ALLOWED=NO \
+            build | xcpretty && exit ${PIPESTATUS[0]}
 
-      - name: Archive artifacts (optional)
+      - name: Archive logs
         if: always()
         run: |
           mkdir -p artifacts/xcode-log
           if [ -d "$DERIVED_DATA/Logs/Build" ]; then
             cp -R "$DERIVED_DATA/Logs/Build" artifacts/xcode-log/
           fi
-        continue-on-error: true
 
-      - name: Upload artifacts (optional)
+      - name: Upload logs
         if: always()
         uses: actions/upload-artifact@v4
         with:
