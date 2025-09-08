@@ -133,59 +133,61 @@ jobs:
           set -euo pipefail
           brew install xcbeautify || true
 
-      - name: Clean SwiftPM state (fresh resolve)
+      - name: Sanity check schemes & build settings
         run: |
           set -euo pipefail
-          rm -rf "$DERIVED_DATA/SourcePackages" || true
-          find . -name "Package.resolved" -maxdepth 3 -print -exec rm -f {} \; || true
+          xcodebuild -list -workspace "ios/${XCODE_PROJECT_NAME}.xcworkspace" | sed -n '1,200p' || true
+          echo "::group::Build settings for scheme ${XCODE_SCHEME}"
+          xcodebuild -showBuildSettings \
+            -workspace "ios/${XCODE_PROJECT_NAME}.xcworkspace" \
+            -scheme "${XCODE_SCHEME}" -configuration Release | \
+            /usr/bin/grep -E 'PRODUCT_NAME|WRAPPER_NAME|PRODUCT_BUNDLE_IDENTIFIER|PRODUCT_TYPE|CONFIGURATION_BUILD_DIR' || true
+          echo "::endgroup::"
 
-      - name: Build (Release, iphoneos, deterministic DerivedData)
+      - name: Archive (unsigned, Release, iphoneos)
         env:
           XCODE_WORKSPACE: ios/${{ env.XCODE_PROJECT_NAME }}.xcworkspace
           GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }} # for authenticated SPM fetches
         run: |
           set -euo pipefail
-          xcodebuild \
-            -resolvePackageDependencies \
+          ARCHIVE_PATH="build/App.xcarchive"
+          # Resolve packages explicitly for clearer logs
+          xcodebuild -resolvePackageDependencies \
+            -workspace "$XCODE_WORKSPACE" \
+            -scheme "$XCODE_SCHEME" | xcbeautify
+          # Create an unsigned archive targeting a generic iOS device
+          xcodebuild archive \
             -workspace "$XCODE_WORKSPACE" \
             -scheme "$XCODE_SCHEME" \
             -configuration Release \
             -sdk iphoneos \
             -destination 'generic/platform=iOS' \
-            -arch arm64 \
+            -archivePath "$ARCHIVE_PATH" \
             -derivedDataPath "$DERIVED_DATA" \
             -resultBundlePath "$DERIVED_DATA/ResultBundle.xcresult" \
             CODE_SIGNING_ALLOWED=NO CODE_SIGNING_REQUIRED=NO CODE_SIGN_IDENTITY='' \
             PROVISIONING_PROFILE_SPECIFIER='' SKIP_INSTALL=NO BUILD_LIBRARY_FOR_DISTRIBUTION=NO \
             "OTHER_CFLAGS=-DOBJC_OLD_DISPATCH_PROTOTYPES=0" \
-            build | xcbeautify
-
-      - name: Package unsigned IPA from Release-iphoneos
+            | xcbeautify
+      - name: Package unsigned IPA from archive
         run: |
           set -euo pipefail
-          PRODUCTS_DIR="$DERIVED_DATA/Build/Products"
-          if [ ! -d "$PRODUCTS_DIR" ]; then
-            echo "::group::Debug: list of DerivedData"
-            /bin/ls -lahR "$DERIVED_DATA" || true
+          APP_DIR="build/App.xcarchive/Products/Applications"
+          FOUND_APP="$(/usr/bin/find "$APP_DIR" -maxdepth 1 -type d -name '*.app' -print -quit || true)"
+          if [ -z "$FOUND_APP" ]; then
+            echo "::group::Debug: list archive contents"
+            /bin/ls -lahR "build/App.xcarchive" || true
             echo "::endgroup::"
-            echo "::error title=Products dir missing::No Build/Products directory at $PRODUCTS_DIR (build may have failed earlier)."
-            exit 1
-          fi
-          APP_PATH="$PRODUCTS_DIR/Release-iphoneos/${XCODE_SCHEME}.app"
-          if [ ! -d "$APP_PATH" ]; then
-            echo "::group::Debug: list of Build/Products"
-            /bin/ls -lahR "$PRODUCTS_DIR" || true
-            echo "::endgroup::"
-            echo "::error title=App not found::No app at $APP_PATH (build may have failed earlier)."
+            echo "::error title=App not found::No .app inside $APP_DIR (archive may have failed)."
             exit 1
           fi
           mkdir -p build
           cd build
           rm -rf Payload
           mkdir -p Payload
-          cp -R "$APP_PATH" Payload/
+          cp -R "$FOUND_APP" Payload/
           /usr/bin/zip -qry monGARS-unsigned.ipa Payload
-          /usr/bin/zip -qry "$(basename "$APP_PATH").zip" "$APP_PATH"
+          /usr/bin/zip -qry "$(basename "$FOUND_APP").zip" "$FOUND_APP"
 
       - name: Upload unsigned IPA, app & logs
         if: always()
