@@ -59,6 +59,19 @@ jobs:
           set -euo pipefail
           xcodegen generate
 
+      - name: Verify & export Xcode project
+        run: |
+          set -euo pipefail
+          FOUND="$(ls -1 ios/*.xcodeproj 2>/dev/null | head -n1 || true)"
+          if [ -z "${FOUND}" ]; then
+            echo "::error title=Missing Xcode project::No .xcodeproj found under ios/. Commit your Xcode project (e.g., ios/YourApp.xcodeproj)."
+            exit 1
+          fi
+          echo "Found Xcode project: ${FOUND}"
+          NAME="$(basename "${FOUND}" .xcodeproj)"
+          echo "XCODE_PROJECT_PATH=${FOUND}" >> $GITHUB_ENV
+          echo "XCODE_PROJECT_NAME=${NAME}" >> $GITHUB_ENV
+
       - name: Set up Ruby
         uses: ruby/setup-ruby@v1
         with:
@@ -71,6 +84,17 @@ jobs:
           gem install cocoapods --no-document
           gem install xcpretty --no-document
 
+      - name: Check Clipboard package
+        run: |
+          set -euo pipefail
+          if [ -f node_modules/@react-native-clipboard/clipboard/RNCClipboard.podspec ]; then
+            echo "Using @react-native-clipboard/clipboard"
+          elif [ -f node_modules/@react-native-community/clipboard/RNCClipboard.podspec ]; then
+            echo "Using @react-native-community/clipboard"
+          else
+            echo "::error::No clipboard RN package installed"; exit 1
+          fi
+
       - name: Install CocoaPods
         working-directory: ios
         run: |
@@ -82,22 +106,15 @@ jobs:
             pod install --repo-update
           fi
 
-      - name: Detect Xcode workspace/project
+      - name: Export Xcode workspace
         run: |
           set -euo pipefail
-          WS="$(ls -1 ios/*.xcworkspace 2>/dev/null | head -n1 || true)"
-          PRJ="$(ls -1 ios/*.xcodeproj 2>/dev/null | head -n1 || true)"
-          if [ -n "$WS" ]; then
-            echo "XCODE_WORKSPACE=$WS" >> "$GITHUB_ENV"
-          fi
-          if [ -n "$PRJ" ]; then
-            echo "XCODE_PROJECT_PATH=$PRJ" >> "$GITHUB_ENV"
-            echo "XCODE_PROJECT_NAME=$(basename "$PRJ" .xcodeproj)" >> "$GITHUB_ENV"
-          fi
-          if [ -z "$WS" ] && [ -z "$PRJ" ]; then
-            echo "::error title=Missing Xcode project::No .xcworkspace or .xcodeproj found under ios/."
+          WS="ios/${XCODE_PROJECT_NAME}.xcworkspace"
+          if [ ! -d "$WS" ]; then
+            echo "::error title=Missing Xcode workspace::${WS} not found after pod install."
             exit 1
           fi
+          echo "XCODE_WORKSPACE=$WS" >> "$GITHUB_ENV"
 
       - name: Patch glog config.h (CI safety net)
         run: |

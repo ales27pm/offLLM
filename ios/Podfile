@@ -1,17 +1,5 @@
 platform :ios, '13.0'
 
-# React Native helpers (tolerant if node_modules is missing)
-begin
-  require_relative '../node_modules/react-native/scripts/react_native_pods'
-  require_relative '../node_modules/@react-native-community/cli-platform-ios/native_modules'
-rescue LoadError => e
-  puts "[Podfile] Could not load React Native pod helpers: #{e}"
-  puts "[Podfile] Hint: run 'npm ci' (or 'yarn install') at repo root before 'pod install'."
-  def use_react_native!(*); end
-  def use_react_native_codegen_discovery!(*); end
-  def react_native_post_install(*); end
-end
-
 # --- Auto-detect the .xcodeproj near this Podfile ---
 project_candidates = Dir.glob(File.join(__dir__, '*.xcodeproj')).sort
 preferred = ENV['XCODE_PROJECT_NAME']
@@ -20,12 +8,17 @@ project_path =
     File.join(__dir__, "#{preferred}.xcodeproj")
   elsif project_candidates.any?
     project_candidates.first
+  else
+    nil
   end
 
 raise "No .xcodeproj found near Podfile (#{__dir__})" unless project_path
 project File.basename(project_path)
 
 use_frameworks! :linkage => :static
+
+require_relative '../node_modules/react-native/scripts/react_native_pods'
+require_relative '../node_modules/@react-native-community/cli-platform-ios/native_modules'
 
 # Ensure glog/src/config.h exists
 pre_install do |installer|
@@ -54,9 +47,6 @@ target 'monGARS' do
     :fabric_enabled => true,
     :app_path => "#{Pod::Config.instance.installation_root}/.."
   )
-  use_react_native_codegen_discovery!(
-    :reactNativePath => "../node_modules/react-native"
-  )
 
   pod 'RNFS', :path => '../node_modules/react-native-fs'
   pod 'RNDeviceInfo', :path => '../node_modules/react-native-device-info'
@@ -82,5 +72,4 @@ post_install do |installer|
     end
   end
 end
-
 
