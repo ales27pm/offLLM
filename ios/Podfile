@@ -1,4 +1,4 @@
-platform :ios, '13.0'
+platform :ios, '18.0' # ← was 13.0
 
 # --- Auto-detect the .xcodeproj near this Podfile ---
 project_candidates = Dir.glob(File.join(__dir__, '*.xcodeproj')).sort
@@ -96,6 +96,7 @@ post_install do |installer|
     t.build_configurations.each do |c|
       c.build_settings['GCC_TREAT_WARNINGS_AS_ERRORS'] = 'NO'
       c.build_settings['SWIFT_OPTIMIZATION_LEVEL'] = '-Onone' if c.name == 'Debug'
+      c.build_settings['IPHONEOS_DEPLOYMENT_TARGET'] = '18.0' # ← normalize pods
     end
   end
 end
