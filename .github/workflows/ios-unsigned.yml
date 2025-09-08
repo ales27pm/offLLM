@@ -117,6 +117,7 @@ jobs:
             -sdk iphoneos \
             -arch arm64 \
             -derivedDataPath "$DERIVED_DATA" \
+            -resultBundlePath "$DERIVED_DATA/ResultBundle.xcresult" \
             CODE_SIGNING_ALLOWED=NO \
             build | xcpretty && exit ${PIPESTATUS[0]}
 
@@ -134,4 +135,12 @@ jobs:
         with:
           name: xcode-logs
           path: artifacts/xcode-log
+          if-no-files-found: ignore
+
+      - name: Upload result bundle
+        if: always()
+        uses: actions/upload-artifact@v4
+        with:
+          name: xcode-result-bundle
+          path: ${{ env.DERIVED_DATA }}/ResultBundle.xcresult
           if-no-files-found: ignore
