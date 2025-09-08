@@ -108,25 +108,20 @@ target 'monGARS' do
 end
 
 post_install do |installer|
-  # Safe even if not strictly needed: prevents stale I/O path analysis issues on CI
-  installer.pods_project.targets.each do |t|
-    t.build_configurations.each do |c|
-      c.build_settings['DISABLE_INPUT_OUTPUT_PATHS'] = 'YES'
-    end
-  end
-
   react_native_post_install(installer)
 
-  # Soften Xcode's strict input/output file list checks.
-  installer.pods_project.build_configurations.each do |config|
-    config.build_settings['DISABLE_INPUT_OUTPUT_PATHS'] = 'YES'
+  # Soften Xcode's strict input/output file list checks only on CI
+  if ENV['CI']
+    installer.pods_project.build_configurations.each do |config|
+      config.build_settings['DISABLE_INPUT_OUTPUT_PATHS'] = 'YES'
+    end
   end
 
   installer.pods_project.targets.each do |t|
     t.build_configurations.each do |c|
       # Match project + satisfy RN 0.81+ minimums
       c.build_settings['IPHONEOS_DEPLOYMENT_TARGET'] = '18.0'
-      c.build_settings['DISABLE_INPUT_OUTPUT_PATHS'] = 'YES'
+      c.build_settings['DISABLE_INPUT_OUTPUT_PATHS'] = 'YES' if ENV['CI']
       # Keep debug previews off to reduce noise in CI
       if c.name == 'Debug'
         c.build_settings['SWIFT_OPTIMIZATION_LEVEL'] = '-Onone'
@@ -144,12 +139,12 @@ post_install do |installer|
     user_project = aggregate_target.user_project
     next unless user_project
     user_project.build_configurations.each do |config|
-      config.build_settings['DISABLE_INPUT_OUTPUT_PATHS'] = 'YES'
+      config.build_settings['DISABLE_INPUT_OUTPUT_PATHS'] = 'YES' if ENV['CI']
       config.build_settings['IPHONEOS_DEPLOYMENT_TARGET'] = '18.0'
     end
     user_project.targets.each do |t|
       t.build_configurations.each do |config|
-        config.build_settings['DISABLE_INPUT_OUTPUT_PATHS'] = 'YES'
+        config.build_settings['DISABLE_INPUT_OUTPUT_PATHS'] = 'YES' if ENV['CI']
         config.build_settings['IPHONEOS_DEPLOYMENT_TARGET'] = '18.0'
       end
     end
