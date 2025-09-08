@@ -155,15 +155,10 @@ jobs:
             -arch arm64 \
             -derivedDataPath "$DERIVED_DATA" \
             -resultBundlePath "$DERIVED_DATA/ResultBundle.xcresult" \
-            CODE_SIGNING_ALLOWED=NO \
-            CODE_SIGNING_REQUIRED=NO \
-            CODE_SIGN_IDENTITY="" \
-            PROVISIONING_PROFILE_SPECIFIER="" \
-            SKIP_INSTALL=NO \
-            BUILD_LIBRARY_FOR_DISTRIBUTION=NO \
+            CODE_SIGNING_ALLOWED=NO CODE_SIGNING_REQUIRED=NO CODE_SIGN_IDENTITY='' \
+            PROVISIONING_PROFILE_SPECIFIER='' SKIP_INSTALL=NO BUILD_LIBRARY_FOR_DISTRIBUTION=NO \
             "OTHER_CFLAGS=-DOBJC_OLD_DISPATCH_PROTOTYPES=0" \
-            clean build \
-          | xcbeautify
+            build | xcbeautify
 
       - name: Package unsigned IPA from Release-iphoneos
         run: |
@@ -176,12 +171,12 @@ jobs:
             echo "::error title=Products dir missing::No Build/Products directory at $PRODUCTS_DIR (build may have failed earlier)."
             exit 1
           fi
-          APP_PATH="$(/usr/bin/find "$PRODUCTS_DIR" -type d -name '*.app' -print -quit || true)"
-          if [ -z "$APP_PATH" ]; then
+          APP_PATH="$PRODUCTS_DIR/Release-iphoneos/${XCODE_SCHEME}.app"
+          if [ ! -d "$APP_PATH" ]; then
             echo "::group::Debug: list of Build/Products"
             /bin/ls -lahR "$PRODUCTS_DIR" || true
             echo "::endgroup::"
-            echo "::error title=App not found::No .app found under $PRODUCTS_DIR (build may have failed earlier)."
+            echo "::error title=App not found::No app at $APP_PATH (build may have failed earlier)."
             exit 1
           fi
           mkdir -p build
