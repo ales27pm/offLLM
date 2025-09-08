@@ -10,15 +10,44 @@ jobs:
   build-ios:
     runs-on: macos-15
     env:
+# .github/workflows/ios-unsigned.yml
+
+jobs:
+  ios-unsigned:
+    runs-on: macos-15
+    env:
       NODE_VERSION: "20"
       RUBY_VERSION: "3.2"
       SCHEME: "monGARS"
-      WORKSPACE: "ios/monGARS.xcworkspace"
       DERIVED_DATA: "${{ github.workspace }}/build/DerivedData"
       XCODE_VERSION: "16.2"
       GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
-      # Do NOT override Info.plist from the workflow; let XcodeGen/Pods define it.
-      # Any old overrides like INFOPLIST_FILE are intentionally removed.
+
+    steps:
+      - uses: actions/checkout@v3
+
+      - name: Select Xcode ${{ env.XCODE_VERSION }}
+        run: |
+          sudo xcode-select -s "/Applications/Xcode_${XCODE_VERSION}.app/Contents/Developer" || {
+            echo "::warning::Xcode ${XCODE_VERSION} not found; using default"
+          }
+          xcodebuild -version
+
+      - name: Install CocoaPods
+        run: |
+          cd ios
+          bundle exec pod install --repo-update
+          cd ..
+
+      - name: Detect workspace
+        run: |
+          WS="$(/usr/bin/find ios -maxdepth 1 -name '*.xcworkspace' -print -quit)"
+          if [ -z "$WS" ]; then
+            echo "::error title=Workspace not found::No ios/*.xcworkspace after pod install"
+            exit 1
+          fi
+          echo "WORKSPACE=$WS" >> "$GITHUB_ENV"
+          echo "Detected: $WS"
 
     steps:
       - uses: actions/checkout@v4
