@@ -169,6 +169,13 @@ jobs:
         run: |
           set -euo pipefail
           PRODUCTS_DIR="$DERIVED_DATA/Build/Products"
+          if [ ! -d "$PRODUCTS_DIR" ]; then
+            echo "::group::Debug: list of DerivedData"
+            /bin/ls -lahR "$DERIVED_DATA" || true
+            echo "::endgroup::"
+            echo "::error title=Products dir missing::No Build/Products directory at $PRODUCTS_DIR (build may have failed earlier)."
+            exit 1
+          fi
           APP_PATH="$(/usr/bin/find "$PRODUCTS_DIR" -type d -name '*.app' -print -quit || true)"
           if [ -z "$APP_PATH" ]; then
             echo "::group::Debug: list of Build/Products"
