@@ -76,11 +76,7 @@ jobs:
           echo "scheme=$SCHEME" >> "$GITHUB_OUTPUT"
 
       - name: "Doctor: verify workspace"
-        working-directory: ios
-        env:
-          WORKSPACE: ${{ steps.detect.outputs.workspace_name }}
-          SCHEME: ${{ steps.detect.outputs.scheme }}
-        run: ./scripts/doctor.sh
+        run: ./scripts/ios_doctor.sh
 
       - name: Resolve SPM
         env:
