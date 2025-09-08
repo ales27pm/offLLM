@@ -13,12 +13,11 @@ jobs:
       NODE_VERSION: "20"
       RUBY_VERSION: "3.2"
       SCHEME: "monGARS"
-      WORKSPACE: "ios/monGARS.xcworkspace"
       DERIVED_DATA: "${{ github.workspace }}/build/DerivedData"
-      # Prefer a runner image/Xcode that has the latest iOS platform installed.
-      # Keep these in sync with the macos-15 image docs. 16.4 works well on GitHub-hosted macos-15.
-      XCODE_VERSION: "16.4"
-      DEVELOPER_DIR: /Applications/Xcode_16.4.app/Contents/Developer
+      # Prefer a runner image/Xcode that has the iOS 18 SDK installed.
+      # Keep these in sync with the macos-15 image docs. 16.2 is expected per repo guidelines.
+      XCODE_VERSION: "16.2"
+      DEVELOPER_DIR: /Applications/Xcode_16.2.app/Contents/Developer
       GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
 
     steps:

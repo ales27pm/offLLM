@@ -13,9 +13,8 @@ packages:
   # MLXLLM lives in the examples repo
   mlx-swift-examples:
     url: https://github.com/ml-explore/mlx-swift-examples
-    # choose ONE pin style:
-    # from: 2.25.0
-    branch: main
+    # pin to a specific version for reproducible CI builds
+    from: 2.25.6
 
 targets:
   monGARS:
