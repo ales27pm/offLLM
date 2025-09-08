@@ -92,14 +92,15 @@ target 'monGARS' do
   else
     add_pod_if_present 'RNCClipboard', '../node_modules/@react-native-community/clipboard'
   end
-  add_pod_if_present 'RNCSlider', '../node_modules/@react-native-community/slider'
+  # Slider: rely on autolinking only to avoid podspec name mismatches
+  # (historically declared as `RNCSlider` with `react-native-slider.podspec`).
+  # If needed, autolink will add it; do not declare manually here.
   add_pod_if_present 'react-native-voice', '../node_modules/@react-native-voice/voice'
   add_pod_if_present 'RNFS', '../node_modules/react-native-fs'
   add_pod_if_present 'RNDeviceInfo', '../node_modules/react-native-device-info'
   add_pod_if_present 'react-native-contacts', '../node_modules/react-native-contacts'
   add_pod_if_present 'react-native-config', '../node_modules/react-native-config'
   add_pod_if_present 'react-native-sqlite-storage', '../node_modules/react-native-sqlite-storage'
-  add_pod_if_present 'react-native-slider', '../node_modules/@react-native-community/slider'
   add_pod_if_present 'react-native-music-control', '../node_modules/react-native-music-control'
 
   use_native_modules!

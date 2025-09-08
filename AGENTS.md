@@ -44,6 +44,11 @@
 - When editing these files, update comments and re-run `bundle exec pod update hermes-engine --no-repo-update && bundle exec pod install --repo-update`.
 - **Do not enable CocoaPods input/output file lists** with static pods (`:disable_input_output_paths => true` stays). Set `ENABLE_USER_SCRIPT_SANDBOXING` to `NO` in `post_install` for CI stability.
 - When editing project.yml or Podfile, ensure no legacy .xcfilelist references or invalid Podfile hooks are reintroduced.
+- **CocoaPods version:** CI expects CocoaPods **1.16.2** via the root `Gemfile` and lockfile.
+- **Project detection in CI:** the workflow auto-detects `ios/*.xcodeproj` and exports `XCODE_PROJECT_NAME`/`XCODE_PROJECT_PATH`
+  (don't hardcode). If no `.xcodeproj` is generated, fix XcodeGen inputs first.
+- **Slider pod tip:** Do **not** declare the community Slider manually in the Podfile; rely on autolinking only. Manual lines can
+  cause "No podspec found for RNCSlider" due to historical naming (`react-native-slider.podspec`).
 
 ## Agent Learning
 
