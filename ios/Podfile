@@ -17,8 +17,35 @@ project File.basename(project_path)
 
 use_frameworks! :linkage => :static
 
-require_relative '../node_modules/react-native/scripts/react_native_pods'
-require_relative '../node_modules/@react-native-community/cli-platform-ios/native_modules'
+begin
+  rn_path = File.join(__dir__, '..', 'node_modules', 'react-native')
+
+  # Main React Native pod helpers
+  require File.join(rn_path, 'scripts', 'react_native_pods')
+
+  # Autolinking (path varies across RN versions)
+  autolink_candidates = [
+    File.join(rn_path, 'scripts', 'autolink-ios.rb'),
+    File.join(rn_path, 'scripts', 'native_modules.rb')
+  ]
+  autolink_loaded = false
+  autolink_candidates.each do |cand|
+    if File.exist?(cand)
+      require cand
+      autolink_loaded = true
+      break
+    end
+  end
+
+  unless autolink_loaded
+    legacy = File.join(__dir__, '..', 'node_modules', '@react-native-community', 'cli-platform-ios', 'native_modules')
+    require legacy if File.exist?(legacy + '.rb') || File.exist?(legacy)
+  end
+
+rescue LoadError => e
+  abort "[Podfile] Could not load React Native pod helpers: #{e.message}\n" \
+        "[Podfile] Hint: run 'npm ci' (or 'yarn install') at repo root before 'pod install'."
+end
 
 # Ensure glog/src/config.h exists
 pre_install do |installer|
