@@ -6,12 +6,9 @@ options:
     iOS: "18.0"
 
 packages:
-  MLX:
+  mlx-swift:
     url: https://github.com/ml-explore/mlx-swift
-    from: 0.8.0
-  MLXLLM:
-    url: https://github.com/ml-explore/mlx-llm-swift
-    from: 0.3.0
+    from: 0.10.0
 
 targets:
   monGARS:
@@ -27,8 +24,8 @@ targets:
           - "Pods/**"
 
     dependencies:
-      - package: MLX
-      - package: MLXLLM
+      - package: mlx-swift
+        product: MLX
 
     settings:
       base:

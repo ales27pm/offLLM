@@ -97,12 +97,10 @@ jobs:
 
       - name: Authenticate Git for SPM (avoid GitHub rate limits)
         env:
-          # Provide ephemeral token & actor to the shell step
+          # Provide ephemeral token to the shell step
           GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
-          GITHUB_ACTOR: ${{ github.actor }}
         run: |
           set -euo pipefail
-          ACTOR="${GITHUB_ACTOR:-github-actions[bot]}"
           TOKEN="${GITHUB_TOKEN:-}"
           if [ -z "$TOKEN" ]; then
             echo "::error title=Missing token::GITHUB_TOKEN is empty in this step's environment."
@@ -110,14 +108,10 @@ jobs:
           fi
 
           # 1) netrc so libcurl/libgit can authenticate without prompts
-          cat > ~/.netrc <<NETRC
-          machine github.com
-            login ${ACTOR}
-            password ${TOKEN}
-          machine api.github.com
-            login ${ACTOR}
-            password ${TOKEN}
-          NETRC
+          {
+            printf "machine github.com\n  login x-access-token\n  password %s\n" "${TOKEN}"
+            printf "machine api.github.com\n  login x-access-token\n  password %s\n" "${TOKEN}"
+          } > ~/.netrc
           chmod 600 ~/.netrc
 
           # 2) Normalize SSH/git protocols to HTTPS
@@ -125,13 +119,13 @@ jobs:
           git config --global url."https://".insteadOf git://
 
           # 3) (Optional) Extraheader to cover edge HTTP clients
-          BASIC="$(printf "%s:%s" "${ACTOR}" "${TOKEN}" | base64)"
+          BASIC="$(printf "x-access-token:%s" "${TOKEN}" | base64)"
           git config --global http.https://github.com/.extraheader "AUTHORIZATION: basic ${BASIC}"
           git config --global http.https://api.github.com/.extraheader "AUTHORIZATION: basic ${BASIC}"
 
           # 4) (Optional) Fallback credential store (kept in HOME and chmod 600)
           git config --global credential.helper store
-          printf "https://%s:%s@github.com\n" "${ACTOR}" "${TOKEN}" > ~/.git-credentials
+          printf "https://x-access-token:%s@github.com\n" "${TOKEN}" > ~/.git-credentials
           chmod 600 ~/.git-credentials
 
       - name: Install xcbeautify (pretty xcodebuild output)
@@ -139,11 +133,16 @@ jobs:
           set -euo pipefail
           brew install xcbeautify || true
 
+      - name: Clean SwiftPM state (fresh resolve)
+        run: |
+          set -euo pipefail
+          rm -rf "$DERIVED_DATA/SourcePackages" || true
+          find . -name "Package.resolved" -maxdepth 3 -print -exec rm -f {} \; || true
+
       - name: Build (Release, iphoneos, deterministic DerivedData)
         env:
           XCODE_WORKSPACE: ios/${{ env.XCODE_PROJECT_NAME }}.xcworkspace
           GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }} # for authenticated SPM fetches
-          GITHUB_ACTOR: ${{ github.actor }}
         run: |
           set -euo pipefail
           xcodebuild \
