@@ -1,0 +1,148 @@
+name: Quality — Tests & Lint
+
+on:
+  push:
+    branches: [main]
+  pull_request:
+    branches: [main]
+
+concurrency:
+  group: quality-${{ github.ref }}
+  cancel-in-progress: true
+
+env:
+  NODE_VERSION: "20"
+  RCT_NEW_ARCH_ENABLED: "1"
+  NODE_OPTIONS: --max_old_space_size=4096
+
+jobs:
+  js-tests:
+    name: JS/TS Unit Tests (Jest)
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+
+      - name: Setup Node
+        uses: actions/setup-node@v4
+        with:
+          node-version: ${{ env.NODE_VERSION }}
+          cache: "npm"
+
+      - name: Install deps
+        run: npm ci
+
+      - name: Run tests
+        run: |
+          if npm run | grep -q "^  test"; then
+            npm test -- --ci
+          else
+            echo "No test script found; skipping"
+          fi
+
+      - name: Save coverage (if generated)
+        if: always()
+        uses: actions/upload-artifact@v4
+        with:
+          name: coverage
+          path: |
+            coverage/**
+            coverage.*.json
+          if-no-files-found: ignore
+          retention-days: 7
+
+  js-lint-format:
+    name: Lint & Prettier
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+
+      - name: Setup Node
+        uses: actions/setup-node@v4
+        with:
+          node-version: ${{ env.NODE_VERSION }}
+          cache: "npm"
+
+      - name: Install deps
+        run: npm ci
+
+      - name: ESLint
+        run: |
+          if test -f "eslint.config.mjs" || test -f ".eslintrc.js" || test -f ".eslintrc.cjs" || test -f ".eslintrc.json"; then
+            npm run lint || npx --yes eslint .
+          else
+            echo "No ESLint config found; skipping"
+          fi
+
+      - name: Prettier check
+        run: |
+          if npm run | grep -q "^  format:check"; then
+            npm run format:check
+          else
+            npx --yes prettier --check .
+          fi
+
+  ts-typecheck:
+    name: TypeScript Type-Check
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+
+      - name: Setup Node
+        uses: actions/setup-node@v4
+        with:
+          node-version: ${{ env.NODE_VERSION }}
+          cache: "npm"
+
+      - name: Install deps
+        run: npm ci
+
+      - name: tsc --noEmit
+        run: |
+          if test -f "tsconfig.json"; then
+            npx --yes tsc --noEmit
+          else
+            echo "No tsconfig.json; skipping"
+          fi
+
+  ios-swift-lints:
+    name: iOS Swift Lints (optional)
+    runs-on: macos-15
+    steps:
+      - uses: actions/checkout@v4
+
+      - name: Select Xcode 16.4
+        run: |
+          sudo xcode-select -s /Applications/Xcode_16.4.app/Contents/Developer
+          xcodebuild -version
+
+      - name: Install Swift linters (if configs present)
+        run: |
+          set -e
+          ANY=false
+          if test -f ".swiftlint.yml"; then
+            brew install swiftlint || true
+            ANY=true
+          fi
+          if test -f ".swiftformat" || test -f ".swiftformat.json"; then
+            brew install swiftformat || true
+            ANY=true
+          fi
+          if [ "$ANY" = "false" ]; then
+            echo "No Swift lint/format configs; skipping installation"
+          fi
+
+      - name: Run SwiftLint (strict)
+        run: |
+          if test -f ".swiftlint.yml"; then
+            swiftlint --strict
+          else
+            echo "No .swiftlint.yml; skipping SwiftLint"
+          fi
+
+      - name: Run SwiftFormat (lint mode)
+        run: |
+          if test -f ".swiftformat" || test -f ".swiftformat.json"; then
+            swiftformat . --lint
+          else
+            echo "No SwiftFormat config; skipping SwiftFormat"
+          fi
