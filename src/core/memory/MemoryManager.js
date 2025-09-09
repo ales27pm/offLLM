@@ -1,4 +1,6 @@
 import { HNSWVectorStore } from "../../utils/hnswVectorStore";
+import PgVectorStore from "../../utils/pgVectorStore";
+import { getEnv } from "../../config";
 import LLMService from "../../services/llmService";
 import { applySparseAttention } from "../../utils/sparseAttention";
 import VectorIndexer from "./services/VectorIndexer";
@@ -6,13 +8,12 @@ import Retriever from "./services/Retriever";
 import HistoryService from "./services/HistoryService";
 
 export class MemoryManager {
-  constructor({
-    vectorStore = new HNSWVectorStore(),
-    indexer,
-    retriever,
-    history,
-  } = {}) {
-    const store = vectorStore;
+  constructor({ vectorStore, indexer, retriever, history } = {}) {
+    const store =
+      vectorStore ||
+      (getEnv("PGVECTOR_URL") || getEnv("DATABASE_URL")
+        ? new PgVectorStore()
+        : new HNSWVectorStore());
     this.indexer = indexer || new VectorIndexer(store, LLMService);
     this.retriever =
       retriever || new Retriever(store, LLMService, applySparseAttention);
