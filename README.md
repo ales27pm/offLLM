@@ -60,12 +60,27 @@ npm run codegen
 
 See [AGENTS.md](AGENTS.md).
 
+## Reporting Bugs
+
+To report a bug, please follow these steps:
+
+1. Go to the [Issues](https://github.com/ales27pm/offLLM/issues) page of the repository.
+2. Click on the **New Issue** button.
+3. Select the appropriate template if available (e.g., Bug Report).
+4. Fill out the form with as much detail as possible:
+   - A descriptive title that summarizes the issue.
+   - Steps to reproduce the bug.
+   - Expected behavior.
+   - Actual behavior.
+   - Screenshots or logs, if applicable.
+   - Any additional context that might help in resolving the issue.
+
 ## Do not commit (generated)
 
 - ios/Pods/
-- any \*.xcworkspace
+- any *.xcworkspace
 - DerivedData/
-- \*.xcfilelist
+- *.xcfilelist
 
 ---
 
