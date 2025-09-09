@@ -1,404 +1,194 @@
-name: iOS CI
+name: iOS (unsigned) — Simulator .app & Device .ipa
 
 on:
   push:
-    branches: [main, master]
+    branches: [main]
   pull_request:
-    branches: [main, master]
+    branches: [main]
+
+concurrency:
+  group: ios-unsigned-${{ github.ref }}
+  cancel-in-progress: true
 
 env:
-  XCODE_VERSION: "16.4"
+  NODE_VERSION: "20"
+  RUBY_VERSION: "3.2"
+  SCHEME: "monGARS"
+  WORKSPACE: "ios/monGARS.xcworkspace"
+  DERIVED_DATA: ${{ github.workspace }}/build/DerivedData
+  RESULT_BUNDLE: ${{ github.workspace }}/build/DerivedData/ResultBundle_build.xcresult
+  IPA_OUTPUT: ${{ github.workspace }}/build/unsigned-app.ipa
+  # Optional RN flags
+  NODE_OPTIONS: --max_old_space_size=4096
+  RCT_NEW_ARCH_ENABLED: "1"
 
 jobs:
-  build-ios:
+  ios-unsigned:
+    name: Build iOS (Simulator .app + Device .ipa unsigned)
     runs-on: macos-15
-    env:
-      NODE_VERSION: "20"
-      RUBY_VERSION: "3.2"
-      SCHEME: "monGARS"
-      DERIVED_DATA: "${{ github.workspace }}/build/DerivedData"
-      RESULT_BUNDLE: "${{ github.workspace }}/build/DerivedData/ResultBundle_build.xcresult"
-      GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
 
     steps:
-      - uses: actions/checkout@08eba0b27e820071cde6df949e0beb9ba4906955
+      - name: Checkout
+        uses: actions/checkout@v4
 
-      - name: Select Xcode
-        uses: maxim-lobanov/setup-xcode@60606e260d2fc5762a71e64e74b2174e8ea3c8bd
-        with:
-          xcode-version: ${{ env.XCODE_VERSION }}
+      # ---- Select Xcode 16.4 (image has multiple Xcodes) ----
+      - name: Select Xcode 16.4
+        run: |
+          sudo xcode-select -s /Applications/Xcode_16.4.app/Contents/Developer
+          xcodebuild -version
+          xcrun simctl list runtimes
 
-      - name: Set up Node
-        uses: actions/setup-node@49933ea5288caeca8642d1e84afbd3f7d6820020
+      # ---- Node (with npm cache) ----
+      - name: Setup Node
+        uses: actions/setup-node@v4
         with:
           node-version: ${{ env.NODE_VERSION }}
           cache: "npm"
 
-      - name: Set up Ruby
-        uses: ruby/setup-ruby@44511735964dcb71245e7e55f72539531f7bc0eb
+      - name: Install JS deps (ci)
+        run: npm ci
+
+      # ---- Ruby / Bundler (installs CocoaPods from Gemfile.lock -> 1.16.x) ----
+      - name: Setup Ruby
+        uses: ruby/setup-ruby@v1
         with:
           ruby-version: ${{ env.RUBY_VERSION }}
           bundler-cache: true
 
-      - name: Authenticate Git for SPM
-        env:
-          GITHUB_TOKEN: ${{ github.token }}
+      # ---- Optional: Codegen step if your repo uses RN codegen/specs ----
+      - name: RN codegen (optional)
         run: |
-          git config --global url."https://x-access-token:${GITHUB_TOKEN}@github.com/".insteadOf "https://github.com/"
-
-      - name: Show toolchain versions
-        run: |
-          sw_vers
-          xcodebuild -version
-          xcode-select -p
-          node -v
-          ruby --version
-          gem --version
-
-      # Node is already available; no jq needed for simulator prep
-
-      - name: Cache node_modules
-        uses: actions/cache@0400d5f644dc74513175e3cd8d07132dd4860809
-        with:
-          path: |
-            node_modules
-            ~/.cache/npm
-          key: ${{ runner.os }}-node-${{ hashFiles('package-lock.json') }}
-          restore-keys: |
-            ${{ runner.os }}-node-
-
-      - name: Cache CocoaPods
-        uses: actions/cache@0400d5f644dc74513175e3cd8d07132dd4860809
-        with:
-          path: |
-            ~/.cocoapods
-            ios/Pods
-          key: ${{ runner.os }}-pods-xcode-${{ env.XCODE_VERSION }}-${{ hashFiles('ios/Podfile.lock') }}
-          restore-keys: |
-            ${{ runner.os }}-pods-xcode-${{ env.XCODE_VERSION }}-
-            ${{ runner.os }}-pods-
-
-      - name: Cache DerivedData (optional)
-        uses: actions/cache@0400d5f644dc74513175e3cd8d07132dd4860809
-        with:
-          path: ${{ env.DERIVED_DATA }}
-          key: ${{ runner.os }}-deriveddata-xcode-${{ env.XCODE_VERSION }}-${{ github.ref }}-${{ github.sha }}
-          restore-keys: |
-            ${{ runner.os }}-deriveddata-xcode-${{ env.XCODE_VERSION }}-${{ github.ref }}-
-            ${{ runner.os }}-deriveddata-xcode-${{ env.XCODE_VERSION }}-
-
-      - name: Install JS deps
-        run: npm ci
-
-      - name: Install XcodeGen (if needed)
-        run: |
-          if ! command -v xcodegen >/dev/null 2>&1; then
-            brew update
-            brew install xcodegen
+          if npm run | grep -q "^  codegen"; then
+            npm run codegen
+          else
+            echo "No codegen script found; skipping"
           fi
 
-      - name: Generate Xcode project (XcodeGen)
+      # ---- XcodeGen (if you keep a project.yml; safe to no-op otherwise) ----
+      - name: Generate Xcode project (optional)
         run: |
           if [ -f "ios/project.yml" ]; then
+            brew install xcodegen || true
             (cd ios && xcodegen generate)
           else
-            echo "::error title=Missing XcodeGen spec::No ios/project.yml found"
-            exit 1
+            echo "No ios/project.yml; skipping XcodeGen"
           fi
 
-      - name: Run codegen
-        run: npm run codegen
-
-      - name: Install CocoaPods
+      # ---- CocoaPods install (produces ios/monGARS.xcworkspace) ----
+      - name: Install iOS Pods
         run: |
           cd ios
           bundle exec pod install --repo-update
-          cd ..
+          cd -
 
-      - name: iOS Doctor (workspace must exist)
+      # ---- Doctor checks (as per AGENTS.md) ----
+      - name: iOS Doctor
         run: |
-          chmod +x scripts/ios_doctor.sh || true
-          ./scripts/ios_doctor.sh
-
-      - name: "Doctor: verify workspace path"
-        run: |
-          set -euo pipefail
-          WS="${WORKSPACE:-ios/monGARS.xcworkspace}"
-          case "$WS" in
-            /*) WS="${WS#"$GITHUB_WORKSPACE"/}" ;;
-          esac
-          if [ ! -e "$WS" ]; then
-            echo "::error title=Workspace missing::'$WS' not found. Check WORKSPACE env/Pod install."
-            echo "pwd=$(pwd)"
-            ls -la ios || true
-            exit 66
+          if [ -x "./scripts/ios_doctor.sh" ]; then
+            ./scripts/ios_doctor.sh
+          else
+            echo "Doctor script missing; running lightweight checks…"
+            test -f "$WORKSPACE/contents.xcworkspacedata" || (echo "::error::Workspace missing ($WORKSPACE)"; exit 2)
+            xcodebuild -list -workspace "$WORKSPACE" | grep -F "${SCHEME}" || (echo "::error::Scheme ${SCHEME} not found"; exit 2)
           fi
-          echo "WORKSPACE=$WS" >> "$GITHUB_ENV"
 
-      - name: Resolve SwiftPM packages
+      # ---- Build (Simulator .app) ----
+      - name: Build (iphonesimulator)
         run: |
           set -euxo pipefail
-          RB="$DERIVED_DATA/ResultBundle.xcresult"
-          rm -rf "$RB"
-          xcodebuild -resolvePackageDependencies \
+          rm -rf "${RESULT_BUNDLE}"
+          xcodebuild \
             -workspace "$WORKSPACE" \
             -scheme "$SCHEME" \
-            -clonedSourcePackagesDirPath "$DERIVED_DATA/SourcePackages"
-      # ---- Optional Simulator Smoke Build (non-blocking) ----
-      # Gives early compile feedback without impacting the device archive.
-      - name: Prepare Simulator
-        id: sim
-        continue-on-error: true
+            -sdk iphonesimulator \
+            -configuration Release \
+            -derivedDataPath "${DERIVED_DATA}" \
+            -resultBundlePath "${RESULT_BUNDLE}" \
+            build
+
+      - name: Package Simulator .app (zip)
         run: |
           set -euxo pipefail
-          RB="${DERIVED_DATA}/ResultBundle_build.xcresult"
-          rm -rf "$RB"
-
-          xcodebuild -runFirstLaunch >/dev/null 2>&1 || true
-          xcrun simctl list >/dev/null 2>&1 || true
-
-          SIM_JSON=""
-          for i in 1 2 3; do
-            if SIM_JSON="$(xcrun simctl list -j runtimes devices devicetypes)"; then
-              if [ -n "$SIM_JSON" ] && [ "${#SIM_JSON}" -gt 100 ]; then
-                break
-              fi
-            fi
-            echo "simctl JSON empty on attempt $i; retrying..."
-            sleep 2
-          done
-          if [ -z "$SIM_JSON" ]; then
-            echo "::warning::No simulator JSON available from simctl after retries (skipping sim smoke build)."
-            exit 0
-          fi
-
-          # Prefer iOS 18.5 if present and available; else pick latest available iOS>=18; else pick any iOS (warn)
-          # Use shared helper to pick runtime & device
-          SIM_VALUES="$(node scripts/select-simulator.js <<<"$SIM_JSON")"
-          RUNTIME_ID="$(echo "$SIM_VALUES" | sed -n '1p')"
-          DEVICE_TYPE="$(echo "$SIM_VALUES" | sed -n '2p')"
-          DEVICE_ID="$(echo "$SIM_VALUES" | sed -n '3p')"
-
-          if [ -z "${RUNTIME_ID:-}" ]; then
-            echo "::warning::No iOS Simulator runtime found (skipping sim smoke build)."
-            exit 0
-          fi
-          if ! echo "$RUNTIME_ID" | grep -q "iOS-18"; then
-            echo "::warning::Falling back to non-18.x simulator runtime: $RUNTIME_ID"
-          fi
-          if [ -z "${DEVICE_TYPE:-}" ]; then
-            echo "::warning::No iPhone device type found in simctl output (skipping sim smoke build)."
-            exit 0
-          fi
-          if [ -z "${DEVICE_ID:-}" ]; then
-            DEVICE_ID="$(xcrun simctl create "CI-iPhone" "$DEVICE_TYPE" "$RUNTIME_ID")"
-          fi
-          if [ -z "${DEVICE_ID:-}" ]; then
-            echo "::warning::Failed to create or find a simulator for runtime $RUNTIME_ID (skipping sim smoke build)."
-            exit 0
-          fi
-
-          echo "Runtime: $RUNTIME_ID"
-          echo "DeviceType: $DEVICE_TYPE"
-          echo "DeviceID: $DEVICE_ID"
-          xcrun simctl boot "$DEVICE_ID" >/dev/null 2>&1 || true
-          xcrun simctl bootstatus "$DEVICE_ID" -b
-          echo "dest=id=$DEVICE_ID" >> "$GITHUB_OUTPUT"
-
-      - name: Build (Simulator) — smoke test
-        if: steps.sim.outputs.dest != ''
-        continue-on-error: true
-        env:
-          RESULT_BUNDLE: ${{ env.DERIVED_DATA }}/ResultBundle_build.xcresult
-        run: |
-          set -euxo pipefail
-          xcodebuild -workspace "$WORKSPACE" \
-                     -scheme "$SCHEME" \
-                     -configuration Release \
-                     -destination "${{ steps.sim.outputs.dest }}" \
-                     -derivedDataPath "$DERIVED_DATA" \
-                     -resultBundlePath "$RESULT_BUNDLE" \
-                     clean build
-
-  archive-ipa:
-    name: Archive (device) & make unsigned IPA
-    needs: [build-ios] # or remove this line to run in parallel
-    runs-on: macos-15
-    env:
-      SCHEME: monGARS
-      DERIVED_DATA: ${{ github.workspace }}/build/DerivedData
-
-    steps:
-      - uses: actions/checkout@08eba0b27e820071cde6df949e0beb9ba4906955
-
-      - name: Select Xcode
-        uses: maxim-lobanov/setup-xcode@60606e260d2fc5762a71e64e74b2174e8ea3c8bd
-        with:
-          xcode-version: ${{ env.XCODE_VERSION }}
-
-      - uses: actions/setup-node@49933ea5288caeca8642d1e84afbd3f7d6820020
-        with:
-          node-version: 20
-          cache: npm
-
-      - name: Set up Ruby (3.2) with bundler cache
-        uses: ruby/setup-ruby@44511735964dcb71245e7e55f72539531f7bc0eb
-        with:
-          ruby-version: "3.2"
-          bundler-cache: true
-
-      - name: Cache CocoaPods
-        uses: actions/cache@0400d5f644dc74513175e3cd8d07132dd4860809
-        with:
-          path: |
-            ~/.cocoapods
-            ios/Pods
-          key: ${{ runner.os }}-pods-xcode-${{ env.XCODE_VERSION }}-${{ hashFiles('ios/Podfile.lock') }}
-          restore-keys: |
-            ${{ runner.os }}-pods-xcode-${{ env.XCODE_VERSION }}-
-            ${{ runner.os }}-pods-
-
-      - name: NPM install (root)
-        run: npm ci
-
-      - name: Install XcodeGen (if needed)
-        run: |
-          if ! command -v xcodegen >/dev/null 2>&1; then
-            brew update
-            brew install xcodegen
-          fi
-
-      - name: Generate Xcode project (XcodeGen)
-        working-directory: ios
-        run: xcodegen generate
-
-      - name: Run codegen
-        run: npm run codegen
-
-      - name: Bundle install (ios/)
-        working-directory: ios
-        run: |
-          bundle config set path 'vendor/bundle'
-          bundle install --jobs 4
-
-      - name: CocoaPods install
-        working-directory: ios
-        env:
-          COCOAPODS_DISABLE_STATS: "true"
-        run: bundle exec pod install
-
-      - name: Detect Xcode container
-        run: |
-          set -euo pipefail
-          CONTAINER="$(/usr/bin/find ios -maxdepth 1 -name '*.xcworkspace' -print -quit)"
-          TYPE="workspace"
-          if [ -z "$CONTAINER" ]; then
-            CONTAINER="$(/usr/bin/find ios -maxdepth 1 -name '*.xcodeproj' -print -quit)"
-            TYPE="project"
-          fi
-          if [ -z "$CONTAINER" ]; then
-            echo "::error title=No Xcode container::No ios/*.xcworkspace or ios/*.xcodeproj found"
-            exit 1
-          fi
-          echo "XCODE_CONTAINER=$CONTAINER" >> "$GITHUB_ENV"
-          echo "XCODE_CONTAINER_TYPE=$TYPE" >> "$GITHUB_ENV"
-
-      - name: iOS Doctor (workspace must exist)
-        if: env.XCODE_CONTAINER_TYPE == 'workspace'
-        run: |
-          chmod +x scripts/ios_doctor.sh || true
-          ./scripts/ios_doctor.sh
-
-      - name: Resolve SwiftPM deps
-        run: |
-          set -euxo pipefail
-          RB="$DERIVED_DATA/ResultBundle.xcresult"
-          rm -rf "$RB"
-          xcodebuild -resolvePackageDependencies \
-            -${XCODE_CONTAINER_TYPE} "$XCODE_CONTAINER" \
-            -scheme "$SCHEME" \
-            -clonedSourcePackagesDirPath "$DERIVED_DATA/SourcePackages"
-
-      - name: Check for iOS Device SDK
-        id: sdk
-        run: |
-          if xcodebuild -showsdks | grep -q "iphoneos"; then
-            echo "present=true" >> "$GITHUB_OUTPUT"
-          fi
-
-      - name: Archive (device)
-        if: steps.sdk.outputs.present == 'true'
-        id: archive
-        run: |
-          set -euxo pipefail
-          ARCHIVE_PATH="${DERIVED_DATA}/Archive.xcarchive"
-          RB_ARCHIVE="${DERIVED_DATA}/ResultBundle_archive.xcresult"
-          rm -rf "$ARCHIVE_PATH" "$RB_ARCHIVE"
-          # Run archive, but don’t fail the job purely on warnings/unsigned exit (65).
-          # We’ll still surface real errors from the xcresult in a later step.
-          if ! xcodebuild archive \
-               -${XCODE_CONTAINER_TYPE} "$XCODE_CONTAINER" \
-               -scheme "$SCHEME" \
-               -destination "generic/platform=iOS" \
-               -configuration Release \
-               -derivedDataPath "$DERIVED_DATA" \
-               -resultBundlePath "$RB_ARCHIVE" \
-               CODE_SIGNING_ALLOWED=NO CODE_SIGNING_REQUIRED=NO \
-               -archivePath "$ARCHIVE_PATH"; then
-            echo "::warning::xcodebuild archive exited non-zero (often 65 on CI due to warnings/unsigned). Proceeding to package artifacts."
-          fi
-
-          # Soft validation: if Products/Applications has no .app, emit a warning so it’s obvious.
-          APP_DIR="${ARCHIVE_PATH}/Products/Applications"
-          if [ ! -d "$APP_DIR" ] || ! /usr/bin/find "$APP_DIR" -maxdepth 1 -name '*.app' -print -quit >/dev/null; then
-            echo "::warning::Archive completed but no .app found in ${APP_DIR} (check xcresult issues in next step)."
-          fi
-
-      - name: Fallback note if device platform is missing
-        if: steps.sdk.outputs.present != 'true'
-        run: |
-          echo "::warning title=Device platform unavailable::This runner image lacks the iOS Device platform. See uploaded xcresult for details."
-
-      - name: Package unsigned IPA from archive
-        if: steps.archive.conclusion == 'success'
-        run: |
-          set -euxo pipefail
-          ARCHIVE_PATH="${DERIVED_DATA}/Archive.xcarchive"
-          APP_PATH="$(/usr/bin/find "$ARCHIVE_PATH/Products/Applications" -maxdepth 2 -name '*.app' -print -quit || true)"
+          APP_PATH=$(find "${DERIVED_DATA}/Build/Products/Release-iphonesimulator" -maxdepth 1 -name "*.app" -print -quit)
           if [ -z "$APP_PATH" ]; then
-            echo "::error title=No .app in archive::Archive succeeded but no .app found under Products/Applications."
-            exit 1
+            echo "::error::Simulator .app not found"; exit 3
           fi
-          mkdir -p build
-          (cd "$(dirname "$APP_PATH")" && /usr/bin/zip -qry "$GITHUB_WORKSPACE/build/$(basename "$APP_PATH").zip" "$(basename "$APP_PATH")")
-          APP_BASENAME="$(basename "$APP_PATH" .app)"
-          TMP="$(mktemp -d)"; mkdir -p "$TMP/Payload"
-          cp -R "$APP_PATH" "$TMP/Payload/"
-          (cd "$TMP" && /usr/bin/zip -qry "$GITHUB_WORKSPACE/build/${APP_BASENAME}-device-unsigned.ipa" "Payload")
-          rm -rf "$TMP"
+          SIM_ZIP="${{ github.workspace }}/build/simulator-app.zip"
+          /usr/bin/zip -qry "$SIM_ZIP" "$APP_PATH"
+          echo "Simulator app: $SIM_ZIP"
 
-      - name: Extract errors from xcresult (archive)
+      # ---- Archive (Device, unsigned) ----
+      - name: Archive (iphoneos, unsigned)
+        run: |
+          set -euxo pipefail
+          ARCHIVE_PATH="${{ github.workspace }}/build/App.xcarchive"
+          xcodebuild \
+            -workspace "$WORKSPACE" \
+            -scheme "$SCHEME" \
+            -configuration Release \
+            -sdk iphoneos \
+            -destination "generic/platform=iOS" \
+            -archivePath "$ARCHIVE_PATH" \
+            CODE_SIGNING_ALLOWED=NO \
+            CODE_SIGNING_REQUIRED=NO \
+            ENABLE_BITCODE=NO \
+            archive
+
+      # ---- Create unsigned IPA (manual Payload/ zip, no signing) ----
+      - name: Create unsigned IPA
+        run: |
+          set -euxo pipefail
+          ARCHIVE_PATH="${{ github.workspace }}/build/App.xcarchive"
+          APP_IN_ARCHIVE=$(find "$ARCHIVE_PATH/Products/Applications" -maxdepth 1 -name "*.app" -print -quit)
+          if [ -z "$APP_IN_ARCHIVE" ]; then
+            echo "::error::No .app inside archive"; exit 4
+          fi
+          WORKDIR="${{ github.workspace }}/build/ipa-work"
+          mkdir -p "$WORKDIR/Payload"
+          cp -R "$APP_IN_ARCHIVE" "$WORKDIR/Payload/"
+          # Optional: include SwiftSupport if you want stricter App Store packaging (not needed for unsigned testing)
+          (cd "$WORKDIR" && /usr/bin/zip -qry "${{ env.IPA_OUTPUT }}" Payload)
+          echo "Unsigned IPA: ${{ env.IPA_OUTPUT }}"
+
+      # ---- Collect logs / xcresult ----
+      - name: Zip xcresult bundle
         if: always()
         run: |
-          set -euo pipefail
-          mkdir -p build
-          RB="${DERIVED_DATA}/ResultBundle_archive.xcresult"
-          if [ -d "$RB" ]; then
-            # Xcode 16+: legacy 'get object' requires --legacy; keep legacy JSON for existing parsing.
-            xcrun xcresulttool get object --legacy --format json --path "$RB" > "build/ResultBundle_archive.json" || true
-            grep -n '"issue' "build/ResultBundle_archive.json" | head -n 200 || true
+          set -euxo pipefail
+          if [ -d "${RESULT_BUNDLE}" ]; then
+            /usr/bin/zip -qry "${{ github.workspace }}/build/ResultBundle_build.xcresult.zip" "${RESULT_BUNDLE}"
           fi
 
-      - name: Upload archive artifacts
-        if: always()
-        uses: actions/upload-artifact@ea165f8d65b6e75b540449e92b4886f43607fa02
+      # ---- Upload artifacts ----
+      - name: Upload Simulator .app (zip)
+        uses: actions/upload-artifact@v4
         with:
-          name: ios-archive-and-ipa
-          path: |
-            build/*.ipa
-            build/*.app.zip
-            ${{ env.DERIVED_DATA }}/Archive.xcarchive
-            ${{ env.DERIVED_DATA }}/ResultBundle_archive.xcresult
-            build/ResultBundle_archive.json
+          name: ios-simulator-app
+          path: ${{ github.workspace }}/build/simulator-app.zip
+          if-no-files-found: error
+          retention-days: 7
+
+      - name: Upload Device archive (.xcarchive)
+        uses: actions/upload-artifact@v4
+        with:
+          name: ios-device-archive
+          path: ${{ github.workspace }}/build/App.xcarchive
+          if-no-files-found: error
+          retention-days: 7
+
+      - name: Upload unsigned IPA
+        uses: actions/upload-artifact@v4
+        with:
+          name: ios-unsigned-ipa
+          path: ${{ env.IPA_OUTPUT }}
+          if-no-files-found: error
+          retention-days: 7
+
+      - name: Upload xcresult (build)
+        if: always()
+        uses: actions/upload-artifact@v4
+        with:
+          name: xcresult-build
+          path: ${{ github.workspace }}/build/ResultBundle_build.xcresult.zip
           if-no-files-found: warn
-          compression-level: 6
+          retention-days: 7
