@@ -78,9 +78,9 @@ To report a bug, please follow these steps:
 ## Do not commit (generated)
 
 - ios/Pods/
-- any *.xcworkspace
+- any \*.xcworkspace
 - DerivedData/
-- *.xcfilelist
+- \*.xcfilelist
 
 ---
 
