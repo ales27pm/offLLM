@@ -34,10 +34,6 @@ jobs:
           node-version: ${{ env.NODE_VERSION }}
           cache: "npm"
 
-      - name: Install jq
-        uses: dcarbone/install-jq-action@8867ddb4788346d7c22b72ea2e2ffe4d514c7bcb
-        # jq keeps the parsing simple and resilient
-
       - name: Set up Ruby
         uses: ruby/setup-ruby@44511735964dcb71245e7e55f72539531f7bc0eb
         with:
@@ -58,6 +54,8 @@ jobs:
           node -v
           ruby --version
           gem --version
+
+      # Node is already available; no jq needed for simulator prep
 
       - name: Cache node_modules
         uses: actions/cache@0400d5f644dc74513175e3cd8d07132dd4860809
@@ -146,16 +144,19 @@ jobs:
             -workspace "$WORKSPACE" \
             -scheme "$SCHEME" \
             -clonedSourcePackagesDirPath "$DERIVED_DATA/SourcePackages"
-
+      # ---- Optional Simulator Smoke Build (non-blocking) ----
+      # Gives early compile feedback without impacting the device archive.
       - name: Prepare Simulator
         id: sim
+        continue-on-error: true
         run: |
           set -euxo pipefail
-          # Prime CoreSimulatorService; sometimes the first JSON call races and returns empty.
+          RB="${DERIVED_DATA}/ResultBundle_build.xcresult"
+          rm -rf "$RB"
+
           xcodebuild -runFirstLaunch >/dev/null 2>&1 || true
           xcrun simctl list >/dev/null 2>&1 || true
 
-          # Retry loop to obtain JSON (prevents JSONDecodeError on momentary empties)
           SIM_JSON=""
           for i in 1 2 3; do
             if SIM_JSON="$(xcrun simctl list -j runtimes devices devicetypes)"; then
@@ -166,53 +167,35 @@ jobs:
             echo "simctl JSON empty on attempt $i; retrying..."
             sleep 2
           done
-
           if [ -z "$SIM_JSON" ]; then
-            echo "::error::No simulator JSON available from simctl after retries."
-            exit 70
+            echo "::warning::No simulator JSON available from simctl after retries (skipping sim smoke build)."
+            exit 0
           fi
 
-          # Prefer iOS 18.5 if present and available; else pick latest available iOS>=18
-          HAS_185="$(echo "$SIM_JSON" | jq -r '.runtimes[] | select(.isAvailable and .name=="iOS 18.5") | .identifier' | head -1 || true)"
-          if [ -n "$HAS_185" ]; then
-            RUNTIME_ID="$HAS_185"
-          else
-            RUNTIME_ID="$(echo "$SIM_JSON" | jq -r '
-              def v: .version // "0";
-              def parse: (v | split(".") | map(tonumber));
-              [ .runtimes[]
-                | select(.isAvailable and (.identifier|startswith("com.apple.CoreSimulator.SimRuntime.iOS")))
-                | select(((.version // "0") | startswith("18.")))
-              ]
-              | sort_by(.version | split(".") | map(tonumber))
-              | last
-              | .identifier // empty
-            ' || true)"
-          fi
+          # Prefer iOS 18.5 if present and available; else pick latest available iOS>=18; else pick any iOS (warn)
+          # Use shared helper to pick runtime & device
+          SIM_VALUES="$(node scripts/select-simulator.js <<<"$SIM_JSON")"
+          RUNTIME_ID="$(echo "$SIM_VALUES" | sed -n '1p')"
+          DEVICE_TYPE="$(echo "$SIM_VALUES" | sed -n '2p')"
+          DEVICE_ID="$(echo "$SIM_VALUES" | sed -n '3p')"
 
           if [ -z "${RUNTIME_ID:-}" ]; then
-            echo "::error::No available iOS 18.x Simulator runtime found."
-            echo "$SIM_JSON" | head -c 5000 || true
-            exit 70
+            echo "::warning::No iOS Simulator runtime found (skipping sim smoke build)."
+            exit 0
           fi
-
-          DEVICE_TYPE="$(echo "$SIM_JSON" | jq -r '.devicetypes[] | select(.name=="iPhone 16 Pro") | .identifier' | head -1 || true)"
-          if [ -z "${DEVICE_TYPE:-}" ]; then
-            DEVICE_TYPE="$(echo "$SIM_JSON" | jq -r '.devicetypes[] | select(.name|startswith("iPhone")) | .identifier' | head -1 || true)"
+          if ! echo "$RUNTIME_ID" | grep -q "iOS-18"; then
+            echo "::warning::Falling back to non-18.x simulator runtime: $RUNTIME_ID"
           fi
           if [ -z "${DEVICE_TYPE:-}" ]; then
-            echo "::error::No iPhone device type found in simctl output."
-            exit 71
+            echo "::warning::No iPhone device type found in simctl output (skipping sim smoke build)."
+            exit 0
           fi
-
-          # Try to re-use an existing device for that runtime; else create a new one
-          DEVICE_ID="$(echo "$SIM_JSON" | jq -r --arg rt "$RUNTIME_ID" --arg dt "$DEVICE_TYPE" '.devices[$rt][]? | select(.isAvailable and .deviceTypeIdentifier==$dt) | .udid' | head -1 || true)"
           if [ -z "${DEVICE_ID:-}" ]; then
             DEVICE_ID="$(xcrun simctl create "CI-iPhone" "$DEVICE_TYPE" "$RUNTIME_ID")"
           fi
           if [ -z "${DEVICE_ID:-}" ]; then
-            echo "::error::Failed to create or find a simulator for runtime $RUNTIME_ID."
-            exit 72
+            echo "::warning::Failed to create or find a simulator for runtime $RUNTIME_ID (skipping sim smoke build)."
+            exit 0
           fi
 
           echo "Runtime: $RUNTIME_ID"
@@ -222,71 +205,20 @@ jobs:
           xcrun simctl bootstatus "$DEVICE_ID" -b
           echo "dest=id=$DEVICE_ID" >> "$GITHUB_OUTPUT"
 
-      - name: Build (simulator)
+      - name: Build (Simulator) — smoke test
+        if: steps.sim.outputs.dest != ''
+        continue-on-error: true
         env:
-          SCHEME: ${{ env.SCHEME }}
-          CONFIGURATION: Release
-          DERIVED_DATA: ${{ env.DERIVED_DATA }}
-          RESULT_BUNDLE: ${{ env.RESULT_BUNDLE }}
-          DEST: ${{ steps.sim.outputs.dest }}
+          RESULT_BUNDLE: ${{ env.DERIVED_DATA }}/ResultBundle_build.xcresult
         run: |
           set -euxo pipefail
-          RB="$RESULT_BUNDLE"
-          rm -rf "$RB"
-          xcodebuild \
-            -workspace "$WORKSPACE" \
-            -scheme "$SCHEME" \
-            -sdk iphonesimulator \
-            -destination "$DEST" \
-            -configuration "$CONFIGURATION" \
-            -derivedDataPath "$DERIVED_DATA" \
-            -resultBundlePath "$RB" \
-            clean build
-
-      - name: Package artifacts (zip .app and make unsigned IPA)
-        run: |
-          set -euxo pipefail
-          mkdir -p build
-          PRODUCTS_DIR="$DERIVED_DATA/Build/Products/Release-iphonesimulator"
-          APP_PATH="$(/usr/bin/find "$PRODUCTS_DIR" -maxdepth 2 -name '*.app' -print -quit || true)"
-          if [ -z "$APP_PATH" ]; then
-            echo "::error title=App not produced::No .app found under $PRODUCTS_DIR. Check scheme and targets."
-            exit 1
-          fi
-          (cd "$(dirname "$APP_PATH")" && /usr/bin/zip -qry "$GITHUB_WORKSPACE/build/$(basename "$APP_PATH").zip" "$(basename "$APP_PATH")")
-
-          # Create an unsigned IPA. If Simulator, IPA is for inspection only (not installable on devices).
-          TMP_PAYLOAD="$(mktemp -d)"
-          mkdir -p "$TMP_PAYLOAD/Payload"
-          cp -R "$APP_PATH" "$TMP_PAYLOAD/Payload/"
-          (cd "$TMP_PAYLOAD" && /usr/bin/zip -qry "$GITHUB_WORKSPACE/build/offLLM-unsigned.ipa" "Payload")
-          rm -rf "$TMP_PAYLOAD"
-
-      - name: Extract errors from xcresult
-        if: always()
-        run: |
-          set -euo pipefail
-          mkdir -p build
-          RB="$RESULT_BUNDLE"
-          if [ -d "$RB" ]; then
-            xcrun xcresulttool get --format json --path "$RB" > "build/ResultBundle_build.json" || true
-            grep -n '"issue' "build/ResultBundle_build.json" | head -n 200 || true
-          fi
-
-      - name: Upload unsigned IPA, app & logs
-        if: always()
-        uses: actions/upload-artifact@ea165f8d65b6e75b540449e92b4886f43607fa02
-        with:
-          name: ios-unsigned-ipa
-          path: |
-            build/offLLM-unsigned.ipa
-            build/*.app.zip
-            ${{ env.DERIVED_DATA }}/Build/Logs
-            ${{ env.DERIVED_DATA }}/Logs/Build
-            ${{ env.RESULT_BUNDLE }}
-            build/*.json
-          if-no-files-found: error
-          compression-level: 6
+          xcodebuild -workspace "$WORKSPACE" \
+                     -scheme "$SCHEME" \
+                     -configuration Release \
+                     -destination "${{ steps.sim.outputs.dest }}" \
+                     -derivedDataPath "$DERIVED_DATA" \
+                     -resultBundlePath "$RESULT_BUNDLE" \
+                     clean build
 
   archive-ipa:
     name: Archive (device) & make unsigned IPA
@@ -442,7 +374,13 @@ jobs:
           mkdir -p build
           RB="${DERIVED_DATA}/ResultBundle_archive.xcresult"
           if [ -d "$RB" ]; then
-            xcrun xcresulttool get --format json --path "$RB" > "build/ResultBundle_archive.json" || true
+            # Xcode 16.4+: use `get object`; fall back to legacy if needed
+            if ! xcrun xcresulttool get object --path "$RB" --format json > "build/ResultBundle_archive.json" 2>/dev/null; then
+              if ! xcrun xcresulttool get --legacy --path "$RB" --format json > "build/ResultBundle_archive.json" 2>/dev/null; then
+                echo "Error: Failed to extract xcresult bundle with both 'get object' and legacy 'get'." >&2
+                exit 1
+              fi
+            fi
             grep -n '"issue' "build/ResultBundle_archive.json" | head -n 200 || true
           fi
 

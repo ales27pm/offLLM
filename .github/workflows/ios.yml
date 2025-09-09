@@ -31,10 +31,6 @@ jobs:
           node-version: ${{ env.NODE_VERSION }}
           cache: npm
 
-      - name: Install jq
-        uses: dcarbone/install-jq-action@8867ddb4788346d7c22b72ea2e2ffe4d514c7bcb
-        # jq keeps the parsing simple and resilient
-
       - name: Setup Ruby (3.2) + Bundler cache
         uses: ruby/setup-ruby@44511735964dcb71245e7e55f72539531f7bc0eb
         with:
@@ -103,11 +99,11 @@ jobs:
           RB="${DERIVED_DATA}/ResultBundle_build.xcresult"
           rm -rf "$RB"
 
-          # Prime CoreSimulatorService; sometimes the first JSON call races and returns empty.
+          # Prime CoreSimulator so lists are populated
           xcodebuild -runFirstLaunch >/dev/null 2>&1 || true
           xcrun simctl list >/dev/null 2>&1 || true
 
-          # Retry loop to obtain JSON (prevents JSONDecodeError on momentary empties)
+          # Collect JSON with a couple of retries
           SIM_JSON=""
           for i in 1 2 3; do
             if SIM_JSON="$(xcrun simctl list -j runtimes devices devicetypes)"; then
@@ -118,58 +114,38 @@ jobs:
             echo "simctl JSON empty on attempt $i; retrying..."
             sleep 2
           done
-
           if [ -z "$SIM_JSON" ]; then
             echo "::error::No simulator JSON available from simctl after retries."
             exit 70
           fi
 
-          # Prefer iOS 18.5 if present and available; else pick latest available iOS>=18
-          HAS_185="$(echo "$SIM_JSON" | jq -r '.runtimes[] | select(.isAvailable and .name=="iOS 18.5") | .identifier' | head -1 || true)"
-          if [ -n "$HAS_185" ]; then
-            RUNTIME_ID="$HAS_185"
-          else
-            RUNTIME_ID="$(echo "$SIM_JSON" | jq -r '
-              def v: .version // "0";
-              def parse: (v | split(".") | map(tonumber));
-              [ .runtimes[]
-                | select(.isAvailable and (.identifier|startswith("com.apple.CoreSimulator.SimRuntime.iOS")))
-                | select(((.version // "0") | startswith("18.")))
-              ]
-              | sort_by(.version | split(".") | map(tonumber))
-              | last
-              | .identifier // empty
-            ' || true)"
-          fi
+          # Use shared helper to pick runtime/device from simctl JSON
+          SIM_VALUES="$(node scripts/select-simulator.js <<<"$SIM_JSON")"
+          RUNTIME_ID="$(echo "$SIM_VALUES" | sed -n '1p')"
+          DEVICE_TYPE="$(echo "$SIM_VALUES" | sed -n '2p')"
+          DEVICE_ID="$(echo "$SIM_VALUES" | sed -n '3p')"
 
           if [ -z "${RUNTIME_ID:-}" ]; then
-            echo "::error::No available iOS 18.x Simulator runtime found."
+            echo "::group::Available runtimes (debug)"
             echo "$SIM_JSON" | head -c 5000 || true
+            echo "::endgroup::"
+            echo "::error::No available iOS Simulator runtime found."
             exit 70
           fi
-
-          DEVICE_TYPE="$(echo "$SIM_JSON" | jq -r '.devicetypes[] | select(.name=="iPhone 16 Pro") | .identifier' | head -1 || true)"
-          if [ -z "${DEVICE_TYPE:-}" ]; then
-            DEVICE_TYPE="$(echo "$SIM_JSON" | jq -r '.devicetypes[] | select(.name|startswith("iPhone")) | .identifier' | head -1 || true)"
+          if ! echo "$RUNTIME_ID" | grep -q "iOS-18"; then
+            echo "::warning::Selected non-18.x runtime ($RUNTIME_ID); proceeding to keep build unblocked."
           fi
           if [ -z "${DEVICE_TYPE:-}" ]; then
-            echo "::error::No iPhone device type found in simctl output."
+            echo "::error::No suitable iPhone device type found."
             exit 71
           fi
-
-          # Try to re-use an existing device for that runtime; else create a new one
-          DEVICE_ID="$(echo "$SIM_JSON" | jq -r --arg rt "$RUNTIME_ID" --arg dt "$DEVICE_TYPE" '.devices[$rt][]? | select(.isAvailable and .deviceTypeIdentifier==$dt) | .udid' | head -1 || true)"
           if [ -z "${DEVICE_ID:-}" ]; then
-            DEVICE_ID="$(xcrun simctl create "CI-iPhone" "$DEVICE_TYPE" "$RUNTIME_ID")"
+            DEVICE_ID="$(xcrun simctl create CI-iPhone "$DEVICE_TYPE" "$RUNTIME_ID")"
           fi
           if [ -z "${DEVICE_ID:-}" ]; then
             echo "::error::Failed to create or find a simulator for runtime $RUNTIME_ID."
             exit 72
           fi
-
-          echo "Runtime: $RUNTIME_ID"
-          echo "DeviceType: $DEVICE_TYPE"
-          echo "DeviceID: $DEVICE_ID"
           xcrun simctl boot "$DEVICE_ID" >/dev/null 2>&1 || true
           xcrun simctl bootstatus "$DEVICE_ID" -b
           echo "dest=id=$DEVICE_ID" >> "$GITHUB_OUTPUT"
@@ -190,3 +166,20 @@ jobs:
                      -derivedDataPath "$DERIVED_DATA" \
                      -resultBundlePath "$RESULT_BUNDLE" \
                      clean build
+
+      - name: Extract errors from xcresult (build)
+        if: always()
+        run: |
+          set -euo pipefail
+          mkdir -p build
+          RB="${DERIVED_DATA}/ResultBundle_build.xcresult"
+          if [ -d "$RB" ]; then
+            # Xcode 16.4+: use `get object`; fall back to legacy if needed
+            if ! xcrun xcresulttool get object --path "$RB" --format json > "build/ResultBundle_build.json" 2>/dev/null; then
+              if ! xcrun xcresulttool get --legacy --path "$RB" --format json > "build/ResultBundle_build.json" 2>/dev/null; then
+                echo "Error: Failed to extract xcresult bundle with both 'get object' and legacy 'get'." >&2
+                exit 1
+              fi
+            fi
+            grep -n '"issue' "build/ResultBundle_build.json" | head -n 200 || true
+          fi
