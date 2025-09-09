@@ -18,7 +18,7 @@ jobs:
       RUBY_VERSION: 3.2
       DERIVED_DATA: ${{ github.workspace }}/build/DerivedData
     steps:
-      - uses: actions/checkout@08eba0b27e820071cde6df949e0beb9ba4906955
+      - uses: actions/checkout@ff7abcd0c3c05ccf6adc123a8cd1fd4fb30fb493
 
       - name: Select Xcode
         uses: maxim-lobanov/setup-xcode@c51a66b42363123fa82a6cfe02c60af4281dab93
