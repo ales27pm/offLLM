@@ -26,8 +26,19 @@ public enum MLXCompat {
 
     // Prefer newer LLMModelFactory; fall back to legacy only on older trees.
     #if canImport(MLXLLM)
+    @available(*, unavailable, message: "Build-time guard only; use the conditional below.")
+    private typealias _LLMModelFactory_AvailabilityProbe = MLXLLM.LLMModelFactory
+    #if canImport(MLXLLM) && compiler(>=5.7)
+    #if canImport(MLXLLM)
+    // Prefer LLMModelFactory when available; otherwise fall back to ChatModelLoader.
     #if swift(>=5.7)
-    public typealias ModelLoader = MLXLLM.LLMModelFactory
+    public typealias ModelLoader = (
+        (AnyObject & Any).Type == (MLXLLM.LLMModelFactory).self
+    ) ? MLXLLM.LLMModelFactory : MLXLLM.ChatModelLoader
+    #else
+    public typealias ModelLoader = MLXLLM.ChatModelLoader
+    #endif
+    #endif
     #else
     public typealias ModelLoader = MLXLLM.ChatModelLoader
     #endif
