@@ -18,8 +18,10 @@ To get started with contributing:
 
 To report bugs or request features:
 1. Check if a similar issue already exists in the [Issue Tracker](https://github.com/ales27pm/offLLM/issues).
-2. Open a new issue with a descriptive title and detailed description, including reproduction steps for bugs.
-3. Use appropriate labels and templates if available.
+2. Open a new issue with a descriptive title and detailed description, including steps to reproduce for bugs.
+   - Use the templates if available.
+   - Provide as much context as needed to understand the issue or feature request fully.
+3. Use appropriate labels such as "bug" for bugs and "enhancement" for feature requests.
 
 ## Contribution Guidelines
 
@@ -27,7 +29,7 @@ To report bugs or request features:
 2. Implement your changes following the project's coding standards.
 3. Write clear, concise commit messages and reference any related issues.
 4. Ensure your changes are tested and do not break existing functionality.
-5. Submit a pull request to the main repository.
+5. Submit a pull request to the main repository with a description of changes and any related issues.
 
 ## Coding Standards
 
