@@ -44,8 +44,9 @@ extension MLXModule: RCTBridgeModule {
       let url = URL(fileURLWithPath: modelPath, isDirectory: true)
       let loader = try MLXCompat.ModelLoader(modelURL: url)
       // Create a session from the loader so we can issue completions.
-      let options = MLXCompat.GenerationOptions(maxTokens: 0, temperature: 0)
-      self.chat = try MLXCompat.ChatSession(loader: loader, options: options)
+      // Newer MLX snapshots initialise `ChatSession` without generation
+      // options; generation configuration is supplied per request.
+      self.chat = try MLXCompat.ChatSession(loader: loader)
       // Clear any cached results whenever a new model is loaded
       self.kvCache.removeAll()
       resolve(true)
