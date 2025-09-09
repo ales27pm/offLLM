@@ -1,10 +1,13 @@
-## Build Diagnosis (Condensed)
+# iOS CI Diagnosis
 
-- Errors: 0, Warnings: 0
-- Signals: No singular dominant failure; inspect errors & warnings.
+## Most likely root cause
+```No obvious single root cause detected; inspect warnings and CI environment.```
 
-### Next actions (high-level)
-- Remove '[Hermes] Replace Hermes' script phases (Pods + user projects).
-- Ensure ENABLE_USER_SCRIPT_SANDBOXING=NO and disable IO paths for [CP] scripts if using static pods.
-- Force IPHONEOS_DEPLOYMENT_TARGET >= 12.0 in post_install for old pods.
-- Clean SPM caches & re-resolve packages if you see 'Internal inconsistency error'.
+## Top XCResult issues
+- (no structured issues captured from xcresulttool)
+
+## Log stats
+
+## Pointers
+- Full log: `/Users/runner/work/offLLM/offLLM/build/xcodebuild.log`
+- Result bundle: `/Users/runner/work/offLLM/offLLM/build/MyOfflineLLMApp.xcresult`
