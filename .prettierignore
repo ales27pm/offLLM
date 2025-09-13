@@ -4,4 +4,8 @@ CI-REPORT.md
 report_agent.md
 REPORT.md
 .github/workflows/ios.yml
+# ignore disabled workflow files
+.github/workflows/*.yml.disabled
+README.md
+CONTRIBUTING.md
 # embedded script confuses prettier

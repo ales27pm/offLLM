@@ -9,12 +9,12 @@ packages:
   mlx-swift:
     url: https://github.com/ml-explore/mlx-swift
     # keep in sync with what CI resolved in the log
-    from: 0.25.6
+    from: 0.27.0
   # MLXLLM lives in the examples repo
   mlx-swift-examples:
     url: https://github.com/ml-explore/mlx-swift-examples
     # pin to a specific version for reproducible CI builds
-    from: 2.25.7
+    from: 2.27.0
 
 targets:
   monGARS:
