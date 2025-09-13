@@ -6,13 +6,13 @@ options:
     iOS: "18.0"
 
 packages:
+  # Stable, reproducible tags (shim bridges API drift)
   mlx-swift:
     url: https://github.com/ml-explore/mlx-swift
-    from: 0.25.6 # latest released tag on SPI
-  # MLXLLM lives in the examples repo
+    from: 0.25.6
   mlx-swift-examples:
     url: https://github.com/ml-explore/mlx-swift-examples
-    from: 2.25.7 # keep in sync with mlx-swift release
+    from: 2.25.7
 
 targets:
   monGARS:
@@ -26,6 +26,7 @@ targets:
           - "../node_modules/**"
           - "../build/**"
           - "Pods/**"
+      - path: MyOfflineLLMApp/MLXCompat.swift # ensure the compat shim is compiled
 
     dependencies:
       - package: mlx-swift-examples
