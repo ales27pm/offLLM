@@ -9,3 +9,4 @@ REPORT.md
 README.md
 CONTRIBUTING.md
 # embedded script confuses prettier
+scripts/package_ipa.sh
