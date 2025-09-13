@@ -24,21 +24,10 @@ public enum MLXCompat {
     #error("Neither MLXLMCommon nor MLXLLM is available")
     #endif
 
-    // Prefer newer LLMModelFactory; fall back to legacy only on older trees.
+    // Prefer newer LLMModelFactory; fall back to legacy loader when absent.
     #if canImport(MLXLLM)
-    @available(*, unavailable, message: "Build-time guard only; use the conditional below.")
-    private typealias _LLMModelFactory_AvailabilityProbe = MLXLLM.LLMModelFactory
-    #if canImport(MLXLLM) && compiler(>=5.7)
-    #if canImport(MLXLLM)
-    // Prefer LLMModelFactory when available; otherwise fall back to ChatModelLoader.
-    #if swift(>=5.7)
-    public typealias ModelLoader = (
-        (AnyObject & Any).Type == (MLXLLM.LLMModelFactory).self
-    ) ? MLXLLM.LLMModelFactory : MLXLLM.ChatModelLoader
-    #else
-    public typealias ModelLoader = MLXLLM.ChatModelLoader
-    #endif
-    #endif
+    #if MLX_FACTORY_LOADER
+    public typealias ModelLoader = MLXLLM.LLMModelFactory
     #else
     public typealias ModelLoader = MLXLLM.ChatModelLoader
     #endif
@@ -46,13 +35,22 @@ public enum MLXCompat {
     #error("MLXLLM module is unavailable")
     #endif
 
-    // “GenerationOptions” → “GenerationConfig” in newer snapshots.
+    // “GenerationOptions” was renamed to “GenerationConfig” in some snapshots.
+    // Alias to whichever symbol is available so call sites can remain stable.
     #if canImport(MLXLMCommon)
+    #if MLX_GENCONFIG
     public typealias GenerationOptions = MLXLMCommon.GenerationConfig
+    #else
+    public typealias GenerationOptions = MLXLMCommon.GenerationOptions
+    #endif
     #elseif canImport(MLXLLM)
+    #if MLX_GENCONFIG
     public typealias GenerationOptions = MLXLLM.GenerationConfig
     #else
-    #error("GenerationConfig not available")
+    public typealias GenerationOptions = MLXLLM.GenerationOptions
+    #endif
+    #else
+    #error("Generation configuration type not available")
     #endif
 }
 #endif
