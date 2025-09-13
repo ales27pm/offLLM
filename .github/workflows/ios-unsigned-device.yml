@@ -46,6 +46,11 @@ jobs:
             ${{ runner.os }}-pods-xcode-${{ env.XCODE_VERSION }}-
             ${{ runner.os }}-pods-
 
+      - name: Clean DerivedData & SPM cache
+        run: |
+          rm -rf "$DERIVED_DATA" ~/Library/Developer/Xcode/DerivedData
+          rm -rf "$HOME/Library/Developer/Xcode/DerivedData/SourcePackages"
+
       - name: NPM install (root)
         run: npm ci
 
@@ -97,7 +102,7 @@ jobs:
           chmod +x scripts/ios_doctor.sh || true
           ./scripts/ios_doctor.sh
 
-      - name: Resolve SwiftPM packages
+      - name: Resolve SwiftPM packages (fail fast)
         run: |
           set -euxo pipefail
           RB="$DERIVED_DATA/ResultBundle.xcresult"
@@ -114,7 +119,7 @@ jobs:
             echo "present=true" >> "$GITHUB_OUTPUT"
           fi
 
-      - name: Archive (device)
+      - name: Archive (device) — stop on errors
         if: steps.sdk.outputs.present == 'true'
         env:
           RB_ARCHIVE: ${{ env.DERIVED_DATA }}/ResultBundle_archive.xcresult
@@ -131,7 +136,7 @@ jobs:
             -derivedDataPath "$DERIVED_DATA" \
             -resultBundlePath "$RB_ARCHIVE" \
             -archivePath "$ARCHIVE_PATH"
-
+          # If xcodebuild failed here, the shell will stop due to -e; no "proceeding".
       - name: Fallback note if device platform is missing
         if: steps.sdk.outputs.present != 'true'
         run: |
