@@ -1,8 +1,7 @@
 import Foundation
 import React
 import Darwin
-// MLXLLM is provided by the Swift package "mlx-swift-examples".
-// Guard imports so builds still succeed if SPM fails to resolve.
+
 #if canImport(MLXLLM)
 import MLXLLM
 #elseif canImport(MLX)
@@ -15,98 +14,99 @@ import MLXLMCommon
 #if canImport(MLXLLM) || canImport(MLXLMCommon)
 
 /// The native module that exposes MLX-based functionality to the
-/// React Native bridge.  It manages an optional `ChatSession` instance
-/// and implements the methods expected by the JavaScript side.  All
+/// React Native bridge. It manages an optional `LLMModel` instance
+/// and implements the methods expected by the JavaScript side. All
 /// methods dispatch back to the JS thread via promise blocks.
 @objc(MLXModule)
 public final class MLXModule: NSObject {
-  private var chat: MLXCompat.ChatSession?
-  /// A simple cache for previously generated prompts.  Stores the
-  /// prompt and its generated reply.  When the same prompt is
-  /// requested again we return the cached result instead of
-  /// re-computing it.
+  /// The loaded MLX language model, if any. When `nil` the module is not ready.
+  private var model: LLMModel?
+  /// A simple cache for previously generated prompts. Stores the prompt and its
+  /// generated reply. When the same prompt is requested again we return the
+  /// cached result instead of re-computing it.
   private var kvCache: [String: String] = [:]
   @objc public static func requiresMainQueueSetup() -> Bool { false }
 }
 
-// Conform to the React Native bridge protocol so that this class can
-// be instantiated from JavaScript.
 extension MLXModule: RCTBridgeModule {
   public static func moduleName() -> String! { "MLXModule" }
 
-  /// Load a model from a folder on disk.  On success a `ChatSession` is
+  /// Load a model from a folder on disk. On success an `LLMModel` is
   /// created and stored; on failure the error is passed back to JS.
   @objc(loadModel:resolver:rejecter:)
   public func loadModel(_ modelPath: String,
                         resolver resolve: @escaping RCTPromiseResolveBlock,
                         rejecter reject: @escaping RCTPromiseRejectBlock) {
-    do {
-      let url = URL(fileURLWithPath: modelPath, isDirectory: true)
-      let loader = try MLXCompat.ModelLoader(modelURL: url)
-      // Create a session from the loader so we can issue completions.
-      // Newer MLX snapshots initialise `ChatSession` without generation
-      // options; generation configuration is supplied per request.
-      self.chat = try MLXCompat.ChatSession(loader: loader)
-      // Clear any cached results whenever a new model is loaded
-      self.kvCache.removeAll()
-      resolve(true)
-    } catch {
-      reject("MLX_LOAD_ERR", "Failed to load MLX model: \(error)", error)
+    Task.detached { [weak self] in
+      do {
+        let url = URL(fileURLWithPath: modelPath, isDirectory: true)
+        // LLMModel interprets the identifier in its configuration as either a remote
+        // Hugging Face hub ID or a local path. Passing the file system path directly
+        // instructs the loader to use the local directory.
+        let loaded = try await LLMModel.load(configuration: .init(id: url.path))
+        // Store the loaded model on the module. Reset the cache when switching
+        // models to avoid returning stale completions.
+        self?.model = loaded
+        self?.kvCache.removeAll()
+        resolve(true)
+      } catch {
+        reject("MLX_LOAD_ERR", "Failed to load MLX model: \(error)", error)
+      }
     }
   }
 
-  /// Generate text from a prompt.  If the model hasn’t been loaded an
-  /// error is returned.  In the stub implementation this simply
-  /// returns the prompt back.
+  /// Generate text from a prompt. If the model hasn’t been loaded an
+  /// error is returned. This method configures the model with the requested
+  /// parameters, generates a reply, caches it, and resolves.
   @objc(generate:maxTokens:temperature:resolver:rejecter:)
   public func generate(_ prompt: String,
                        maxTokens: NSNumber,
                        temperature: NSNumber,
                        resolver resolve: @escaping RCTPromiseResolveBlock,
                        rejecter reject: @escaping RCTPromiseRejectBlock) {
-    guard let chat = self.chat else {
+    guard let model = self.model else {
       reject("MLX_NOT_READY", "Model not loaded", nil)
       return
     }
-    // If we’ve already generated a reply for this prompt, return it
-    // immediately.  This avoids recomputing the output for identical
-    // inputs.
+    // If we’ve already generated a reply for this prompt, return it immediately.
     if let cached = kvCache[prompt] {
       resolve(cached)
       return
     }
-    Task.detached {
+    Task.detached { [weak self] in
       do {
-        let opts = MLXCompat.GenerationOptions(maxTokens: maxTokens.intValue,
-                                               temperature: Float(truncating: temperature))
-        let reply = try await chat.complete(prompt: prompt, options: opts)
-        // Store in the cache for subsequent calls
-        self.kvCache[prompt] = reply
+        // Configure the model for this request. Set temperature, topP and maxTokens.
+        var cfg = model.configuration
+        cfg.temperature = Float(truncating: temperature)
+        cfg.topP = 0.95
+        cfg.maxTokens = maxTokens.intValue
+        model.configuration = cfg
+        // Generate a stream of tokens and accumulate them into a single string.
+        var reply = ""
+        for try await token in model.generate(prompt: prompt, maxTokens: maxTokens.intValue) {
+          reply += token
+        }
+        self?.kvCache[prompt] = reply
         resolve(reply)
       } catch {
         reject("MLX_GEN_ERR", "Generation failed: \(error)", error)
       }
     }
   }
-}
 
-// MARK: - Convenience APIs matching Android’s surface
-
-extension MLXModule {
+  /// Unload the currently loaded model and clear the cache.
   @objc(unloadModel:rejecter:)
   public func unloadModel(_ resolve: @escaping RCTPromiseResolveBlock,
                           rejecter reject: @escaping RCTPromiseRejectBlock) {
-    self.chat = nil
+    self.model = nil
+    self.kvCache.removeAll()
     resolve(true)
   }
 
+  /// Compute simple performance metrics (memory and CPU usage) of the app.
   @objc(getPerformanceMetrics:rejecter:)
   public func getPerformanceMetrics(_ resolve: @escaping RCTPromiseResolveBlock,
                                     rejecter reject: @escaping RCTPromiseRejectBlock) {
-    // Compute memory usage ratio similar to the implementation in
-    // LLM.swift.  Use mach APIs to query the resident memory and
-    // normalise it by the physical memory.  If the API call fails
-    // default to 0.
     var info = mach_task_basic_info()
     var count = mach_msg_type_number_t(MemoryLayout<mach_task_basic_info>.size) / 4
     let kerr = withUnsafeMutablePointer(to: &info) {
@@ -122,40 +122,36 @@ extension MLXModule {
     } else {
       memoryUsageRatio = 0.0
     }
-    // Computing CPU utilisation accurately requires host processor
-    // statistics; since these APIs are brittle and platform-specific,
-    // we return 0 here for robustness.  Replace this value with a
-    // more accurate estimate if needed.
+    // Computing CPU utilisation accurately requires host processor statistics;
+    // since these APIs are brittle and platform-specific, we return 0 here for
+    // robustness. Replace this value with a more accurate estimate if needed.
     let cpuUsageRatio: Double = 0.0
     resolve(["memoryUsage": memoryUsageRatio, "cpuUsage": cpuUsageRatio])
   }
 
+  /// Adjust the performance mode. Accepts one of a handful of predefined
+  /// modes and returns true if the mode is valid.
   @objc(adjustPerformanceMode:resolver:rejecter:)
   public func adjustPerformanceMode(_ mode: NSString,
                                     resolver resolve: @escaping RCTPromiseResolveBlock,
                                     rejecter reject: @escaping RCTPromiseRejectBlock) {
-    // Accept one of a handful of predefined modes.  If the mode is
-    // unrecognised return false.  In a real MLX integration these
-    // modes would tune the model’s resource usage or accuracy.
     let validModes: Set<String> = ["high_quality", "balanced", "low_power"]
     resolve(validModes.contains(mode as String))
   }
 
+  /// Compute a simple deterministic embedding of the provided text by
+  /// normalising the Unicode scalar values of the first 64 characters.
   @objc(embed:resolver:rejecter:)
   public func embed(_ text: NSString,
                     resolver resolve: @escaping RCTPromiseResolveBlock,
                     rejecter reject: @escaping RCTPromiseRejectBlock) {
-    // Similar to LLM.swift, compute a normalised embedding by taking
-    // the Unicode scalar values of the first 64 characters and
-    // dividing by the maximum code point.  This provides a simple,
-    // deterministic representation of the text without relying on a
-    // machine learning model.
     let scalars = (text as String).unicodeScalars.prefix(64)
     let maxCode = Double(0x10FFFF)
     let vector = scalars.map { Double($0.value) / maxCode }
     resolve(vector)
   }
 
+  /// Clear the key–value cache used for storing previous completions.
   @objc(clearKVCache:rejecter:)
   public func clearKVCache(_ resolve: @escaping RCTPromiseResolveBlock,
                            rejecter reject: @escaping RCTPromiseRejectBlock) {
@@ -163,24 +159,28 @@ extension MLXModule {
     resolve(true)
   }
 
+  /// Add a message boundary. Provided for API parity with Android; no-op here.
   @objc(addMessageBoundary:rejecter:)
   public func addMessageBoundary(_ resolve: @escaping RCTPromiseResolveBlock,
                                  rejecter reject: @escaping RCTPromiseRejectBlock) {
     resolve(true)
   }
 
+  /// Get the number of entries currently stored in the cache.
   @objc(getKVCacheSize:rejecter:)
   public func getKVCacheSize(_ resolve: @escaping RCTPromiseResolveBlock,
                              rejecter reject: @escaping RCTPromiseRejectBlock) {
     resolve(kvCache.count)
   }
 
+  /// Get the maximum number of entries that could be stored in the cache.
   @objc(getKVCacheMaxSize:rejecter:)
   public func getKVCacheMaxSize(_ resolve: @escaping RCTPromiseResolveBlock,
                                 rejecter reject: @escaping RCTPromiseRejectBlock) {
     resolve(Int.max)
   }
 }
+
 #else
 
 @objc(MLXModule)
@@ -199,70 +199,6 @@ extension MLXModule: RCTBridgeModule {
                         rejecter reject: @escaping RCTPromiseRejectBlock) {
     reject("MLX_NOT_AVAILABLE", "MLXLLM not available", MLXNotAvailable.missingPackage)
   }
-
-  @objc(generate:maxTokens:temperature:resolver:rejecter:)
-  public func generate(_ prompt: String,
-                       maxTokens: NSNumber,
-                       temperature: NSNumber,
-                       resolver resolve: @escaping RCTPromiseResolveBlock,
-                       rejecter reject: @escaping RCTPromiseRejectBlock) {
-    reject("MLX_NOT_AVAILABLE", "MLXLLM not available", MLXNotAvailable.missingPackage)
-  }
 }
 
-// MARK: - Convenience APIs matching Android’s surface
-
-extension MLXModule {
-  @objc(unloadModel:rejecter:)
-  public func unloadModel(_ resolve: @escaping RCTPromiseResolveBlock,
-                          rejecter reject: @escaping RCTPromiseRejectBlock) {
-    kvCache.removeAll()
-    resolve(true)
-  }
-
-  @objc(getPerformanceMetrics:rejecter:)
-  public func getPerformanceMetrics(_ resolve: @escaping RCTPromiseResolveBlock,
-                                    rejecter reject: @escaping RCTPromiseRejectBlock) {
-    resolve(["memoryUsage": 0.0, "cpuUsage": 0.0])
-  }
-
-  @objc(adjustPerformanceMode:resolver:rejecter:)
-  public func adjustPerformanceMode(_ mode: NSString,
-                                    resolver resolve: @escaping RCTPromiseResolveBlock,
-                                    rejecter reject: @escaping RCTPromiseRejectBlock) {
-    resolve(false)
-  }
-
-  @objc(embed:resolver:rejecter:)
-  public func embed(_ text: NSString,
-                    resolver resolve: @escaping RCTPromiseResolveBlock,
-                    rejecter reject: @escaping RCTPromiseRejectBlock) {
-    resolve([])
-  }
-
-  @objc(clearKVCache:rejecter:)
-  public func clearKVCache(_ resolve: @escaping RCTPromiseResolveBlock,
-                           rejecter reject: @escaping RCTPromiseRejectBlock) {
-    kvCache.removeAll()
-    resolve(true)
-  }
-
-  @objc(addMessageBoundary:rejecter:)
-  public func addMessageBoundary(_ resolve: @escaping RCTPromiseResolveBlock,
-                                 rejecter reject: @escaping RCTPromiseRejectBlock) {
-    resolve(true)
-  }
-
-  @objc(getKVCacheSize:rejecter:)
-  public func getKVCacheSize(_ resolve: @escaping RCTPromiseResolveBlock,
-                             rejecter reject: @escaping RCTPromiseRejectBlock) {
-    resolve(kvCache.count)
-  }
-
-  @objc(getKVCacheMaxSize:rejecter:)
-  public func getKVCacheMaxSize(_ resolve: @escaping RCTPromiseResolveBlock,
-                                rejecter reject: @escaping RCTPromiseRejectBlock) {
-    resolve(Int.max)
-  }
-}
 #endif
