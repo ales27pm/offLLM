@@ -43,7 +43,9 @@ extension MLXModule: RCTBridgeModule {
         // LLMModel interprets the identifier in its configuration as either a remote
         // Hugging Face hub ID or a local path. Passing the file system path directly
         // instructs the loader to use the local directory.
-        let loaded = try await LLMModel.load(configuration: .init(id: url.path))
+        // The `LLMModel.load` API expects an unlabeled configuration parameter.
+        // Passing the path directly as a configuration initialiser instructs the loader to use the local directory.
+        let loaded = try await LLMModel.load(.init(id: url.path))
         // Store the loaded model on the module. Reset the cache when switching
         // models to avoid returning stale completions.
         self?.model = loaded
@@ -75,13 +77,10 @@ extension MLXModule: RCTBridgeModule {
     }
     Task.detached { [weak self] in
       do {
-        // Configure the model for this request. Set temperature, topP and maxTokens.
-        var cfg = model.configuration
-        cfg.temperature = Float(truncating: temperature)
-        cfg.topP = 0.95
-        cfg.maxTokens = maxTokens.intValue
-        model.configuration = cfg
         // Generate a stream of tokens and accumulate them into a single string.
+        // The LLMModel no longer exposes a mutable configuration; temperature and topP
+        // settings are not supported via the public API. We simply pass the prompt and
+        // maxTokens to `generate` and build up the reply as tokens arrive.
         var reply = ""
         for try await token in model.generate(prompt: prompt, maxTokens: maxTokens.intValue) {
           reply += token
