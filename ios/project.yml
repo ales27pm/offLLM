@@ -8,11 +8,10 @@ options:
 packages:
   mlx-swift:
     url: https://github.com/ml-explore/mlx-swift
-    from: 0.25.6 # latest released tag on SPI
-  # MLXLLM lives in the examples repo
+    branch: main
   mlx-swift-examples:
     url: https://github.com/ml-explore/mlx-swift-examples
-    from: 2.25.7 # keep in sync with mlx-swift release
+    branch: main
 
 targets:
   monGARS:

@@ -46,6 +46,11 @@ jobs:
             ${{ runner.os }}-pods-xcode-${{ env.XCODE_VERSION }}-
             ${{ runner.os }}-pods-
 
+      - name: Clean DerivedData & SPM cache
+        run: |
+          rm -rf "$DERIVED_DATA" ~/Library/Developer/Xcode/DerivedData
+          rm -rf "$HOME/Library/Developer/Xcode/DerivedData/SourcePackages"
+
       - name: NPM install (root)
         run: npm ci
 
@@ -97,7 +102,7 @@ jobs:
           chmod +x scripts/ios_doctor.sh || true
           ./scripts/ios_doctor.sh
 
-      - name: Resolve SwiftPM deps
+      - name: Resolve SwiftPM packages (fail fast)
         run: |
           set -euxo pipefail
           RB="$DERIVED_DATA/ResultBundle.xcresult"
@@ -114,55 +119,53 @@ jobs:
             echo "present=true" >> "$GITHUB_OUTPUT"
           fi
 
-      - name: Archive (device)
+      - name: Archive (device) — stop on errors
         if: steps.sdk.outputs.present == 'true'
-        id: archive
+        env:
+          RB_ARCHIVE: ${{ env.DERIVED_DATA }}/ResultBundle_archive.xcresult
+          ARCHIVE_PATH: ${{ env.DERIVED_DATA }}/Archive.xcarchive
         run: |
           set -euxo pipefail
-          ARCHIVE_PATH="${DERIVED_DATA}/Archive.xcarchive"
-          RB_ARCHIVE="${DERIVED_DATA}/ResultBundle_archive.xcresult"
           rm -rf "$ARCHIVE_PATH" "$RB_ARCHIVE"
-          # Run archive, but don’t fail the job purely on warnings/unsigned exit (65).
-          # We’ll still surface real errors from the xcresult in a later step.
-          if ! xcodebuild archive \
-               -${XCODE_CONTAINER_TYPE} "$XCODE_CONTAINER" \
-               -scheme "$SCHEME" \
-               -destination "generic/platform=iOS" \
-               -configuration Release \
-               -derivedDataPath "$DERIVED_DATA" \
-               -resultBundlePath "$RB_ARCHIVE" \
-               CODE_SIGNING_ALLOWED=NO CODE_SIGNING_REQUIRED=NO \
-               -archivePath "$ARCHIVE_PATH"; then
-            echo "::warning::xcodebuild archive exited non-zero (often 65 on CI due to warnings/unsigned). Proceeding to package artifacts."
-          fi
-
-          # Soft validation: if Products/Applications has no .app, emit a warning so it’s obvious.
-          APP_DIR="${ARCHIVE_PATH}/Products/Applications"
-          if [ ! -d "$APP_DIR" ] || ! /usr/bin/find "$APP_DIR" -maxdepth 1 -name '*.app' -print -quit >/dev/null; then
-            echo "::warning::Archive completed but no .app found in ${APP_DIR} (check xcresult issues in next step)."
-          fi
-
+          xcodebuild archive \
+            -${XCODE_CONTAINER_TYPE} "$XCODE_CONTAINER" \
+            -scheme "$SCHEME" \
+            -configuration Release \
+            -destination generic/platform=iOS \
+            CODE_SIGNING_ALLOWED=NO CODE_SIGNING_REQUIRED=NO \
+            -derivedDataPath "$DERIVED_DATA" \
+            -resultBundlePath "$RB_ARCHIVE" \
+            -archivePath "$ARCHIVE_PATH"
+          # If xcodebuild failed here, the shell will stop due to -e; no "proceeding".
       - name: Fallback note if device platform is missing
         if: steps.sdk.outputs.present != 'true'
         run: |
           echo "::warning title=Device platform unavailable::This runner image lacks the iOS Device platform. See uploaded xcresult for details."
 
-      - name: Package unsigned IPA from archive (robust)
-        if: steps.archive.conclusion == 'success'
-        run: |
-          ./scripts/package_ipa.sh "$DERIVED_DATA/Archive.xcarchive" "build" "monGARS"
-
-      - name: Extract errors from xcresult (archive)
-        if: always()
+      - name: Fail if compiler errors exist (archive)
+        if: steps.sdk.outputs.present == 'true'
         run: |
           set -euo pipefail
-          mkdir -p build
           RB="${DERIVED_DATA}/ResultBundle_archive.xcresult"
+          mkdir -p build
           if [ -d "$RB" ]; then
-            # Xcode 16+: legacy 'get object' requires --legacy; keep legacy JSON for existing parsing.
-            xcrun xcresulttool get object --legacy --format json --path "$RB" > "build/ResultBundle_archive.json" || true
-            grep -n '"issue' "build/ResultBundle_archive.json" | head -n 200 || true
+            if ! xcrun xcresulttool get --legacy --path "$RB" --format json > build/ResultBundle_archive.json 2>/dev/null; then
+              xcrun xcresulttool get object --path "$RB" --format json > build/ResultBundle_archive.json
+            fi
+            # Fail if there are "Swift Compiler Error" entries
+            if grep -q '"Swift Compiler Error"' build/ResultBundle_archive.json; then
+              echo "::error title=Swift compile errors detected::See ResultBundle_archive.json artifact."
+              exit 65
+            fi
+          else
+            echo "::error title=No archive result bundle::Archive likely failed before xcresult creation."
+            exit 65
           fi
+
+      - name: Package unsigned IPA from archive (robust)
+        if: steps.sdk.outputs.present == 'true'
+        run: |
+          ./scripts/package_ipa.sh "$DERIVED_DATA/Archive.xcarchive" "build" "monGARS"
 
       - name: Upload archive artifacts
         if: always()
