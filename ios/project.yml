@@ -25,6 +25,7 @@ targets:
           - "../node_modules/**"
           - "../build/**"
           - "Pods/**"
+        # MLXCompat.swift must remain included in the target
 
     dependencies:
       - package: mlx-swift-examples
