@@ -25,10 +25,7 @@ import MLXLMCommon
 /// loaded all generation requests fail with `MLX_NOT_READY`.
 @objc(MLXModule)
 public final class MLXModule: NSObject {
-  /// The loaded LLM model.  When `nil`, no model has been loaded yet.  We
-  /// use the new MLX LLM API (`LLMModel`) exposed by the `mlx-swift-
-  /// examples` package.  This replaces the legacy `ChatSession` type and
-  /// bridges directly to model generation calls.
+  /// The loaded LLM model.  When `nil`, no model has been loaded yet.
   private var model: LLMModel?
 
   /// A simple cache for previously generated prompts.  Stores the prompt
@@ -44,7 +41,7 @@ public final class MLXModule: NSObject {
 extension MLXModule: RCTBridgeModule {
   public static func moduleName() -> String! { "MLXModule" }
 
-  /// Load a model from a folder on disk.  On success a `ChatSession` is
+  /// Load a model from a folder on disk.  On success an `LLMModel` is
   /// created and stored; on failure the error is passed back to JS.
   @objc(loadModel:resolver:rejecter:)
   public func loadModel(_ modelPath: String,
@@ -54,20 +51,10 @@ extension MLXModule: RCTBridgeModule {
     // detached task to avoid blocking the React Native bridge thread.
     Task.detached { [weak self] in
       do {
-        // Construct a file URL for the on‑device model directory.  The
-        // `LLMModel` API interprets the identifier passed in its
-        // configuration as either a remote Hugging Face hub ID or a
-        // local path.  Passing the file system path directly
-        // instructs the loader to use the local directory.
-        let url = URL(fileURLWithPath: modelPath, isDirectory: true)
-        // Load the model.  This call may download additional assets or
-        // perform heavy initialisation work and therefore must be
-        // awaited.  On success it returns a fully initialised
-        // `LLMModel` ready for inference.
-        let loaded = try await LLMModel.load(configuration: .init(id: url.path))
-        // Store the loaded model on the module.  Reset the cache when
-        // switching models to avoid returning stale completions.
-        self?.model = loaded
+        // `LLMModel.load` interprets the identifier as either a remote
+        // Hugging Face model ID or a local file-system path.  Supplying
+        // the on-device folder path loads the model from disk.
+        self?.model = try await LLMModel.load(configuration: .init(id: modelPath))
         self?.kvCache.removeAll()
         resolve(true)
       } catch {
@@ -96,26 +83,16 @@ extension MLXModule: RCTBridgeModule {
       resolve(cached)
       return
     }
-    Task.detached { [weak self] in
+    Task.detached { [weak self, model] in
       do {
-        // Configure generation parameters.  The LLM API exposes a
-        // mutable `configuration` property on the model that controls
-        // temperature, nucleus sampling (topP) and maximum token
-        // generation.  We update these fields per request.
-        var cfg = model.configuration
-        cfg.temperature = Float(truncating: temperature)
-        cfg.topP = 0.95
-        cfg.maxTokens = maxTokens.intValue
-        model.configuration = cfg
-        // Begin generation.  The result is an asynchronous stream of
-        // tokens which we accumulate into a single output string.
-        var result = ""
+        // For now we only control the maximum number of generated
+        // tokens.  Temperature and other sampling parameters will be
+        // reintroduced when the official API exposes them.
         let stream = try await model.generate(prompt: prompt, maxTokens: maxTokens.intValue)
+        var result = ""
         for try await token in stream {
           result += token
         }
-        // Cache and resolve the completed string.  Always dispatch
-        // back to the promise on completion.
         self?.kvCache[prompt] = result
         resolve(result)
       } catch {

@@ -39,14 +39,12 @@ extension MLXModule: RCTBridgeModule {
                         rejecter reject: @escaping RCTPromiseRejectBlock) {
     Task.detached { [weak self] in
       do {
-        let url = URL(fileURLWithPath: modelPath, isDirectory: true)
-        // LLMModel interprets the identifier in its configuration as either a remote
-        // Hugging Face hub ID or a local path. Passing the file system path directly
-        // instructs the loader to use the local directory.
-        let loaded = try await LLMModel.load(configuration: .init(id: url.path))
-        // Store the loaded model on the module. Reset the cache when switching
-        // models to avoid returning stale completions.
-        self?.model = loaded
+        // `LLMModel.load` accepts a configuration whose identifier can be a
+        // Hugging Face model ID or a local file-system path.  Supplying the
+        // on-device folder path loads the model directly from disk.
+        self?.model = try await LLMModel.load(configuration: .init(id: modelPath))
+        // Reset the cache when switching models to avoid returning stale
+        // completions.
         self?.kvCache.removeAll()
         resolve(true)
       } catch {
@@ -73,17 +71,14 @@ extension MLXModule: RCTBridgeModule {
       resolve(cached)
       return
     }
-    Task.detached { [weak self] in
+    Task.detached { [weak self, model] in
       do {
-        // Configure the model for this request. Set temperature, topP and maxTokens.
-        var cfg = model.configuration
-        cfg.temperature = Float(truncating: temperature)
-        cfg.topP = 0.95
-        cfg.maxTokens = maxTokens.intValue
-        model.configuration = cfg
-        // Generate a stream of tokens and accumulate them into a single string.
+        // For now we only control the maximum number of generated tokens.
+        // Temperature and other sampling parameters will be reintroduced when
+        // exposed by the official API.
+        let stream = try await model.generate(prompt: prompt, maxTokens: maxTokens.intValue)
         var reply = ""
-        for try await token in model.generate(prompt: prompt, maxTokens: maxTokens.intValue) {
+        for try await token in stream {
           reply += token
         }
         self?.kvCache[prompt] = reply
