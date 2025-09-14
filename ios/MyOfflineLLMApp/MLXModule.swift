@@ -25,6 +25,8 @@ public final class MLXModule: NSObject {
   /// generated reply. When the same prompt is requested again we return the
   /// cached result instead of re-computing it.
   private var kvCache: [String: String] = [:]
+  /// Remember the desired performance mode without mutating the model.
+  private var performanceMode: String = "balanced"
   @objc public static func requiresMainQueueSetup() -> Bool { false }
 }
 
@@ -42,7 +44,7 @@ extension MLXModule: RCTBridgeModule {
         // `LLMModel.load` accepts a configuration whose identifier can be a
         // Hugging Face model ID or a local file-system path.  Supplying the
         // on-device folder path loads the model directly from disk.
-        self?.model = try await LLMModel.load(configuration: .init(id: modelPath))
+        self?.model = try await LLMModel.load(.init(id: modelPath))
         // Reset the cache when switching models to avoid returning stale
         // completions.
         self?.kvCache.removeAll()
@@ -125,13 +127,19 @@ extension MLXModule: RCTBridgeModule {
   }
 
   /// Adjust the performance mode. Accepts one of a handful of predefined
-  /// modes and returns true if the mode is valid.
+  /// modes and remembers it if valid.
   @objc(adjustPerformanceMode:resolver:rejecter:)
   public func adjustPerformanceMode(_ mode: NSString,
                                     resolver resolve: @escaping RCTPromiseResolveBlock,
                                     rejecter reject: @escaping RCTPromiseRejectBlock) {
     let validModes: Set<String> = ["high_quality", "balanced", "low_power"]
-    resolve(validModes.contains(mode as String))
+    let modeStr = mode as String
+    if validModes.contains(modeStr) {
+      self.performanceMode = modeStr
+      resolve(true)
+    } else {
+      resolve(false)
+    }
   }
 
   /// Compute a simple deterministic embedding of the provided text by

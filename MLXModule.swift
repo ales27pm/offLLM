@@ -33,6 +33,9 @@ public final class MLXModule: NSObject {
   /// again we return the cached result instead of re-computing it.
   private var kvCache: [String: String] = [:]
 
+  /// Remember the desired performance mode without mutating the model.
+  private var performanceMode: String = "balanced"
+
   @objc public static func requiresMainQueueSetup() -> Bool { false }
 }
 
@@ -54,7 +57,7 @@ extension MLXModule: RCTBridgeModule {
         // `LLMModel.load` interprets the identifier as either a remote
         // Hugging Face model ID or a local file-system path.  Supplying
         // the on-device folder path loads the model from disk.
-        self?.model = try await LLMModel.load(configuration: .init(id: modelPath))
+        self?.model = try await LLMModel.load(.init(id: modelPath))
         self?.kvCache.removeAll()
         resolve(true)
       } catch {
@@ -153,10 +156,16 @@ extension MLXModule {
                                     resolver resolve: @escaping RCTPromiseResolveBlock,
                                     rejecter reject: @escaping RCTPromiseRejectBlock) {
     // Accept one of a handful of predefined modes.  If the mode is
-    // unrecognised return false.  In a real MLX integration these
-    // modes would tune the model’s resource usage or accuracy.
+    // recognised remember it and return true.  In a real MLX integration
+    // these modes would tune the model’s resource usage or accuracy.
     let validModes: Set<String> = ["high_quality", "balanced", "low_power"]
-    resolve(validModes.contains(mode as String))
+    let modeStr = mode as String
+    if validModes.contains(modeStr) {
+      self.performanceMode = modeStr
+      resolve(true)
+    } else {
+      resolve(false)
+    }
   }
 
   @objc(embed:resolver:rejecter:)
@@ -248,6 +257,7 @@ extension MLXModule {
   public func adjustPerformanceMode(_ mode: NSString,
                                     resolver resolve: @escaping RCTPromiseResolveBlock,
                                     rejecter reject: @escaping RCTPromiseRejectBlock) {
+    self.performanceMode = mode as String
     resolve(false)
   }
 
