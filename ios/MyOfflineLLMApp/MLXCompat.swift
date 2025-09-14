@@ -30,20 +30,6 @@ public enum MLXCompat {
     }
     #endif
 
-    public static func makeOptions(temperature: Float = 0.7,
-                                   topP: Float = 0.95,
-                                   maxTokens: Int = 512,
-                                   presencePenalty: Float = 0.0,
-                                   frequencyPenalty: Float = 0.0) -> GenerationOptions {
-        var g = GenerationOptions()
-        g.temperature = temperature
-        g.topP = topP
-        g.maxTokens = maxTokens
-        g.presencePenalty = presencePenalty
-        g.frequencyPenalty = frequencyPenalty
-        return g
-    }
-
     // MARK: Loader facade
     public struct ModelLoader {
         public let idOrPath: String
