@@ -38,6 +38,8 @@ xcodebuild \
 
 - Unsigned iOS IPA is built by `.github/workflows/ios-unsigned.yml` on macos-15.
   - Artifacts: `ios-unsigned-ipa` (contains the unsigned `.ipa`, zipped `.app`, `.xcresult`, and build logs)
+    - IPA filename: `${XCODE_SCHEME}.ipa` (currently `monGARS.ipa`)
+    - .app bundle zip filename: `${XCODE_SCHEME}.zip` (currently `monGARS.zip`)
 - Caches:
   - Node: keyed by `hashFiles('package-lock.json')`
   - Pods: keyed by `hashFiles('ios/Podfile.lock')` + `XCODE_VERSION`

@@ -13,31 +13,58 @@
 const fs = require("fs");
 const path = require("path");
 
-const root = process.cwd();
+const root = path.resolve(process.cwd());
+const rootWithSep = root.endsWith(path.sep) ? root : `${root}${path.sep}`;
 
-function mustExist(relPath, label) {
-  const p = path.join(root, relPath);
-  if (!fs.existsSync(p)) {
-    throw new Error(`Missing ${label || relPath} at ${relPath}`);
+function resolveInRepo(targetPath) {
+  const absPath = path.isAbsolute(targetPath)
+    ? path.normalize(targetPath)
+    : path.resolve(root, targetPath);
+
+  if (absPath === root) {
+    throw new Error("Refusing to operate on the repository root");
   }
-  return p;
+
+  if (!absPath.startsWith(rootWithSep)) {
+    throw new Error(`Refusing path outside repository root: ${targetPath}`);
+  }
+
+  return absPath;
 }
 
-function mustContain(filePath, substrings, label) {
-  const src = fs.readFileSync(filePath, "utf8");
+function mustExist(relPath, label) {
+  const resolved = resolveInRepo(relPath);
+  if (!fs.existsSync(resolved)) {
+    throw new Error(`Missing ${label || relPath} at ${relPath}`);
+  }
+  return resolved;
+}
+
+function mustContain(targetPath, substrings, label) {
+  const resolved = resolveInRepo(targetPath);
+  const src = fs.readFileSync(resolved, "utf8");
   for (const s of substrings) {
     if (!src.includes(s)) {
       throw new Error(
-        `Expected ${label || path.relative(root, filePath)} to contain: ${s}`,
+        `Expected ${label || path.relative(root, resolved)} to contain: ${s}`,
       );
     }
   }
 }
 
-function softCheck(filePath, substrings, label) {
+function softCheck(targetPath, substrings, label) {
   try {
-    mustContain(filePath, substrings, label);
+    mustContain(targetPath, substrings, label);
     return true;
+  } catch (e) {
+    console.warn(`WARN: ${e.message}`);
+    return false;
+  }
+}
+
+function safeExists(targetPath) {
+  try {
+    return fs.existsSync(resolveInRepo(targetPath));
   } catch (e) {
     console.warn(`WARN: ${e.message}`);
     return false;
@@ -48,20 +75,26 @@ function main() {
   const errors = [];
 
   // --- 1) Files existence checks
-  const files = [
-    [
-      "ios/MyOfflineLLMApp/MLX/MLXModule.swift",
-      "Swift bridge (MLXModule.swift)",
-    ],
-    [
-      "ios/MyOfflineLLMApp/MLX/MLXModuleBridge.m",
-      "ObjC shim (MLXModuleBridge.m)",
-    ],
-    ["src/native/MLXModule.ts", "JS wrapper (src/native/MLXModule.ts)"],
-    ["src/services/chat/mlxChat.ts", "Chat service (mlxChat.ts)"],
+  const existChecks = [
+    {
+      rel: "ios/MyOfflineLLMApp/MLX/MLXModule.swift",
+      label: "Swift bridge (MLXModule.swift)",
+    },
+    {
+      rel: "ios/MyOfflineLLMApp/MLX/MLXModuleBridge.m",
+      label: "ObjC shim (MLXModuleBridge.m)",
+    },
+    {
+      rel: "src/native/MLXModule.ts",
+      label: "JS wrapper (src/native/MLXModule.ts)",
+    },
+    {
+      rel: "src/services/chat/mlxChat.ts",
+      label: "Chat service (mlxChat.ts)",
+    },
   ];
 
-  for (const [rel, label] of files) {
+  for (const { rel, label } of existChecks) {
     try {
       mustExist(rel, label);
     } catch (e) {
@@ -69,29 +102,21 @@ function main() {
     }
   }
 
-  // --- 2) Swift bridge API correctness
-  try {
-    const swiftPath = mustExist("ios/MyOfflineLLMApp/MLX/MLXModule.swift");
-    mustContain(
-      swiftPath,
-      [
+  // --- 2) File content checks (hard-fail)
+  const containChecks = [
+    {
+      rel: "ios/MyOfflineLLMApp/MLX/MLXModule.swift",
+      substrings: [
         "@objc(MLXModule)",
         "final class MLXModule: NSObject",
         "LLMModelFactory.shared.loadContainer",
         "ChatSession(",
       ],
-      "MLXModule.swift",
-    );
-  } catch (e) {
-    errors.push(e.message);
-  }
-
-  // --- 3) ObjC shim exports the methods React Native expects
-  try {
-    const mPath = mustExist("ios/MyOfflineLLMApp/MLX/MLXModuleBridge.m");
-    mustContain(
-      mPath,
-      [
+      label: "MLXModule.swift",
+    },
+    {
+      rel: "ios/MyOfflineLLMApp/MLX/MLXModuleBridge.m",
+      substrings: [
         "RCT_EXTERN_MODULE(MLXModule, NSObject)",
         "RCT_EXTERN_METHOD(load:(NSString *)modelID",
         "RCT_EXTERN_METHOD(isLoaded:(RCTPromiseResolveBlock)resolve",
@@ -99,18 +124,11 @@ function main() {
         "RCT_EXTERN_METHOD(reset)",
         "RCT_EXTERN_METHOD(unload)",
       ],
-      "MLXModuleBridge.m",
-    );
-  } catch (e) {
-    errors.push(e.message);
-  }
-
-  // --- 4) JS wrapper has expected shape
-  try {
-    const jsPath = mustExist("src/native/MLXModule.ts");
-    mustContain(
-      jsPath,
-      [
+      label: "MLXModuleBridge.m",
+    },
+    {
+      rel: "src/native/MLXModule.ts",
+      substrings: [
         "NativeModules.MLXModule",
         "load(",
         "generate(",
@@ -118,10 +136,17 @@ function main() {
         "reset(",
         "unload(",
       ],
-      "src/native/MLXModule.ts",
-    );
-  } catch (e) {
-    errors.push(e.message);
+      label: "src/native/MLXModule.ts",
+    },
+  ];
+
+  for (const { rel, substrings, label } of containChecks) {
+    try {
+      const filePath = mustExist(rel, label);
+      mustContain(filePath, substrings, label);
+    } catch (e) {
+      errors.push(e.message);
+    }
   }
 
   // --- 5) Basic Xcode project references (heuristic)
@@ -130,12 +155,11 @@ function main() {
     "ios/monGARS.xcodeproj/project.pbxproj",
     "ios/MyOfflineLLMApp.xcodeproj/project.pbxproj",
   ];
-  const pbx = pbxprojCandidates.find((p) => fs.existsSync(path.join(root, p)));
+  const pbx = pbxprojCandidates.find((p) => safeExists(p));
   if (pbx) {
     try {
-      const p = path.join(root, pbx);
-      softCheck(p, ["MLXModule.swift"], `${pbx} (MLXModule.swift ref)`);
-      softCheck(p, ["MLXModuleBridge.m"], `${pbx} (MLXModuleBridge.m ref)`);
+      softCheck(pbx, ["MLXModule.swift"], `${pbx} (MLXModule.swift ref)`);
+      softCheck(pbx, ["MLXModuleBridge.m"], `${pbx} (MLXModuleBridge.m ref)`);
     } catch (e) {
       console.warn(`WARN: ${e.message}`);
     }
@@ -146,31 +170,41 @@ function main() {
   }
 
   // --- 6) Podfile sanity (iOS 18)
-  if (fs.existsSync(path.join(root, "ios/Podfile"))) {
+  if (safeExists("ios/Podfile")) {
     try {
-      const pod = path.join(root, "ios/Podfile");
-      softCheck(pod, ["platform :ios, '18.0'"], "Podfile platform iOS 18");
+      softCheck(
+        "ios/Podfile",
+        ["platform :ios, '18.0'"],
+        "Podfile platform iOS 18",
+      );
     } catch (e) {
       console.warn(`WARN: ${e.message}`);
     }
   }
 
   // --- 7) XcodeGen project.yml sanity (Swift 6, signing disabled, MLX packages)
-  if (fs.existsSync(path.join(root, "ios/project.yml"))) {
+  if (safeExists("ios/project.yml")) {
     try {
-      const yml = path.join(root, "ios/project.yml");
-      softCheck(yml, ['SWIFT_VERSION: "6.0"'], "Swift 6 in project.yml");
       softCheck(
-        yml,
+        "ios/project.yml",
+        ['SWIFT_VERSION: "6.0"'],
+        "Swift 6 in project.yml",
+      );
+      softCheck(
+        "ios/project.yml",
         ["CODE_SIGNING_ALLOWED: NO"],
         "Signing disabled in project.yml",
       );
       softCheck(
-        yml,
+        "ios/project.yml",
         ["MLXLMCommon"],
         "MLXLMCommon added in project.yml packages",
       );
-      softCheck(yml, ["MLXLLM"], "MLXLLM added in project.yml packages");
+      softCheck(
+        "ios/project.yml",
+        ["MLXLLM"],
+        "MLXLLM added in project.yml packages",
+      );
     } catch (e) {
       console.warn(`WARN: ${e.message}`);
     }
