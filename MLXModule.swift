@@ -1,6 +1,7 @@
 import Foundation
 import React
 import MLX
+import MLXLLM 
 import MLXLMCommon
 import MLXLinalg
 import MLXRandom
