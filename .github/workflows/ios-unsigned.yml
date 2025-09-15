@@ -44,7 +44,6 @@ jobs:
         run: |
           # Clean previous artifacts
           rm -rf build
-          mkdir -p $OUTPUT_DIR
           # Build archive with code signing disabled
           set -o pipefail
           xcodebuild -workspace $XCODE_WORKSPACE \
@@ -55,25 +54,42 @@ jobs:
             -resultBundlePath $RESULT_PATH \
             clean archive | tee build-log.txt
 
-      - name: Create Payload and IPA
+      - name: Collect build log
+        if: always()
         run: |
+          ROOT="$(pwd)"
+          OUTPUT_DIR_ABS="${ROOT}/${OUTPUT_DIR}"
+          mkdir -p "$OUTPUT_DIR_ABS"
+          if [ -f build-log.txt ]; then
+            cp build-log.txt "$OUTPUT_DIR_ABS/"
+          fi
+
+      - name: Create Payload and IPA
+        if: success()
+        run: |
+          ROOT="$(pwd)"
+          OUTPUT_DIR_ABS="${ROOT}/${OUTPUT_DIR}"
           APP_PATH="$ARCHIVE_PATH/Products/Applications/${XCODE_SCHEME}.app"
           PAYLOAD_DIR="build/Payload"
-          IPA_PATH="$(pwd)/$OUTPUT_DIR/${XCODE_SCHEME}.ipa"
+          rm -rf "$PAYLOAD_DIR"
           mkdir -p "$PAYLOAD_DIR"
           cp -R "$APP_PATH" "$PAYLOAD_DIR/"
-          mkdir -p "$OUTPUT_DIR"
-          cd build
-          zip -r "$IPA_PATH" Payload
-          cd ..
+          (
+            cd build
+            zip -r "$OUTPUT_DIR_ABS/${XCODE_SCHEME}.ipa" Payload
+          )
+          rm -rf "$PAYLOAD_DIR"
 
-      - name: Package .app and logs
+      - name: Package .app bundle
+        if: success()
         run: |
-          mkdir -p "$OUTPUT_DIR"
-          APP_ZIP_PATH="$(pwd)/$OUTPUT_DIR/${XCODE_SCHEME}.zip"
+          ROOT="$(pwd)"
+          OUTPUT_DIR_ABS="${ROOT}/${OUTPUT_DIR}"
           APP_DIR="$ARCHIVE_PATH/Products/Applications"
-          (cd "$APP_DIR" && zip -r "$APP_ZIP_PATH" "${XCODE_SCHEME}.app")
-          mv build-log.txt "$OUTPUT_DIR/"
+          mkdir -p "$OUTPUT_DIR_ABS"
+          (
+            cd "$APP_DIR" && zip -r "$OUTPUT_DIR_ABS/${XCODE_SCHEME}.zip" "${XCODE_SCHEME}.app"
+          )
 
       - name: Upload build artifacts
         if: always()
@@ -85,3 +101,4 @@ jobs:
             ${{ env.OUTPUT_DIR }}/${{ env.XCODE_SCHEME }}.ipa
             ${{ env.OUTPUT_DIR }}/${{ env.XCODE_SCHEME }}.zip
             ${{ env.OUTPUT_DIR }}/build-log.txt
+          if-no-files-found: warn
