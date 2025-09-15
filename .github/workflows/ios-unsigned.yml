@@ -14,7 +14,6 @@ jobs:
       ARCHIVE_PATH: build/monGARS.xcarchive
       RESULT_PATH: build/monGARS.xcresult
       OUTPUT_DIR: build/output
-      OUTPUT_DIR_ABS: ${{ github.workspace }}/build/output
     steps:
       - name: Checkout repository
         uses: actions/checkout@v4
@@ -58,33 +57,35 @@ jobs:
       - name: Collect build log
         if: always()
         run: |
-          mkdir -p "$OUTPUT_DIR_ABS"
+          mkdir -p "$OUTPUT_DIR"
           if [ -f build-log.txt ]; then
-            cp build-log.txt "$OUTPUT_DIR_ABS/"
+            cp build-log.txt "$OUTPUT_DIR/"
           fi
 
       - name: Create Payload and IPA
         if: success()
         run: |
-          mkdir -p "$OUTPUT_DIR_ABS"
+          mkdir -p "$OUTPUT_DIR"
           APP_PATH="$ARCHIVE_PATH/Products/Applications/${XCODE_SCHEME}.app"
-          PAYLOAD_DIR="build/Payload"
+          PAYLOAD_DIR="$OUTPUT_DIR/Payload"
+          rm -f "$OUTPUT_DIR/${XCODE_SCHEME}.ipa"
           rm -rf "$PAYLOAD_DIR"
           mkdir -p "$PAYLOAD_DIR"
           cp -R "$APP_PATH" "$PAYLOAD_DIR/"
           (
-            cd build
-            zip -r "$OUTPUT_DIR_ABS/${XCODE_SCHEME}.ipa" Payload
+            cd "$OUTPUT_DIR"
+            zip -r "${XCODE_SCHEME}.ipa" Payload
           )
           rm -rf "$PAYLOAD_DIR"
 
       - name: Package .app bundle
         if: success()
         run: |
-          mkdir -p "$OUTPUT_DIR_ABS"
+          mkdir -p "$OUTPUT_DIR"
           APP_DIR="$ARCHIVE_PATH/Products/Applications"
+          rm -f "$OUTPUT_DIR/${XCODE_SCHEME}.zip"
           (
-            cd "$APP_DIR" && zip -r "$OUTPUT_DIR_ABS/${XCODE_SCHEME}.zip" "${XCODE_SCHEME}.app"
+            cd "$APP_DIR" && zip -r "../../../../$OUTPUT_DIR/${XCODE_SCHEME}.zip" "${XCODE_SCHEME}.app"
           )
 
       - name: Upload build artifacts
