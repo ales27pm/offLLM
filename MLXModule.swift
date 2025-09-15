@@ -1,10 +1,7 @@
 import Foundation
 import React
-import MLX
-import MLXLLM        // important pour LLMModel et LanguageModel
-import MLXLMCommon   // pour GenerateParameters
-import MLXLinalg
-import MLXRandom
+import MLXLLM
+import MLXLMCommon
 
 @objc(MLXModule)
 public final class MLXModule: NSObject {
