@@ -30,6 +30,7 @@ jobs:
           ruby-version: "3.2"
           bundler-cache: true
         working-directory: ios
+
       - name: Install iOS tooling
         run: brew install xcodegen
 
@@ -67,14 +68,14 @@ jobs:
           # Sanity check: list available signing identities
           security find-identity -v -p codesigning "$RUNNER_TEMP/build.keychain" || true
           mkdir -p ~/Library/MobileDevice/Provisioning\ Profiles
-          UUID=$(grep -a -o '<key>UUID</key>[[:space:]]*<string>[^<]*' "$RUNNER_TEMP/profile.mobileprovision" | sed -n 's/.*<string>\(.*\)<\/string>/\1/p')
+          UUID=$(grep -a -o ' UUID [[:space:]]* [^<]*' "$RUNNER_TEMP/profile.mobileprovision" | sed -n 's/.* \(.*\)<\/string>/\1/p')
           cp "$RUNNER_TEMP/profile.mobileprovision" ~/Library/MobileDevice/Provisioning\ Profiles/$UUID.mobileprovision
 
       - name: Build and archive
         working-directory: ios
         run: |
-          xcodebuild -workspace MyOfflineLLMApp.xcworkspace \
-                     -scheme MyOfflineLLMApp \
+          xcodebuild -workspace monGARS.xcworkspace \
+                     -scheme monGARS \
                      -destination generic/platform=iOS \
                      -archivePath "$RUNNER_TEMP/Actions.xcarchive" \
                      clean archive
@@ -95,7 +96,7 @@ jobs:
       - name: Upload IPA artifact
         uses: actions/upload-artifact@v4
         with:
-          name: MyOfflineLLMApp
+          name: monGARS
           path: ${{ runner.temp }}/ipa/*.ipa
           if-no-files-found: error
 
