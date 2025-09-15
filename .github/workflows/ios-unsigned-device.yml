@@ -137,6 +137,7 @@ jobs:
             -resultBundlePath "$RB_ARCHIVE" \
             -archivePath "$ARCHIVE_PATH"
           # If xcodebuild failed here, the shell will stop due to -e; no "proceeding".
+
       - name: Fallback note if device platform is missing
         if: steps.sdk.outputs.present != 'true'
         run: |
