@@ -59,18 +59,21 @@ jobs:
         run: |
           APP_PATH="$ARCHIVE_PATH/Products/Applications/${XCODE_SCHEME}.app"
           PAYLOAD_DIR="build/Payload"
+          IPA_PATH="$(pwd)/$OUTPUT_DIR/${XCODE_SCHEME}.ipa"
           mkdir -p "$PAYLOAD_DIR"
           cp -R "$APP_PATH" "$PAYLOAD_DIR/"
+          mkdir -p "$OUTPUT_DIR"
           cd build
-          zip -r ../${XCODE_SCHEME}.ipa Payload
+          zip -r "$IPA_PATH" Payload
           cd ..
 
       - name: Package .app and logs
         run: |
-          cd $ARCHIVE_PATH/Products/Applications
-          zip -r ../../$OUTPUT_DIR/${XCODE_SCHEME}_app.zip "${XCODE_SCHEME}.app"
-          cd ../..
-          mv build-log.txt $OUTPUT_DIR/
+          mkdir -p "$OUTPUT_DIR"
+          APP_ZIP_PATH="$(pwd)/$OUTPUT_DIR/${XCODE_SCHEME}.zip"
+          APP_DIR="$ARCHIVE_PATH/Products/Applications"
+          (cd "$APP_DIR" && zip -r "$APP_ZIP_PATH" "${XCODE_SCHEME}.app")
+          mv build-log.txt "$OUTPUT_DIR/"
 
       - name: Upload build artifacts
         if: always()
@@ -80,5 +83,5 @@ jobs:
           path: |
             ${{ env.RESULT_PATH }}
             ${{ env.OUTPUT_DIR }}/${{ env.XCODE_SCHEME }}.ipa
-            ${{ env.OUTPUT_DIR }}/${{ env.XCODE_SCHEME }}_app.zip
+            ${{ env.OUTPUT_DIR }}/${{ env.XCODE_SCHEME }}.zip
             ${{ env.OUTPUT_DIR }}/build-log.txt

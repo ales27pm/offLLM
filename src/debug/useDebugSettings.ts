@@ -2,8 +2,15 @@ import create from "zustand";
 import Config from "react-native-config";
 import logger, { LogLevel } from "../utils/logger";
 
-const isDevelopment =
-  typeof __DEV__ !== "undefined" ? __DEV__ : process?.env?.NODE_ENV !== "production";
+type DevFlagGlobal = typeof globalThis & { __DEV__?: boolean };
+
+const devFlag =
+  typeof globalThis !== "undefined" &&
+  typeof (globalThis as DevFlagGlobal).__DEV__ !== "undefined"
+    ? (globalThis as DevFlagGlobal).__DEV__
+    : undefined;
+
+const isDevelopment = devFlag ?? process?.env?.NODE_ENV !== "production";
 const DEBUG_LOGGING = Config.DEBUG_LOGGING === "1";
 
 if (DEBUG_LOGGING) {
