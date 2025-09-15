@@ -1,6 +1,11 @@
 import AsyncStorage from "@react-native-async-storage/async-storage";
 import { Logger } from "../utils/logger";
 
+/**
+ * List of all consent keys that the app understands.  By using `as const`,
+ * TypeScript infers a union type from this array and we can reference it in
+ * our generics.
+ */
 const VALID_CONSENTS = [
   "camera",
   "location",
@@ -8,9 +13,9 @@ const VALID_CONSENTS = [
   "photos",
   "microphone",
 ] as const;
-type ConsentKey = (typeof VALID_CONSENTS)[number];
+export type ConsentKey = (typeof VALID_CONSENTS)[number];
 
-interface ConsentRecord {
+export interface ConsentRecord {
   key: ConsentKey;
   value: boolean;
   timestamp: number;
@@ -25,15 +30,20 @@ class ConsentError extends Error {
   }
 }
 
-export async function setConsent(key: string, value: boolean): Promise<void> {
-  if (!VALID_CONSENTS.includes(key as ConsentKey)) {
+export async function setConsent(
+  key: ConsentKey,
+  value: boolean,
+): Promise<void> {
+  if (!VALID_CONSENTS.includes(key)) {
+    // Log and throw a meaningful error
     Logger.error(`Invalid consent key: ${key}`);
     throw new ConsentError(
       `Invalid consent key: ${key}. Allowed: ${VALID_CONSENTS.join(", ")}`,
     );
   }
+
   const record: ConsentRecord = {
-    key: key as ConsentKey,
+    key,
     value,
     timestamp: Date.now(),
   };
@@ -49,8 +59,10 @@ export async function setConsent(key: string, value: boolean): Promise<void> {
   }
 }
 
-export async function getConsent(key: string): Promise<ConsentRecord | null> {
-  if (!VALID_CONSENTS.includes(key as ConsentKey)) {
+export async function getConsent(
+  key: ConsentKey,
+): Promise<ConsentRecord | null> {
+  if (!VALID_CONSENTS.includes(key)) {
     Logger.warn(`Attempted to get invalid consent key: ${key}`);
     return null;
   }
@@ -63,8 +75,8 @@ export async function getConsent(key: string): Promise<ConsentRecord | null> {
   }
 }
 
-export async function revokeConsent(key: string): Promise<void> {
-  if (!VALID_CONSENTS.includes(key as ConsentKey)) {
+export async function revokeConsent(key: ConsentKey): Promise<void> {
+  if (!VALID_CONSENTS.includes(key)) {
     Logger.warn(`Attempted to revoke invalid consent key: ${key}`);
     return;
   }
@@ -85,11 +97,11 @@ export async function listConsents(): Promise<
     const consentKeys = keys.filter((k) => k.startsWith(CONSENT_PREFIX));
     const entries = await AsyncStorage.multiGet(consentKeys);
     const result: Partial<Record<ConsentKey, ConsentRecord>> = {};
-    for (const [key, value] of entries) {
-      if (value) {
-        const consentKey = key.replace(CONSENT_PREFIX, "") as ConsentKey;
+    for (const [k, v] of entries) {
+      if (v) {
+        const consentKey = k.replace(CONSENT_PREFIX, "") as ConsentKey;
         if (VALID_CONSENTS.includes(consentKey)) {
-          result[consentKey] = JSON.parse(value) as ConsentRecord;
+          result[consentKey] = JSON.parse(v) as ConsentRecord;
         }
       }
     }
