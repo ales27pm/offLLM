@@ -1,15 +1,12 @@
 import Foundation
 import React
-import MLX
 import MLXLLM
-import MLXLMCommon
-import MLXLinalg
-import MLXRandom
 
 @objc(MLXModule)
 public final class MLXModule: NSObject {
   private var model: LanguageModel?
   private var kvCache: [String: String] = [:]
+  private let cacheLock = NSLock()
   private var performanceMode: String = "balanced"
 
   @objc public static func requiresMainQueueSetup() -> Bool { false }
@@ -22,19 +19,25 @@ extension MLXModule: RCTBridgeModule {
   public func loadModel(_ modelPath: String,
                         resolver resolve: @escaping RCTPromiseResolveBlock,
                         rejecter reject: @escaping RCTPromiseRejectBlock) {
-    Task.detached { [weak self] in
+    Task { [weak self] in
       do {
         // Charge le modèle MLX depuis un chemin local en utilisant la nouvelle API.
         let url = URL(fileURLWithPath: modelPath, isDirectory: true)
-        if let cfg = MLXLLM.ModelRegistry.lookup(id: url.path) {
-          self?.model = try await MLXLLM.LanguageModel(modelConfiguration: cfg)
+        let cfg: MLXLLM.ModelConfiguration
+        if let regCfg = MLXLLM.ModelRegistry.lookup(id: modelPath) {
+          cfg = regCfg
         } else {
-          self?.model = try await MLXLLM.LanguageModel(modelConfiguration: .init(id: url.path))
+          cfg = .init(directory: url)
         }
+        self?.model = try await MLXLLM.LanguageModel(modelConfiguration: cfg)
+        self?.cacheLock.lock()
         self?.kvCache.removeAll()
-        resolve(true)
+        self?.cacheLock.unlock()
+        await MainActor.run { resolve(true) }
       } catch {
-        reject("MLX_LOAD_ERR", "Failed to load MLX model: \(error)", error)
+        await MainActor.run {
+          reject("MLX_LOAD_ERR", "Failed to load MLX model: \(error)", error)
+        }
       }
     }
   }
@@ -50,26 +53,37 @@ extension MLXModule: RCTBridgeModule {
       reject("MLX_NOT_READY", "Model not loaded", nil)
       return
     }
+    guard maxTokens.intValue > 0 else {
+      reject("MLX_INVALID_ARGS", "maxTokens must be > 0", nil)
+      return
+    }
     let key = prompt as String
-    if let cached = kvCache[key] {
+    let cacheKey = "\(key)|mt=\(maxTokens.intValue)|temp=\(String(format: "%.2f", temperature.doubleValue))"
+    cacheLock.lock()
+    if let cached = kvCache[cacheKey] {
+      cacheLock.unlock()
       resolve(cached)
       return
     }
+    cacheLock.unlock()
 
-    Task { [weak self, model] in
+    Task { [weak self, model, cacheKey] in
       do {
         // Note : pour l’instant on ignore la température; la nouvelle API n’expose pas encore ce paramètre.
         let stream = try await model.generate(prompt: key, maxTokens: maxTokens.intValue)
         var reply = ""
         for try await token in stream {
+          if Task.isCancelled { break }
           reply += token
         }
-        await MainActor.run {
-          self?.kvCache[key] = reply
-          resolve(reply)
-        }
+        self?.cacheLock.lock()
+        self?.kvCache[cacheKey] = reply
+        self?.cacheLock.unlock()
+        await MainActor.run { resolve(reply) }
       } catch {
-        reject("MLX_GEN_ERR", "Generation failed: \(error)", error)
+        await MainActor.run {
+          reject("MLX_GEN_ERR", "Generation failed: \(error)", error)
+        }
       }
     }
   }
