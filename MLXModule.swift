@@ -1,12 +1,15 @@
 import Foundation
 import React
-import MLXLLM
+import MLX
+import MLXLLM        // now imports MLXLLM for LanguageModel
+import MLXLMCommon   // provides GenerateParameters
+import MLXLinalg
+import MLXRandom
 
 @objc(MLXModule)
 public final class MLXModule: NSObject {
-  private var model: LanguageModel?
+  private var model: LanguageModel?              // use the concrete LanguageModel type
   private var kvCache: [String: String] = [:]
-  private let cacheLock = NSLock()
   private var performanceMode: String = "balanced"
 
   @objc public static func requiresMainQueueSetup() -> Bool { false }
@@ -19,25 +22,23 @@ extension MLXModule: RCTBridgeModule {
   public func loadModel(_ modelPath: String,
                         resolver resolve: @escaping RCTPromiseResolveBlock,
                         rejecter reject: @escaping RCTPromiseRejectBlock) {
-    Task { [weak self] in
+    Task.detached { [weak self] in
       do {
-        // Charge le modèle MLX depuis un chemin local en utilisant la nouvelle API.
+        // Treat the path as a folder containing a local model
         let url = URL(fileURLWithPath: modelPath, isDirectory: true)
-        let cfg: MLXLLM.ModelConfiguration
-        if let regCfg = MLXLLM.ModelRegistry.lookup(id: modelPath) {
-          cfg = regCfg
+        // Try to resolve from the registry; otherwise build a configuration directly
+        let config: MLXLLM.ModelConfiguration
+        if let reg = MLXLLM.ModelRegistry.lookup(id: url.path) {
+          config = reg
         } else {
-          cfg = .init(directory: url)
+          config = MLXLLM.ModelConfiguration(id: url.path)
         }
-        self?.model = try await MLXLLM.LanguageModel(modelConfiguration: cfg)
-        self?.cacheLock.lock()
+        let loaded = try await MLXLLM.LanguageModel(modelConfiguration: config)
+        self?.model = loaded
         self?.kvCache.removeAll()
-        self?.cacheLock.unlock()
-        await MainActor.run { resolve(true) }
+        resolve(true)
       } catch {
-        await MainActor.run {
-          reject("MLX_LOAD_ERR", "Failed to load MLX model: \(error)", error)
-        }
+        reject("MLX_LOAD_ERR", "Failed to load MLX model: \(error)", error)
       }
     }
   }
@@ -53,43 +54,34 @@ extension MLXModule: RCTBridgeModule {
       reject("MLX_NOT_READY", "Model not loaded", nil)
       return
     }
-    guard maxTokens.intValue > 0 else {
-      reject("MLX_INVALID_ARGS", "maxTokens must be > 0", nil)
-      return
-    }
     let key = prompt as String
-    let cacheKey = "\(key)|mt=\(maxTokens.intValue)|temp=\(String(format: "%.2f", temperature.doubleValue))"
-    cacheLock.lock()
-    if let cached = kvCache[cacheKey] {
-      cacheLock.unlock()
+    if let cached = kvCache[key] {
       resolve(cached)
       return
     }
-    cacheLock.unlock()
 
-    Task { [weak self, model, cacheKey] in
+    Task { [weak self] in
       do {
-        // Note : pour l’instant on ignore la température; la nouvelle API n’expose pas encore ce paramètre.
-        let stream = try await model.generate(prompt: key, maxTokens: maxTokens.intValue)
+        var params = GenerateParameters()
+        params.maxTokens = maxTokens.intValue
+        params.temperature = Float(truncating: temperature)
+        // Stream tokens using the newest API
+        let stream = try await model.generate(prompt: key, parameters: params)
         var reply = ""
         for try await token in stream {
-          if Task.isCancelled { break }
           reply += token
         }
-        self?.cacheLock.lock()
-        self?.kvCache[cacheKey] = reply
-        self?.cacheLock.unlock()
-        await MainActor.run { resolve(reply) }
-      } catch {
         await MainActor.run {
-          reject("MLX_GEN_ERR", "Generation failed: \(error)", error)
+          self?.kvCache[key] = reply
+          resolve(reply)
         }
+      } catch {
+        reject("MLX_GEN_ERR", "Generation failed: \(error)", error)
       }
     }
   }
 }
 
-// Optionnel : mémorisation du mode de performance sans toucher au modèle MLX.
 extension MLXModule {
   @objc(setPerformanceMode:resolver:rejecter:)
   public func setPerformanceMode(_ mode: NSString,
