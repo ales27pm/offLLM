@@ -77,7 +77,7 @@ extension MLXModule {
   public func setPerformanceMode(_ mode: NSString,
                                  resolver resolve: @escaping RCTPromiseResolveBlock,
                                  rejecter reject: @escaping RCTPromiseRejectBlock) {
-    let valid: Set<String> = ["high_quality", "balanced", "low_power"]
+    let valid: Set = ["high_quality", "balanced", "low_power"]
     let value = mode as String
     if valid.contains(value) {
       self.performanceMode = value
