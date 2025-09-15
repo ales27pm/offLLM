@@ -113,7 +113,6 @@ jobs:
             -scheme "$SCHEME" \
             -clonedSourcePackagesDirPath "$DERIVED_DATA/SourcePackages"
 
-      # Export the initial ResultBundle as JSON so it can be downloaded and inspected
       - name: Export resolve-package xcresult JSON
         if: always()
         run: |
@@ -167,7 +166,6 @@ jobs:
             if ! xcrun xcresulttool get --legacy --path "$RB" --format json > build/ResultBundle_archive.json 2>/dev/null; then
               xcrun xcresulttool get object --path "$RB" --format json > build/ResultBundle_archive.json
             fi
-            # Fail if there are "Swift Compiler Error" entries
             if grep -q '"Swift Compiler Error"' build/ResultBundle_archive.json; then
               echo "::error title=Swift compile errors detected::See ResultBundle_archive.json artifact."
               exit 65
@@ -193,6 +191,6 @@ jobs:
             ${{ env.DERIVED_DATA }}/Archive.xcarchive
             ${{ env.DERIVED_DATA }}/ResultBundle_archive.xcresult
             build/ResultBundle_archive.json
-            build/ResultBundle_resolve.json  # newly exported JSON
+            build/ResultBundle_resolve.json
           if-no-files-found: warn
           compression-level: 6
