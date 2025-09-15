@@ -1,14 +1,14 @@
 import Foundation
 import React
 import MLX
-import MLXLLM        // now imports MLXLLM for LanguageModel
-import MLXLMCommon   // provides GenerateParameters
+import MLXLLM        // important pour LLMModel et LanguageModel
+import MLXLMCommon   // pour GenerateParameters
 import MLXLinalg
 import MLXRandom
 
 @objc(MLXModule)
 public final class MLXModule: NSObject {
-  private var model: LanguageModel?              // use the concrete LanguageModel type
+  private var model: LanguageModel?
   private var kvCache: [String: String] = [:]
   private var performanceMode: String = "balanced"
 
@@ -24,9 +24,7 @@ extension MLXModule: RCTBridgeModule {
                         rejecter reject: @escaping RCTPromiseRejectBlock) {
     Task.detached { [weak self] in
       do {
-        // Treat the path as a folder containing a local model
         let url = URL(fileURLWithPath: modelPath, isDirectory: true)
-        // Try to resolve from the registry; otherwise build a configuration directly
         let config: MLXLLM.ModelConfiguration
         if let reg = MLXLLM.ModelRegistry.lookup(id: url.path) {
           config = reg
@@ -65,7 +63,6 @@ extension MLXModule: RCTBridgeModule {
         var params = GenerateParameters()
         params.maxTokens = maxTokens.intValue
         params.temperature = Float(truncating: temperature)
-        // Stream tokens using the newest API
         let stream = try await model.generate(prompt: key, parameters: params)
         var reply = ""
         for try await token in stream {
