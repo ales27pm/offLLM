@@ -1,3 +1,13 @@
+// MLXModule.swift
+// React Native bridge for on-device multi-turn chat generation using MLX (MLXLLM, MLXLMCommon).
+//
+// Supports fallback to lightweight models for initial local validation.
+//
+// Usage:
+//   - loadModel(modelID): Loads the specified model from Hugging Face. If loading fails, tries fallback models.
+//   - generate(prompt): Generates a chat response for the given prompt (multi-turn conversation).
+//   - resetChat(): Resets the conversation context.
+//   - unloadModel(): Unloads the model to free memory.
 import Foundation
 import React
 import MLX
@@ -5,308 +15,111 @@ import MLXLLM
 import MLXLMCommon
 
 @objc(MLXModule)
-final class MLXModule: NSObject, RCTBridgeModule {
-  static func moduleName() -> String! { "MLXModule" }
-  static func requiresMainQueueSetup() -> Bool { false }
+final class MLXModule: NSObject {
 
-  private let modelStore = ModelStore()
-  private let generationManager = GenerationManager()
+  // MARK: - React Native Module Setup
+  @objc static func moduleName() -> String! { "MLXModule" }
+  @objc static func requiresMainQueueSetup() -> Bool { false }
+
+  // MARK: - State
+  private var modelContainer: ModelContainer?
+  private var chatSession: ChatSession?
+
+  // Fallback-compatible lightweight model IDs for initial validation
+  private let fallbackModelIDs = [
+    "TinyLlama/TinyLlama-1.1B-Chat-v1.0",
+    "openaccess-ai-collective/tiny-mistral"
+  ]
 
   // MARK: - React Methods
 
-  @objc(loadModel:options:resolver:rejecter:)
-  func loadModel(_ identifier: String,
-                 options: [AnyHashable: Any]?,
+  /// Load a model given its Hugging Face ID. If loading the specified model fails,
+  /// attempts to load fallback lightweight models.
+  @objc(loadModel:resolver:rejecter:)
+  func loadModel(_ modelID: String,
                  resolver resolve: @escaping RCTPromiseResolveBlock,
                  rejecter reject: @escaping RCTPromiseRejectBlock) {
+
     Task(priority: .userInitiated) { [weak self] in
       guard let self = self else { return }
-
       do {
-        let request = try self.makeLoadRequest(identifier: identifier, options: options)
-        let container = try await loadModelContainer(configuration: request.configuration)
-
-        await self.generationManager.cancelActiveTask()
-        await self.modelStore.update(container: container, request: request)
-
-        let payload: [String: Any] = [
-          "status": "loaded",
-          "model": request.originalIdentifier,
-          "source": request.source.rawValue,
-          "path": request.resolvedPath,
-          "loadedAt": ISO8601DateFormatter().string(from: Date()),
-        ]
-
-        DispatchQueue.main.async {
-          resolve(payload)
+        // Determine which IDs to try (user-specified, then fallback)
+        var idsToTry = [String]()
+        if !modelID.trimmingCharacters(in: .whitespaces).isEmpty {
+          idsToTry.append(modelID)
         }
-      } catch {
-        DispatchQueue.main.async {
-          reject("MLX_LOAD_ERROR", "Failed to load model: \(error.localizedDescription)", error)
-        }
-      }
-    }
-  }
+        idsToTry.append(contentsOf: fallbackModelIDs)
 
-  @objc(unloadModel:rejecter:)
-  func unloadModel(_ resolve: @escaping RCTPromiseResolveBlock,
-                   rejecter reject: @escaping RCTPromiseRejectBlock) {
-    Task {
-      await generationManager.cancelActiveTask()
-      await modelStore.unload()
-      DispatchQueue.main.async {
+        var loadedModel: ModelContainer? = nil
+        var lastError: Error?
+
+        // Attempt to load each model ID until one succeeds
+        for id in idsToTry {
+          do {
+            // Load model from Hugging Face using MLXLMCommon
+            loadedModel = try await MLXLMCommon.loadModel(id: id)
+            break
+          } catch {
+            lastError = error
+            // try next ID
+          }
+        }
+
+        // If none loaded successfully, throw the last error
+        guard let modelContainer = loadedModel else {
+          throw lastError ?? NSError(domain: "MLX", code: 1,
+                   userInfo: [NSLocalizedDescriptionKey: "Failed to load any model."])
+        }
+
+        // Keep reference to the loaded model
+        self.modelContainer = modelContainer
+        // Create a new chat session (multi-turn conversation)
+        self.chatSession = ChatSession(modelContainer)
+
         resolve(true)
+      } catch {
+        reject("MLX_LOAD_ERR", "Model loading failed: \(error.localizedDescription)", error)
       }
     }
   }
 
-  @objc(generate:options:resolver:rejecter:)
+  /// Unload the current model to free memory.
+  @objc(unloadModel)
+  func unloadModel() {
+    self.chatSession = nil
+    self.modelContainer = nil
+  }
+
+  /// Generate a chat response to the given prompt. Uses the current conversation context.
+  @objc(generate:resolver:rejecter:)
   func generate(_ prompt: String,
-                options: [AnyHashable: Any]?,
                 resolver resolve: @escaping RCTPromiseResolveBlock,
                 rejecter reject: @escaping RCTPromiseRejectBlock) {
-    let requestID = UUID()
-    let task = Task(priority: .userInitiated) { [weak self] in
+
+    Task(priority: .userInitiated) { [weak self] in
       guard let self = self else { return }
-      defer { await self.generationManager.clear(id: requestID) }
-
       do {
-        guard let container = await self.modelStore.currentContainer() else {
-          throw MLXModuleError.modelNotLoaded
+        // Ensure model is loaded
+        guard let session = self.chatSession else {
+          throw NSError(domain: "MLX", code: 2,
+                        userInfo: [NSLocalizedDescriptionKey: "No model loaded"])
         }
-
-        let parameters = self.makeGenerateParameters(from: options)
-        let session = ChatSession(container, generateParameters: parameters)
-
-        let start = Date()
-        var output = ""
-
-        for try await chunk in session.streamResponse(to: prompt) {
-          if Task.isCancelled {
-            throw CancellationError()
-          }
-          output += chunk
-        }
-
-        if Task.isCancelled {
-          throw CancellationError()
-        }
-
-        let duration = Date().timeIntervalSince(start)
-        let identifier = await self.modelStore.currentIdentifier()
-        let tokensGenerated = output.split { $0.isWhitespace }.count
-
-        let payload: [String: Any] = [
-          "text": output,
-          "duration": duration,
-          "model": identifier ?? NSNull(),
-          "tokensGenerated": tokensGenerated,
-        ]
-
-        DispatchQueue.main.async {
-          resolve(payload)
-        }
+        // Generate response for the prompt
+        let response = try await session.respond(to: prompt)
+        resolve(response)
       } catch {
-        DispatchQueue.main.async {
-          if Task.isCancelled || error is CancellationError {
-            reject("MLX_CANCELLED", "Generation cancelled", nil)
-          } else {
-            reject("MLX_GENERATE_ERROR", "Generation failed: \(error.localizedDescription)", error)
-          }
-        }
+        reject("MLX_GEN_ERR", "Generation failed: \(error.localizedDescription)", error)
       }
-    }
-
-    Task {
-      await generationManager.replace(with: task, id: requestID)
     }
   }
 
-  @objc func cancel() {
-    Task {
-      await generationManager.cancelActiveTask()
+  /// Reset the conversation context (start a new chat session with the loaded model).
+  @objc(resetChat)
+  func resetChat() {
+    if let modelContainer = self.modelContainer {
+      self.chatSession = ChatSession(modelContainer)
     }
   }
 }
 
-// MARK: - Helpers
-
-private extension MLXModule {
-  struct ModelLoadRequest {
-    let configuration: ModelConfiguration
-    let originalIdentifier: String
-    let resolvedPath: String
-    let source: ModelSource
-  }
-
-  enum ModelSource: String {
-    case directory
-    case hub
-  }
-
-  enum MLXModuleError: LocalizedError {
-    case emptyIdentifier
-    case modelNotLoaded
-
-    var errorDescription: String? {
-      switch self {
-      case .emptyIdentifier:
-        return "A model identifier or path must be provided."
-      case .modelNotLoaded:
-        return "No MLX model has been loaded."
-      }
-    }
-  }
-
-  func makeLoadRequest(identifier: String,
-                       options: [AnyHashable: Any]?) throws -> ModelLoadRequest {
-    let trimmed = identifier.trimmingCharacters(in: .whitespacesAndNewlines)
-    guard !trimmed.isEmpty else { throw MLXModuleError.emptyIdentifier }
-
-    let expanded = (trimmed as NSString).expandingTildeInPath
-    let fileManager = FileManager.default
-    var isDirectory: ObjCBool = false
-
-    if fileManager.fileExists(atPath: expanded, isDirectory: &isDirectory), isDirectory.boolValue {
-      let url = URL(fileURLWithPath: expanded, isDirectory: true)
-      return ModelLoadRequest(
-        configuration: ModelConfiguration(directory: url),
-        originalIdentifier: trimmed,
-        resolvedPath: url.path,
-        source: .directory
-      )
-    }
-
-    let revision: String
-    if let revisionValue = options?["revision"] as? String, !revisionValue.isEmpty {
-      revision = revisionValue
-    } else {
-      revision = "main"
-    }
-
-    return ModelLoadRequest(
-      configuration: ModelConfiguration(id: trimmed, revision: revision),
-      originalIdentifier: trimmed,
-      resolvedPath: trimmed,
-      source: .hub
-    )
-  }
-
-  func makeGenerateParameters(from options: [AnyHashable: Any]?) -> GenerateParameters {
-    var maxTokens: Int?
-    var temperature: Float = 0.7
-    var topP: Float = 1.0
-    var repetitionPenalty: Float?
-    var repetitionContextSize = 20
-
-    if let options {
-      if let number = options["maxTokens"] as? NSNumber {
-        let value = number.intValue
-        maxTokens = value > 0 ? value : nil
-      } else if let value = options["maxTokens"] as? Int, value > 0 {
-        maxTokens = value
-      }
-
-      if let tempNumber = options["temperature"] as? NSNumber {
-        temperature = Float(truncating: tempNumber)
-      } else if let tempValue = options["temperature"] as? Double {
-        temperature = Float(tempValue)
-      }
-
-      if let topPNumber = options["topP"] as? NSNumber {
-        topP = max(0.0, min(1.0, Float(truncating: topPNumber)))
-      } else if let topPValue = options["topP"] as? Double {
-        topP = max(0.0, min(1.0, Float(topPValue)))
-      }
-
-      if let penaltyNumber = options["repetitionPenalty"] as? NSNumber {
-        repetitionPenalty = Float(truncating: penaltyNumber)
-      } else if let penaltyValue = options["repetitionPenalty"] as? Double {
-        repetitionPenalty = Float(penaltyValue)
-      }
-
-      if let contextNumber = options["repetitionContextSize"] as? NSNumber {
-        repetitionContextSize = max(0, contextNumber.intValue)
-      } else if let contextValue = options["repetitionContextSize"] as? Int {
-        repetitionContextSize = max(0, contextValue)
-      }
-    }
-
-    var parameters = GenerateParameters(maxTokens: maxTokens)
-    parameters.temperature = temperature
-    parameters.topP = topP
-    parameters.repetitionPenalty = repetitionPenalty
-    parameters.repetitionContextSize = repetitionContextSize
-    return parameters
-  }
-}
-
-// MARK: - State Containers
-
-private actor ModelStore {
-  private var container: ModelContainer?
-  private var identifier: String?
-  private var resolvedPath: String?
-  private var source: MLXModule.ModelSource?
-  private var loadedAt: Date?
-
-  func update(container: ModelContainer, request: MLXModule.ModelLoadRequest) {
-    self.container = container
-    self.identifier = request.originalIdentifier
-    self.resolvedPath = request.resolvedPath
-    self.source = request.source
-    self.loadedAt = Date()
-  }
-
-  func unload() {
-    container = nil
-    identifier = nil
-    resolvedPath = nil
-    source = nil
-    loadedAt = nil
-  }
-
-  func currentContainer() -> ModelContainer? {
-    container
-  }
-
-  func currentIdentifier() -> String? {
-    identifier
-  }
-
-  func currentResolvedPath() -> String? {
-    resolvedPath
-  }
-
-  func currentSource() -> MLXModule.ModelSource? {
-    source
-  }
-
-  func lastLoadedAt() -> Date? {
-    loadedAt
-  }
-}
-
-private actor GenerationManager {
-  private var active: (id: UUID, task: Task<Void, Never>)?
-
-  func replace(with task: Task<Void, Never>, id: UUID) {
-    if let current = active {
-      current.task.cancel()
-    }
-    active = (id, task)
-  }
-
-  func clear(id: UUID) {
-    if active?.id == id {
-      active = nil
-    }
-  }
-
-  func cancelActiveTask() {
-    if let current = active {
-      current.task.cancel()
-      active = nil
-    }
-  }
-}
+extension MLXModule: RCTBridgeModule {}
