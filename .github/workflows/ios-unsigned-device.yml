@@ -16,6 +16,7 @@ jobs:
     env:
       SCHEME: monGARS
       DERIVED_DATA: ${{ github.workspace }}/build/DerivedData
+
     steps:
       - uses: actions/checkout@ff7abcd0c3c05ccf6adc123a8cd1fd4fb30fb493
 
@@ -112,6 +113,20 @@ jobs:
             -scheme "$SCHEME" \
             -clonedSourcePackagesDirPath "$DERIVED_DATA/SourcePackages"
 
+      # Export the initial ResultBundle as JSON so it can be downloaded and inspected
+      - name: Export resolve-package xcresult JSON
+        if: always()
+        run: |
+          RB="$DERIVED_DATA/ResultBundle.xcresult"
+          mkdir -p build
+          if [ -d "$RB" ]; then
+            if ! xcrun xcresulttool get --legacy --path "$RB" --format json > build/ResultBundle_resolve.json 2>/dev/null; then
+              xcrun xcresulttool get object --path "$RB" --format json > build/ResultBundle_resolve.json
+            fi
+          else
+            echo "::warning title=No resolve xcresult::No resolve-result xcresult produced"
+          fi
+
       - name: Check for iOS Device SDK
         id: sdk
         run: |
@@ -136,7 +151,6 @@ jobs:
             -derivedDataPath "$DERIVED_DATA" \
             -resultBundlePath "$RB_ARCHIVE" \
             -archivePath "$ARCHIVE_PATH"
-          # If xcodebuild failed here, the shell will stop due to -e; no "proceeding".
 
       - name: Fallback note if device platform is missing
         if: steps.sdk.outputs.present != 'true'
@@ -179,5 +193,6 @@ jobs:
             ${{ env.DERIVED_DATA }}/Archive.xcarchive
             ${{ env.DERIVED_DATA }}/ResultBundle_archive.xcresult
             build/ResultBundle_archive.json
+            build/ResultBundle_resolve.json  # newly exported JSON
           if-no-files-found: warn
           compression-level: 6
