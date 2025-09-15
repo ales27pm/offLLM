@@ -2,7 +2,10 @@ import RNFS from "react-native-fs";
 import Config from "react-native-config";
 import { logToNative } from "./NativeLogger";
 
-declare const __DEV__: boolean;
+// __DEV__ is injected by Metro in a React‑Native runtime, but it is
+// undefined in a Jest or Node environment.  Guard it safely.
+const isDev = typeof __DEV__ === "boolean" ? __DEV__ : false;
+
 /* eslint-disable no-unused-vars */
 export enum LogLevel {
   debug = 10,
@@ -14,13 +17,13 @@ export enum LogLevel {
 
 const DEBUG_LOGGING = Config.DEBUG_LOGGING === "1";
 const RING_SIZE = 500;
-const MAX_SIZE = 1024 * 1024; // ~1MB
+const MAX_SIZE = 1024 * 1024; // ~1 MB
 const logsDir = `${RNFS.DocumentDirectoryPath}/logs`;
 const activeLog = `${logsDir}/app.log`;
 const rotatedLog = `${logsDir}/app.log.1`;
 
 export class Logger {
-  private static level: LogLevel = __DEV__ ? LogLevel.debug : LogLevel.info;
+  private static level: LogLevel = isDev ? LogLevel.debug : LogLevel.info;
   private static buffer: string[] = [];
   private static fileSinkEnabled = DEBUG_LOGGING;
 
@@ -32,25 +35,32 @@ export class Logger {
     this.fileSinkEnabled = enabled;
   }
 
+  private static shouldLog(level: keyof typeof LogLevel): boolean {
+    return LogLevel[level] >= this.level;
+  }
+
   static async log(
     level: keyof typeof LogLevel,
     tag: string,
     ...args: any[]
   ): Promise<void> {
-    if (LogLevel[level] < this.level) return;
+    if (!this.shouldLog(level)) return;
     const line = `[${tag}] ${args.map(String).join(" ")}`;
     const fn = console[level] || console.log;
     fn(line);
+
     this.buffer.push(line);
     if (this.buffer.length > RING_SIZE) this.buffer.shift();
+
     if (this.fileSinkEnabled) {
       await this.writeToFile(line);
     }
+
     if (level === "warn" || level === "error") {
       try {
         logToNative?.(level, tag, line);
       } catch {
-        // no-op
+        // native logging is optional
       }
     }
   }
@@ -78,7 +88,7 @@ export class Logger {
       }
       await RNFS.appendFile(activeLog, line + "\n", "utf8");
     } catch {
-      // swallow file errors
+      // swallow file errors—logging should never throw
     }
   }
 
@@ -89,7 +99,7 @@ export class Logger {
         const lines = content.split("\n");
         return lines.slice(-n).join("\n");
       } catch {
-        // fall back to buffer
+        // fall back to in‑memory buffer
       }
     }
     return this.buffer.slice(-n).join("\n");
