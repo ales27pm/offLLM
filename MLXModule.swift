@@ -21,11 +21,12 @@ extension MLXModule: RCTBridgeModule {
   public func loadModel(_ modelPath: String,
                         resolver resolve: @escaping RCTPromiseResolveBlock,
                         rejecter reject: @escaping RCTPromiseRejectBlock) {
-
     Task.detached { [weak self] in
       do {
-        // Charger via la nouvelle API MLX LLMModel
-        self?.model = try await LLMModel.load(.init(id: modelPath))
+        // Charge le modèle MLX depuis un chemin local en utilisant la nouvelle API.
+        let url = URL(fileURLWithPath: modelPath, isDirectory: true)
+        let loaded = try await LLMModel.load(.init(id: url.path))
+        self?.model = loaded
         self?.kvCache.removeAll()
         resolve(true)
       } catch {
@@ -45,7 +46,6 @@ extension MLXModule: RCTBridgeModule {
       reject("MLX_NOT_READY", "Model not loaded", nil)
       return
     }
-
     let key = prompt as String
     if let cached = kvCache[key] {
       resolve(cached)
@@ -54,16 +54,12 @@ extension MLXModule: RCTBridgeModule {
 
     Task { [weak self, model] in
       do {
-        let maxT = max(1, maxTokens.intValue)
-        let stream = try await model.generate(prompt: key, maxTokens: maxT)
-
+        // Note : pour l’instant on ignore la température; la nouvelle API n’expose pas encore ce paramètre.
+        let stream = try await model.generate(prompt: key, maxTokens: maxTokens.intValue)
         var reply = ""
-        reply.reserveCapacity(min(maxT * 4, 8192))
         for try await token in stream {
-          if Task.isCancelled { return }
           reply += token
         }
-
         await MainActor.run {
           self?.kvCache[key] = reply
           resolve(reply)
@@ -75,7 +71,7 @@ extension MLXModule: RCTBridgeModule {
   }
 }
 
-// API utilitaires (ex. mode de performance) — mémoire locale seulement.
+// Optionnel : mémorisation du mode de performance sans toucher au modèle MLX.
 extension MLXModule {
   @objc(setPerformanceMode:resolver:rejecter:)
   public func setPerformanceMode(_ mode: NSString,
@@ -90,13 +86,4 @@ extension MLXModule {
       resolve(false)
     }
   }
-
-  @objc(adjustPerformanceMode:resolver:rejecter:)
-  public func adjustPerformanceMode(_ mode: NSString,
-                                    resolver resolve: @escaping RCTPromiseResolveBlock,
-                                    rejecter reject: @escaping RCTPromiseRejectBlock) {
-    self.performanceMode = mode as String
-    resolve(false) // placeholder: pas d’effet côté MLX pour l’instant
-  }
 }
-
