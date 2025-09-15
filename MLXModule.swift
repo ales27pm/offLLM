@@ -1,14 +1,14 @@
 import Foundation
 import React
 import MLX
-import MLXLLM 
+import MLXLLM
 import MLXLMCommon
 import MLXLinalg
 import MLXRandom
 
 @objc(MLXModule)
 public final class MLXModule: NSObject {
-  private var model: LLMModel?
+  private var model: LanguageModel?
   private var kvCache: [String: String] = [:]
   private var performanceMode: String = "balanced"
 
@@ -26,8 +26,11 @@ extension MLXModule: RCTBridgeModule {
       do {
         // Charge le modèle MLX depuis un chemin local en utilisant la nouvelle API.
         let url = URL(fileURLWithPath: modelPath, isDirectory: true)
-        let loaded = try await LLMModel.load(.init(id: url.path))
-        self?.model = loaded
+        if let cfg = MLXLLM.ModelRegistry.lookup(id: url.path) {
+          self?.model = try await MLXLLM.LanguageModel(modelConfiguration: cfg)
+        } else {
+          self?.model = try await MLXLLM.LanguageModel(modelConfiguration: .init(id: url.path))
+        }
         self?.kvCache.removeAll()
         resolve(true)
       } catch {
