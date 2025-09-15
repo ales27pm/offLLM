@@ -1,131 +1,125 @@
+// MLXModule.swift
+// React Native bridge for on-device multi-turn chat generation using MLX (MLXLLM, MLXLMCommon).
 //
-//  MLXModule.swift
-//  monGARS
+// Supports fallback to lightweight models for initial local validation.
 //
-//  React Native bridge for on-device generation using swift-transformers.
-//  Updated to Hub + Generation APIs (no MLXLLM.ModelConfiguration / LLMModel).
-//
-
+// Usage:
+//   - loadModel(modelID): Loads the specified model from Hugging Face. If loading fails, tries fallback models.
+//   - generate(prompt): Generates a chat response for the given prompt (multi-turn conversation).
+//   - resetChat(): Resets the conversation context.
+//   - unloadModel(): Unloads the model to free memory.
 import Foundation
 import React
-import Hub              // from swift-transformers
-import Tokenizers       // from swift-transformers
-import Generation       // from swift-transformers
+import MLX
+import MLXLLM
+import MLXLMCommon
 
 @objc(MLXModule)
 final class MLXModule: NSObject {
 
-  // MARK: - React export
+  // MARK: - React Native Module Setup
   @objc static func moduleName() -> String! { "MLXModule" }
   @objc static func requiresMainQueueSetup() -> Bool { false }
 
   // MARK: - State
+  private var modelContainer: ModelContainer?
+  private var chatSession: ChatSession?
 
-  // Loaded components
-  private var model: any LanguageModel?
-  private var tokenizer: any Tokenizer?
-  private var generator: TextGenerator?
+  // Fallback-compatible lightweight model IDs for initial validation
+  private let fallbackModelIDs = [
+    "TinyLlama/TinyLlama-1.1B-Chat-v1.0",
+    "openaccess-ai-collective/tiny-mistral"
+  ]
 
-  // Simple cancel flag for cooperative cancellation
-  private var isCancelled = false
+  // MARK: - React Methods
 
-  // MARK: - Helpers
-
-  private func assertLoaded() throws {
-    guard generator != nil else {
-      throw NSError(domain: "MLX", code: 1,
-                    userInfo: [NSLocalizedDescriptionKey: "No model loaded"])
-    }
-  }
-}
-
-// MARK: - React methods
-
-extension MLXModule {
-
-  /// Load a model from a **local directory path** (already downloaded in CI).
-  /// `modelPath` should be something like `${WORKSPACE}/models/Qwen2.5-0.5B-Instruct-mlx`
+  /// Load a model given its Hugging Face ID. If loading the specified model fails,
+  /// attempts to load fallback lightweight models.
   @objc(loadModel:resolver:rejecter:)
-  func loadModel(_ modelPath: String,
+  func loadModel(_ modelID: String,
                  resolver resolve: @escaping RCTPromiseResolveBlock,
                  rejecter reject: @escaping RCTPromiseRejectBlock) {
 
     Task(priority: .userInitiated) { [weak self] in
       guard let self = self else { return }
-
       do {
-        let url = URL(fileURLWithPath: modelPath)
+        // Determine which IDs to try (user-specified, then fallback)
+        var idsToTry = [String]()
+        if !modelID.trimmingCharacters(in: .whitespaces).isEmpty {
+          idsToTry.append(modelID)
+        }
+        idsToTry.append(contentsOf: fallbackModelIDs)
 
-        // Hub can load from local dirs that look like HF repos (has config + weights).
-        // It returns a LanguageModel + Tokenizer pair suitable for text generation.
-        let loaded = try await Hub.loadTextGenerationModel(at: url)
+        var loadedModel: ModelContainer? = nil
+        var lastError: Error?
 
-        // Keep strong refs
-        self.model = loaded.model
-        self.tokenizer = loaded.tokenizer
-        self.generator = TextGenerator(model: loaded.model, tokenizer: loaded.tokenizer)
+        // Attempt to load each model ID until one succeeds
+        for id in idsToTry {
+          do {
+            // Load model from Hugging Face using MLXLMCommon
+            loadedModel = try await MLXLMCommon.loadModelContainer(id: id)
+            break
+          } catch {
+            lastError = error
+            // try next ID
+          }
+        }
 
-        // Reset cancellation/kvcache-like state (TextGenerator handles caching internally)
-        self.isCancelled = false
+        // If none loaded successfully, throw the last error
+        guard let modelContainer = loadedModel else {
+          throw lastError ?? NSError(domain: "MLX", code: 1,
+                   userInfo: [NSLocalizedDescriptionKey: "Failed to load any model."])
+        }
+
+        // Keep reference to the loaded model
+        self.modelContainer = modelContainer
+        // Create a new chat session (multi-turn conversation)
+        self.chatSession = ChatSession(modelContainer)
 
         resolve(true)
       } catch {
-        reject("MLX_LOAD_ERR", "Failed to load model at \(modelPath): \(error.localizedDescription)", error)
+        reject("MLX_LOAD_ERR", "Model loading failed: \(error.localizedDescription)", error)
       }
     }
   }
 
-  /// Unload everything to free memory (important for CI archiving on device sdk).
+  /// Unload the current model to free memory.
   @objc(unloadModel)
   func unloadModel() {
-    isCancelled = true
-    generator = nil
-    model = nil
-    tokenizer = nil
+    self.chatSession = nil
+    self.modelContainer = nil
   }
 
-  /// Generate text. `key` is the prompt, `maxTokens` is NSNumber for RN bridge.
-  /// Returns the full string once finished (streaming can be added later if needed).
-  @objc(generate:withMaxTokens:resolver:rejecter:)
-  func generate(_ key: String,
-                withMaxTokens maxTokens: NSNumber,
+  /// Generate a chat response to the given prompt. Uses the current conversation context.
+  @objc(generate:resolver:rejecter:)
+  func generate(_ prompt: String,
                 resolver resolve: @escaping RCTPromiseResolveBlock,
                 rejecter reject: @escaping RCTPromiseRejectBlock) {
 
     Task(priority: .userInitiated) { [weak self] in
       guard let self = self else { return }
-
       do {
-        try self.assertLoaded()
-        guard let generator = self.generator else {
+        // Ensure model is loaded
+        guard let session = self.chatSession else {
           throw NSError(domain: "MLX", code: 2,
-                        userInfo: [NSLocalizedDescriptionKey: "Generator not available"])
+                        userInfo: [NSLocalizedDescriptionKey: "No model loaded"])
         }
-
-        self.isCancelled = false
-
-        // Parameters mirror swift-transformers `Generation.Parameters`
-        var params = Generation.Parameters()
-        params.maxNewTokens = maxTokens.intValue
-        params.temperature = 0.7      // sane defaults; tweak if needed
-        params.topP = 0.95
-
-        // Generate as a single result (non-streaming)
-        let result = try await generator.generate(prompt: key, parameters: params) { [weak self] in
-          // cooperative cancellation check
-          (self?.isCancelled ?? false)
-        }
-
-        resolve(result)
+        // Generate response for the prompt
+        let response = try await session.respond(to: prompt)
+        resolve(response)
       } catch {
         reject("MLX_GEN_ERR", "Generation failed: \(error.localizedDescription)", error)
       }
     }
   }
 
-  /// Allow JS to cancel an in-flight generation cooperatively.
-  @objc(cancel)
-  func cancel() {
-    isCancelled = true
+  /// Reset the conversation context (start a new chat session with the loaded model).
+  @objc(resetChat)
+  func resetChat() {
+    if let modelContainer = self.modelContainer {
+      self.chatSession = ChatSession(modelContainer)
+    }
   }
 }
+
+extension MLXModule: RCTBridgeModule {}

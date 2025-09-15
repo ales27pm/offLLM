@@ -1,78 +1,60 @@
 jest.mock("@react-native-async-storage/async-storage", () => {
   let store = {};
   return {
-    setItem: async (k, v) => {
-      store[k] = v;
+    setItem: async (key, value) => {
+      store[key] = value;
     },
-    getItem: async (k) => store[k] || null,
-    removeItem: async (k) => {
-      delete store[k];
+    getItem: async (key) => (key in store ? store[key] : null),
+    multiRemove: async (keys) => {
+      keys.forEach((key) => {
+        delete store[key];
+      });
     },
-    getAllKeys: async () => Object.keys(store),
-    multiGet: async (keys) => keys.map((k) => [k, store[k] || null]),
     __clear: () => {
       store = {};
     },
   };
 });
 
-import {
-  setConsent,
-  getConsent,
-  revokeConsent,
-  listConsents,
-} from "../src/privacy/consents";
+import { ConsentManager, ConsentType } from "../src/utils/consents";
 
 const AsyncStorage = require("@react-native-async-storage/async-storage");
 
-beforeEach(() => AsyncStorage.__clear());
+beforeEach(() => {
+  AsyncStorage.__clear();
+});
 
-describe("Consent Management", () => {
-  test("set and get valid consent", async () => {
-    await setConsent("camera", true);
-    const consent = await getConsent("camera");
-    expect(consent).toEqual({
-      key: "camera",
-      value: true,
-      timestamp: expect.any(Number),
-    });
+describe("ConsentManager", () => {
+  test("stores and retrieves consent decisions", async () => {
+    await ConsentManager.setConsent(ConsentType.DATA_SHARING, true);
+    const record = await ConsentManager.getConsent(ConsentType.DATA_SHARING);
+    expect(record).not.toBeNull();
+    expect(record?.id).toBe(ConsentType.DATA_SHARING);
+    expect(record?.granted).toBe(true);
+    expect(record?.grantedAt).toBeInstanceOf(Date);
   });
 
-  test("reject invalid consent key", async () => {
-    await expect(setConsent("invalid", true)).rejects.toThrow(
-      "Invalid consent key",
-    );
-    expect(await getConsent("invalid")).toBeNull();
+  test("returns null when consent not found", async () => {
+    const record = await ConsentManager.getConsent(ConsentType.VOICE_RECORDING);
+    expect(record).toBeNull();
   });
 
-  test("list consents", async () => {
-    await setConsent("camera", true);
-    await setConsent("location", false);
-    const consents = await listConsents();
-    expect(consents).toEqual({
-      camera: { key: "camera", value: true, timestamp: expect.any(Number) },
-      location: {
-        key: "location",
-        value: false,
-        timestamp: expect.any(Number),
-      },
-    });
+  test("clears all stored consents", async () => {
+    await ConsentManager.setConsent(ConsentType.DATA_SHARING, true);
+    await ConsentManager.setConsent(ConsentType.VOICE_RECORDING, false);
+    await ConsentManager.clearAllConsents();
+
+    expect(
+      await ConsentManager.getConsent(ConsentType.DATA_SHARING),
+    ).toBeNull();
+    expect(
+      await ConsentManager.getConsent(ConsentType.VOICE_RECORDING),
+    ).toBeNull();
   });
 
-  test("revoke consent", async () => {
-    await setConsent("camera", true);
-    await revokeConsent("camera");
-    expect(await getConsent("camera")).toBeNull();
-  });
-
-  test("revoke invalid key does not throw", async () => {
-    await expect(revokeConsent("invalid")).resolves.toBeUndefined();
-  });
-
-  test("handle AsyncStorage error gracefully", async () => {
-    jest
-      .spyOn(AsyncStorage, "setItem")
-      .mockRejectedValueOnce(new Error("Storage error"));
-    await expect(setConsent("camera", true)).rejects.toThrow("Storage error");
+  test("handles invalid JSON entries gracefully", async () => {
+    await AsyncStorage.setItem("consent_DATA_SHARING", "{invalid json");
+    const record = await ConsentManager.getConsent(ConsentType.DATA_SHARING);
+    expect(record).toBeNull();
   });
 });

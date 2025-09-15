@@ -1,45 +1,49 @@
-import RNFS from "react-native-fs";
-import Config from "react-native-config";
-import { Logger } from "../src/utils/logger";
+describe("logger", () => {
+  let logger: typeof import("../src/utils/logger").default;
+  let LogLevel: typeof import("../src/utils/logger").LogLevel;
 
-describe("Logger", () => {
   beforeEach(() => {
-    Logger.setFileSink(false);
-    Logger.setLevel("debug");
-    Logger.clear();
+    jest.resetModules();
     jest.clearAllMocks();
+    ({ logger, LogLevel } = require("../src/utils/logger"));
+    jest.spyOn(console, "log").mockImplementation(() => {});
+    jest.spyOn(console, "info").mockImplementation(() => {});
+    jest.spyOn(console, "warn").mockImplementation(() => {});
+    jest.spyOn(console, "error").mockImplementation(() => {});
   });
 
-  it("filters debug when level info", async () => {
-    Logger.setLevel("info");
-    await Logger.debug("T", "hidden");
-    const tail = await Logger.tail();
-    expect(tail).toBe("");
+  afterEach(() => {
+    jest.restoreAllMocks();
   });
 
-  it("maintains ring buffer cap", async () => {
-    for (let i = 0; i < 600; i++) {
-      await Logger.info("T", `msg${i}`);
+  it("respects configured log level", () => {
+    logger.setLogLevel(LogLevel.INFO);
+    logger.debug("Test", "hidden");
+    const entries = logger.getLogs();
+    expect(
+      entries.some(
+        (entry) => entry.tag === "Test" && entry.level === LogLevel.DEBUG,
+      ),
+    ).toBe(false);
+  });
+
+  it("maintains only the most recent entries up to the cap", () => {
+    for (let index = 0; index < 1100; index += 1) {
+      logger.info("Ring", `message-${index}`);
     }
-    const tail = await Logger.tail(600);
-    const lines = tail.split("\n").filter(Boolean);
-    expect(lines.length).toBe(500);
-    expect(lines[0]).toBe("[T] msg100");
-    expect(lines[lines.length - 1]).toBe("[T] msg599");
+    const ringEntries = logger
+      .getLogs()
+      .filter((entry) => entry.tag === "Ring");
+    expect(ringEntries.length).toBe(1000);
+    expect(ringEntries[0].message).toBe("message-100");
+    expect(ringEntries[ringEntries.length - 1].message).toBe("message-1099");
   });
 
-  it("rotates file when size exceeds 1MB", async () => {
-    // enable file sink
-    (Config as any).DEBUG_LOGGING = "1";
-    Logger.setFileSink(true);
-    (RNFS.stat as any).mockResolvedValueOnce({ size: 1024 * 1024 + 1 });
-    await Logger.info("T", "rotate");
-    // allow async flush
-    await new Promise(setImmediate);
-    expect(RNFS.moveFile).toHaveBeenCalled();
-  });
-
-  it("native forward no-op when bridge missing", async () => {
-    await expect(Logger.error("T", "msg")).resolves.toBeUndefined();
+  it("persists logs when file logging is enabled", async () => {
+    const fileSystem = require("expo-file-system");
+    logger.setFileLoggingEnabled(true);
+    logger.error("Network", "Request failed");
+    await new Promise((resolve) => setImmediate(resolve));
+    expect(fileSystem.__files.size).toBeGreaterThan(0);
   });
 });

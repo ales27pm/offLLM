@@ -134,6 +134,8 @@ class LLMService {
       } else {
         if (this.isWeb) {
           response = await this.generateWeb(prompt, maxTokens, temperature);
+        } else if (Platform.OS === "ios") {
+          response = await this.nativeModule.generate(prompt);
         } else {
           const generateOptions = {
             maxTokens,
@@ -142,6 +144,10 @@ class LLMService {
           };
           response = await this.nativeModule.generate(prompt, generateOptions);
         }
+      }
+
+      if (typeof response === "string") {
+        response = { text: response };
       }
 
       const inferenceTime = Date.now() - startTime;

@@ -9,7 +9,7 @@ import {
   Share,
 } from "react-native";
 import Clipboard from "@react-native-clipboard/clipboard";
-import { Logger } from "../utils/logger";
+import logger, { LogEntry, LogLevel } from "../utils/logger";
 import { useDebugSettings } from "./useDebugSettings";
 
 interface Props {
@@ -17,22 +17,67 @@ interface Props {
   onClose: () => void;
 }
 
+const formatValue = (value: unknown): string => {
+  if (value === undefined || value === null) {
+    return "";
+  }
+  if (value instanceof Error) {
+    return value.message;
+  }
+  if (typeof value === "string") {
+    return value;
+  }
+  try {
+    return JSON.stringify(value);
+  } catch {
+    return String(value);
+  }
+};
+
+const formatLogEntry = (entry: LogEntry): string => {
+  const timestamp =
+    entry.timestamp instanceof Date
+      ? entry.timestamp.toISOString()
+      : new Date(entry.timestamp).toISOString();
+  const levelName = LogLevel[entry.level];
+  const parts: string[] = [entry.message];
+
+  if (entry.data !== undefined) {
+    const serialised = formatValue(entry.data);
+    if (serialised) {
+      parts.push(serialised);
+    }
+  }
+
+  if (entry.error) {
+    const serialised = formatValue(entry.error);
+    if (serialised) {
+      parts.push(serialised);
+    }
+  }
+
+  const suffix = parts.length ? ` ${parts.join(" ")}` : "";
+  return `[${timestamp}] [${levelName}] [${entry.tag}]${suffix}`;
+};
+
 export default function DebugConsole({ visible, onClose }: Props) {
   const [logs, setLogs] = useState("");
   const { verbose, file, toggleVerbose, toggleFile } = useDebugSettings();
 
   useEffect(() => {
-    let timer: ReturnType<typeof setInterval>;
+    let timer: ReturnType<typeof setInterval> | undefined;
     if (visible) {
-      const refresh = async () => {
-        const text = await Logger.tail();
-        setLogs(text);
+      const refresh = () => {
+        const entries = logger.getLogs();
+        setLogs(entries.map(formatLogEntry).join("\n"));
       };
       refresh();
       timer = setInterval(refresh, 1000);
     }
     return () => {
-      if (timer) clearInterval(timer);
+      if (timer) {
+        clearInterval(timer);
+      }
     };
   }, [visible]);
 
@@ -44,8 +89,8 @@ export default function DebugConsole({ visible, onClose }: Props) {
       copy();
     }
   };
-  const clear = async () => {
-    await Logger.clear();
+  const clear = () => {
+    logger.clearLogs();
     setLogs("");
   };
 
