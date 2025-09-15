@@ -39,15 +39,10 @@ extension MLXModule: RCTBridgeModule {
                         rejecter reject: @escaping RCTPromiseRejectBlock) {
     Task.detached { [weak self] in
       do {
+        // Always treat modelPath as a directory to load MLX model from disk.
         let url = URL(fileURLWithPath: modelPath, isDirectory: true)
-        // LLMModel interprets the identifier in its configuration as either a remote
-        // Hugging Face hub ID or a local path. Passing the file system path directly
-        // instructs the loader to use the local directory.
-        // The `LLMModel.load` API expects an unlabeled configuration parameter.
-        // Passing the path directly as a configuration initialiser instructs the loader to use the local directory.
         let loaded = try await LLMModel.load(.init(id: url.path))
-        // Store the loaded model on the module. Reset the cache when switching
-        // models to avoid returning stale completions.
+        // Assign the loaded model and clear any previous completions cache.
         self?.model = loaded
         self?.kvCache.removeAll()
         resolve(true)
