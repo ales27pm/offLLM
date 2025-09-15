@@ -26,7 +26,7 @@ targets:
           - "../build/**"
           - "Pods/**"
           - "MLXCompat.swift"
-        # MLXCompat.swift has been removed; the app now uses the new MLX API via LLMModel
+        # MLXCompat.swift has been removed; the app now uses the new MLX API via LanguageModel
 
     dependencies:
       - package: mlx-swift-examples
@@ -40,9 +40,9 @@ targets:
         product: MLXLinalg
       - package: mlx-swift
         product: MLXFFT
-      # (optional) If your code imports these, add them too:
-      # - package: mlx-swift-examples
-      #   product: MLXLMCommon
+      # Additional libraries required by MLXModule.swift
+      - package: mlx-swift-examples
+        product: MLXLMCommon
       # - package: mlx-swift-examples
       #   product: Tokenizers
 
