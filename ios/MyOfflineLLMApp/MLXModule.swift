@@ -57,7 +57,7 @@ final class MLXModule: NSObject {
         for id in idsToTry {
           do {
             // Load model from Hugging Face using MLXLMCommon
-            loadedModel = try await MLXLMCommon.loadModel(id: id)
+            loadedModel = try await MLXLMCommon.loadModelContainer(id: id)
             break
           } catch {
             lastError = error
