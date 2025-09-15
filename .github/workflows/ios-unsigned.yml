@@ -73,11 +73,12 @@ jobs:
           mv build-log.txt $OUTPUT_DIR/
 
       - name: Upload build artifacts
-        uses: actions/upload-artifact@v3
+        if: always()
+        uses: actions/upload-artifact@v4
         with:
           name: ios-unsigned-ipa
           path: |
-            $RESULT_PATH
-            $OUTPUT_DIR/${XCODE_SCHEME}.ipa
-            $OUTPUT_DIR/${XCODE_SCHEME}_app.zip
-            $OUTPUT_DIR/build-log.txt
+            ${{ env.RESULT_PATH }}
+            ${{ env.OUTPUT_DIR }}/${{ env.XCODE_SCHEME }}.ipa
+            ${{ env.OUTPUT_DIR }}/${{ env.XCODE_SCHEME }}_app.zip
+            ${{ env.OUTPUT_DIR }}/build-log.txt
