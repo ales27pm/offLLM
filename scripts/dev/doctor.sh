@@ -34,7 +34,135 @@ USE_HERMES="${USE_HERMES:-true}"
 ### ───────────────────────────────────────────────────────────────────────────────────
  die() { echo "❌ $*" >&2; exit 1; }
  log() { echo "▶ $*"; }
- check_tool() { command -v "$1" >/dev/null 2>&1 || die "Missing tool: $1"; }
+check_tool() { command -v "$1" >/dev/null 2>&1 || die "Missing tool: $1"; }
+
+xcresult_supports_legacy_flag() {
+  case "${XCRESULT_SUPPORTS_LEGACY:-}" in
+    yes)
+      return 0
+      ;;
+    no|unknown)
+      return 1
+      ;;
+  esac
+
+  if ! command -v xcrun >/dev/null 2>&1; then
+    XCRESULT_SUPPORTS_LEGACY="unknown"
+    return 1
+  fi
+
+  local help_output=""
+  if help_output="$(xcrun xcresulttool get --help 2>&1)"; then
+    if printf '%s' "$help_output" | grep -qi -- '--legacy'; then
+      XCRESULT_SUPPORTS_LEGACY="yes"
+      return 0
+    fi
+    XCRESULT_SUPPORTS_LEGACY="no"
+    return 1
+  fi
+
+  if printf '%s' "$help_output" | grep -qi -- '--legacy'; then
+    XCRESULT_SUPPORTS_LEGACY="yes"
+    return 0
+  fi
+
+  XCRESULT_SUPPORTS_LEGACY="unknown"
+  return 1
+}
+
+legacy_error_indicates_removed() {
+  local message="$1"
+  if [ -z "$message" ]; then
+    return 1
+  fi
+
+  local lower="${message,,}"
+  [[ "$lower" == *"--legacy"* ]] || return 1
+
+  local token
+  for token in \
+    "unknown option" \
+    "unrecognized option" \
+    "invalid option" \
+    "invalid argument" \
+    "not supported" \
+    "no longer supported" \
+    "unsupported option" \
+    "does not support" \
+    "has been removed" \
+    "was removed" \
+    "removed in" \
+    "not a valid option"; do
+    if [[ "$lower" == *"$token"* ]]; then
+      return 0
+    fi
+  done
+
+  return 1
+}
+
+run_xcresulttool_json() {
+  local bundle="$1"
+  local output="$2"
+
+  if [ ! -d "$bundle" ]; then
+    return 1
+  fi
+  if ! command -v xcrun >/dev/null 2>&1; then
+    return 1
+  fi
+
+  local tmp_err
+  tmp_err="$(mktemp)"
+  local best_err=""
+  local variants=()
+
+  xcresult_supports_legacy_flag || true
+  case "${XCRESULT_SUPPORTS_LEGACY:-unknown}" in
+    no)
+      variants=("without" "with")
+      ;;
+    yes)
+      variants=("with" "without")
+      ;;
+    *)
+      variants=("with" "without")
+      ;;
+  esac
+
+  for variant in "${variants[@]}"; do
+    if [ "$variant" = "with" ]; then
+      if xcrun xcresulttool get --format json --legacy --path "$bundle" \
+        >"$output" 2>"$tmp_err"; then
+        rm -f "$tmp_err"
+        return 0
+      fi
+    else
+      if xcrun xcresulttool get --format json --path "$bundle" \
+        >"$output" 2>"$tmp_err"; then
+        rm -f "$tmp_err"
+        return 0
+      fi
+    fi
+
+    local err=""
+    err="$(cat "$tmp_err" 2>/dev/null)"
+    rm -f "$output" || true
+    if [ -n "$err" ]; then
+      if [ -z "$best_err" ]; then
+        best_err="$err"
+      elif legacy_error_indicates_removed "$best_err" && ! legacy_error_indicates_removed "$err"; then
+        best_err="$err"
+      fi
+    fi
+  done
+
+  if [ -n "$best_err" ]; then
+    printf '%s\n' "$best_err" >&2 || true
+  fi
+  rm -f "$tmp_err"
+  return 1
+}
 
  PROJECT_ROOT="$(cd "$(dirname "${BASH_SOURCE[0]}")/../.." && pwd)"
  cd "$PROJECT_ROOT"
@@ -139,20 +267,10 @@ XCRESULT="$BUILD_DIR/monGARS.xcresult"
 
  # Extract issues from xcresult (if present)
  XC_SUMMARY_JSON="$REPORT_DIR/xcresult_summary.json"
- if [[ -d "$XCRESULT" ]]; then
-   log "Extracting issues JSON from xcresult…"
-   tmp_err="$(mktemp)"
-   if ! xcrun xcresulttool get --format json --legacy --path "$XCRESULT" \
-     > "$XC_SUMMARY_JSON" 2>"$tmp_err"; then
-     if grep -qiE "(unknown|unrecognized) option '--legacy'" "$tmp_err"; then
-       xcrun xcresulttool get --format json --path "$XCRESULT" \
-         > "$XC_SUMMARY_JSON" || true
-     else
-       cat "$tmp_err" >&2 || true
-     fi
-   fi
-   rm -f "$tmp_err"
- fi
+if [[ -d "$XCRESULT" ]]; then
+  log "Extracting issues JSON from xcresult…"
+  run_xcresulttool_json "$XCRESULT" "$XC_SUMMARY_JSON" || true
+fi
 
  # Grep errors/warnings from build log
  LOG_ERRORS_TXT="$REPORT_DIR/log_errors.txt"
