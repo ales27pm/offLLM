@@ -34,11 +34,11 @@ if [ -z "${APP_PATH:-}" ] || [ ! -d "$APP_PATH" ]; then
 fi
 mkdir -p "$OUT_DIR"
 OUT_DIR="$(cd "$OUT_DIR" && pwd)"
-( cd "$(dirname "$APP_PATH")" && /usr/bin/zip -qry "${OUT_DIR}/$(basename "$APP_PATH").zip" "$(basename "$APP_PATH")" )
 APP_BASENAME="$(basename "$APP_PATH" .app)"
+( cd "$(dirname "$APP_PATH")" && /usr/bin/zip -qry "${OUT_DIR}/${APP_BASENAME}.zip" "$(basename "$APP_PATH")" )
 TMP="$(mktemp -d)"; mkdir -p "$TMP/Payload"
 cp -R "$APP_PATH" "$TMP/Payload/"
-( cd "$TMP" && /usr/bin/zip -qry "${OUT_DIR}/${APP_BASENAME}-device-unsigned.ipa" "Payload" )
+( cd "$TMP" && /usr/bin/zip -qry "${OUT_DIR}/${APP_BASENAME}.ipa" "Payload" )
 rm -rf "$TMP"
-echo "::notice title=Packaging complete::${OUT_DIR}/${APP_BASENAME}-device-unsigned.ipa"
+echo "::notice title=Packaging complete::${OUT_DIR}/${APP_BASENAME}.ipa"
 

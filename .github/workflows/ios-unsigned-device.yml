@@ -16,6 +16,7 @@ jobs:
     env:
       SCHEME: monGARS
       DERIVED_DATA: ${{ github.workspace }}/build/DerivedData
+      OUTPUT_DIR: build/output
 
     steps:
       - uses: actions/checkout@ff7abcd0c3c05ccf6adc123a8cd1fd4fb30fb493
@@ -178,7 +179,7 @@ jobs:
       - name: Package unsigned IPA from archive (robust)
         if: steps.sdk.outputs.present == 'true'
         run: |
-          ./scripts/package_ipa.sh "$DERIVED_DATA/Archive.xcarchive" "build" "monGARS"
+          ./scripts/package_ipa.sh "$DERIVED_DATA/Archive.xcarchive" "$OUTPUT_DIR" "$SCHEME"
 
       - name: Upload archive artifacts
         if: always()
@@ -186,8 +187,8 @@ jobs:
         with:
           name: ios-archive-and-ipa
           path: |
-            build/*.ipa
-            build/*.app.zip
+            ${{ env.OUTPUT_DIR }}/*.ipa
+            ${{ env.OUTPUT_DIR }}/*.zip
             ${{ env.DERIVED_DATA }}/Archive.xcarchive
             ${{ env.DERIVED_DATA }}/ResultBundle_archive.xcresult
             build/ResultBundle_archive.json

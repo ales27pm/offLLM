@@ -1,5 +1,5 @@
-import { useCallback, useEffect, useMemo, useState } from 'react';
-import { mlxChat, type ChatTurn } from '../services/chat/mlxChat';
+import { useCallback, useEffect, useMemo, useState } from "react";
+import { mlxChat, type ChatTurn } from "../services/chat/mlxChat";
 
 export function useMlxChat(modelId?: string) {
   const [ready, setReady] = useState(false);

@@ -2,8 +2,19 @@ import create from "zustand";
 import Config from "react-native-config";
 import logger, { LogLevel } from "../utils/logger";
 
+type DevFlagGlobal = typeof globalThis & { __DEV__?: boolean };
+
+const devFlag =
+  typeof globalThis !== "undefined" &&
+  typeof (globalThis as DevFlagGlobal).__DEV__ !== "undefined"
+    ? (globalThis as DevFlagGlobal).__DEV__
+    : undefined;
+
+// Prefer explicit "development" check; avoid defaulting to true when NODE_ENV is undefined.
 const isDevelopment =
-  typeof __DEV__ !== "undefined" ? __DEV__ : process?.env?.NODE_ENV !== "production";
+  typeof devFlag === "boolean"
+    ? devFlag
+    : (process?.env?.NODE_ENV?.toLowerCase?.() === "development");
 const DEBUG_LOGGING = Config.DEBUG_LOGGING === "1";
 
 if (DEBUG_LOGGING) {
