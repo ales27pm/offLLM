@@ -9,10 +9,13 @@ jobs:
   build-ios:
     runs-on: macos-15
     env:
-      XCODE_WORKSPACE: ios/monGARS.xcworkspace
+      XCODE_CONTAINER_FLAG: -workspace
+      XCODE_CONTAINER_PATH: ios/monGARS.xcworkspace
+      XCODE_CONTAINER_TYPE: workspace
       XCODE_SCHEME: monGARS
       ARCHIVE_PATH: build/monGARS.xcarchive
       RESULT_PATH: build/monGARS.xcresult
+      RESOLVE_RESULT_BUNDLE: build/resolve-package.xcresult
       OUTPUT_DIR: build/output
     steps:
       - name: Checkout repository
@@ -29,28 +32,68 @@ jobs:
       - name: Validate patch-package patches
         run: npx --yes patch-package --check
 
-      - name: Install Ruby gems and XcodeGen/Pods
+      - name: Install Ruby gems
+        working-directory: ios
         run: |
-          cd ios
           gem install bundler
           bundle install
-          bundle exec pod install --repo-update
-          cd ..
+
+      - name: CocoaPods install
+        working-directory: ios
+        run: bundle exec pod install --repo-update
 
       - name: Generate iOS project (XcodeGen)
+        working-directory: ios
+        run: xcodegen generate
+
+      - name: Detect Xcode container
+        working-directory: ios
         run: |
-          cd ios
-          xcodegen generate
-          cd ..
+          #!/usr/bin/env bash
+          set -euo pipefail
+          CONTAINER="$(find . -maxdepth 1 -name '*.xcworkspace' -print -quit)"
+          TYPE="workspace"
+          if [ -z "$CONTAINER" ]; then
+            CONTAINER="$(find . -maxdepth 1 -name '*.xcodeproj' -print -quit)"
+            TYPE="project"
+          fi
+
+          if [ -z "$CONTAINER" ]; then
+            echo "::error::No Xcode workspace (.xcworkspace) or project (.xcodeproj) found in $(pwd)"
+            exit 1
+          fi
+
+          CONTAINER="${CONTAINER#./}"
+          FLAG="-workspace"
+          if [ "$TYPE" = "project" ]; then
+            FLAG="-project"
+          fi
+
+          echo "XCODE_CONTAINER_PATH=ios/${CONTAINER}" >>"$GITHUB_ENV"
+          echo "XCODE_CONTAINER_FLAG=${FLAG}" >>"$GITHUB_ENV"
+          echo "XCODE_CONTAINER_TYPE=${TYPE}" >>"$GITHUB_ENV"
+
+      - name: Resolve Swift package dependencies
+        run: |
+          #!/usr/bin/env bash
+          set -euo pipefail
+          mkdir -p build/swiftpm
+          xcodebuild "$XCODE_CONTAINER_FLAG" "$XCODE_CONTAINER_PATH" \
+            -scheme "$XCODE_SCHEME" \
+            -resolvePackageDependencies \
+            -clonedSourcePackagesDirPath build/swiftpm \
+            -resultBundlePath "$RESOLVE_RESULT_BUNDLE"
 
       - name: Build and Archive (unsigned)
         run: |
+          #!/usr/bin/env bash
+          set -euo pipefail
           # Clean previous artifacts
           rm -rf build
           # Build archive with code signing disabled
           set -o pipefail
-          xcodebuild -workspace $XCODE_WORKSPACE \
-            -scheme $XCODE_SCHEME -configuration Release \
+          xcodebuild "$XCODE_CONTAINER_FLAG" "$XCODE_CONTAINER_PATH" \
+            -scheme "$XCODE_SCHEME" -configuration Release \
             -destination generic/platform=iOS \
             CODE_SIGN_IDENTITY="" CODE_SIGNING_REQUIRED=NO CODE_SIGNING_ALLOWED=NO \
             -archivePath $ARCHIVE_PATH \
@@ -58,25 +101,57 @@ jobs:
             clean archive | tee build-log.txt
 
       - name: Prepare output directory
-        if: always()
+        if: ${{ always() }}
         run: |
           mkdir -p "$OUTPUT_DIR"
           OUTPUT_DIR_ABS="$(python3 -c "import os,sys; root=os.environ.get('GITHUB_WORKSPACE') or os.getcwd(); target=os.environ['OUTPUT_DIR']; sys.stdout.write(os.path.realpath(os.path.join(root, target)))")"
           echo "OUTPUT_DIR_ABS=$OUTPUT_DIR_ABS" >>"$GITHUB_ENV"
 
       - name: Collect build log
-        if: always()
+        if: ${{ always() }}
         run: |
           mkdir -p "$OUTPUT_DIR_ABS"
           if [ -f build-log.txt ]; then
             cp build-log.txt "$OUTPUT_DIR_ABS/"
           fi
 
-      - name: Export archive xcresult JSON
-        if: always()
+      - name: Export resolve-package xcresult JSON
+        if: ${{ always() }}
         run: |
+          #!/usr/bin/env bash
           set -euo pipefail
           mkdir -p build
+          OUTPUT_JSON="build/resolve-package.json"
+          ERROR_LOG="build/xcresulttool_resolve_error.log"
+          : >"$ERROR_LOG"
+          if [ -d "$RESOLVE_RESULT_BUNDLE" ]; then
+            if xcrun xcresulttool export --path "$RESOLVE_RESULT_BUNDLE" --type json --output "$OUTPUT_JSON" 2>"$ERROR_LOG"; then
+              echo "✅ xcresult → JSON succeeded"
+            else
+              echo "❌ xcresult export failed; see $ERROR_LOG"
+              if [ ! -s "$OUTPUT_JSON" ]; then
+                ts="$(date -u +"%Y-%m-%dT%H:%M:%SZ")"
+                printf '{\n  "notice": "Resolve package result export failed",\n  "generatedAt": "%s",\n  "resultBundle": "%s"\n}\n' \
+                  "$ts" \
+                  "$RESOLVE_RESULT_BUNDLE" \
+                  >"$OUTPUT_JSON"
+              fi
+            fi
+          else
+            ts="$(date -u +"%Y-%m-%dT%H:%M:%SZ")"
+            printf '{\n  "notice": "Resolve package result bundle not produced",\n  "generatedAt": "%s",\n  "expectedPath": "%s"\n}\n' \
+              "$ts" \
+              "$RESOLVE_RESULT_BUNDLE" \
+              >"$OUTPUT_JSON"
+          fi
+
+      - name: Export archive xcresult JSON
+        if: ${{ always() }}
+        run: |
+          #!/usr/bin/env bash
+          set -euo pipefail
+          mkdir -p build
+          : >"build/xcresulttool_unsigned_error.log"
           RESULT_BUNDLE="$RESULT_PATH"
           if [ -d "$RESULT_BUNDLE" ]; then
             if ! xcrun xcresulttool get --legacy --path "$RESULT_BUNDLE" --format json \
@@ -109,6 +184,36 @@ jobs:
               > build/ResultBundle_unsigned.json
           fi
 
+      - name: Export archive xcresult → JSON
+        if: ${{ always() }}
+        run: |
+          #!/usr/bin/env bash
+          set -euo pipefail
+          mkdir -p build
+          OUTPUT_JSON="build/archive-result.json"
+          ERROR_LOG="build/xcresulttool_archive_error.log"
+          : >"$ERROR_LOG"
+          if [ -d "$RESULT_PATH" ]; then
+            if xcrun xcresulttool export --path "$RESULT_PATH" --type json --output "$OUTPUT_JSON" 2>"$ERROR_LOG"; then
+              echo "✅ xcresult → JSON succeeded"
+            else
+              echo "❌ xcresult export failed; see $ERROR_LOG"
+              if [ ! -s "$OUTPUT_JSON" ]; then
+                ts="$(date -u +"%Y-%m-%dT%H:%M:%SZ")"
+                printf '{\n  "notice": "Archive result export failed",\n  "generatedAt": "%s",\n  "resultBundle": "%s"\n}\n' \
+                  "$ts" \
+                  "$RESULT_PATH" \
+                  >"$OUTPUT_JSON"
+              fi
+            fi
+          else
+            ts="$(date -u +"%Y-%m-%dT%H:%M:%SZ")"
+            printf '{\n  "notice": "Archive result bundle not produced",\n  "generatedAt": "%s",\n  "expectedPath": "%s"\n}\n' \
+              "$ts" \
+              "$RESULT_PATH" \
+              >"$OUTPUT_JSON"
+          fi
+
       - name: Create Payload and IPA
         if: success()
         run: |
@@ -136,7 +241,7 @@ jobs:
           )
 
       - name: Upload build artifacts
-        if: always()
+        if: ${{ always() }}
         uses: actions/upload-artifact@v4
         with:
           name: ios-unsigned-ipa
@@ -146,5 +251,9 @@ jobs:
             ${{ env.OUTPUT_DIR }}/${{ env.XCODE_SCHEME }}.zip
             ${{ env.OUTPUT_DIR }}/build-log.txt
             build/ResultBundle_unsigned.json
+            build/resolve-package.json
+            build/archive-result.json
             build/xcresulttool_unsigned_error.log
+            build/xcresulttool_resolve_error.log
+            build/xcresulttool_archive_error.log
           if-no-files-found: warn
