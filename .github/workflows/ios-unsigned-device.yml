@@ -140,29 +140,20 @@ jobs:
           done
           if [ -n "$RESOLVE_RESULT_BUNDLE" ]; then
             echo "Using resolve bundle at $RESOLVE_RESULT_BUNDLE"
-          fi
-          if [ -n "$RESOLVE_RESULT_BUNDLE" ]; then
             echo "RESOLVE_RESULT_BUNDLE=$RESOLVE_RESULT_BUNDLE" >> "$GITHUB_ENV"
           fi
 
       - name: Export resolve-package xcresult JSON
         if: always()
         run: |
-          set -euo pipefail
+          set -euxo pipefail
           RB="${RESOLVE_RESULT_BUNDLE:-$DERIVED_DATA/ResultBundle.xcresult}"
           mkdir -p build
           if [ -d "$RB" ]; then
-            TMP_ERR="$(mktemp)"
-            if ! xcrun xcresulttool get --legacy --path "$RB" --format json \
-              > build/ResultBundle_resolve.json 2>"$TMP_ERR"; then
-              if ! xcrun xcresulttool get --path "$RB" --format json \
-                > build/ResultBundle_resolve.json 2>>"$TMP_ERR"; then
-                echo "::warning title=Resolve xcresult export failed::See step logs for xcresulttool output"
-                cat "$TMP_ERR" >&2 || true
-                rm -f build/ResultBundle_resolve.json || true
-              fi
+            # Attempt to export as JSON (legacy path first, then object path)
+            if ! xcrun xcresulttool get --legacy --path "$RB" --format json > build/ResultBundle_resolve.json 2>/dev/null; then
+              xcrun xcresulttool get object --path "$RB" --format json > build/ResultBundle_resolve.json
             fi
-            rm -f "$TMP_ERR"
           else
             echo "::warning title=No resolve xcresult::No resolve-result xcresult produced"
           fi
