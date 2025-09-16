@@ -4,6 +4,25 @@ import React
 import MLXLLM
 import MLXLMCommon
 
+@MainActor
+private final class PromiseCallbacks {
+  private let resolve: RCTPromiseResolveBlock
+  private let reject: RCTPromiseRejectBlock
+
+  init(resolve: @escaping RCTPromiseResolveBlock, reject: @escaping RCTPromiseRejectBlock) {
+    self.resolve = resolve
+    self.reject = reject
+  }
+
+  func fulfill(_ value: Any?) {
+    resolve(value)
+  }
+
+  func fail(code: String, message: String, error: Error?) {
+    reject(code, message, error)
+  }
+}
+
 @objc(MLXModule)
 @MainActor
 final class MLXModule: NSObject {
@@ -29,7 +48,7 @@ final class MLXModule: NSObject {
     return try await LLMModelFactory.shared.loadContainer(configuration: configuration)
   }
 
-  private func makeError(_ code: String, _ message: String, underlying: Error? = nil) -> NSError {
+  private static func makeError(_ code: String, _ message: String, underlying: Error? = nil) -> NSError {
     var info: [String: Any] = [NSLocalizedDescriptionKey: message]
     if let underlying { info[NSUnderlyingErrorKey] = underlying }
     return NSError(domain: "MLX", code: 1, userInfo: info)
@@ -64,6 +83,8 @@ final class MLXModule: NSObject {
             resolver resolve: @escaping RCTPromiseResolveBlock,
             rejecter reject: @escaping RCTPromiseRejectBlock) {
 
+    let callbacks = PromiseCallbacks(resolve: resolve, reject: reject)
+
     Task(priority: .userInitiated) { @MainActor [weak self] in
       guard let self else { return }
 
@@ -74,7 +95,7 @@ final class MLXModule: NSObject {
         do {
           let model = try await Self.loadContainer(modelID: id)
           self.setActive(container: model)
-          resolve(true)
+          callbacks.fulfill(true)
           return
         } catch {
           lastError = error
@@ -82,8 +103,8 @@ final class MLXModule: NSObject {
       }
 
       let triedMessage = "Failed to load any model. Tried: \(ids.joined(separator: ", "))"
-      let finalError = lastError ?? self.makeError("MLX_LOAD_ERR", triedMessage)
-      reject("MLX_LOAD_ERR", triedMessage, finalError)
+      let finalError = lastError ?? Self.makeError("MLX_LOAD_ERR", triedMessage, underlying: lastError)
+      callbacks.fail(code: "MLX_LOAD_ERR", message: triedMessage, error: finalError)
     }
   }
 
@@ -102,21 +123,23 @@ final class MLXModule: NSObject {
                 resolver resolve: @escaping RCTPromiseResolveBlock,
                 rejecter reject: @escaping RCTPromiseRejectBlock) {
 
+    let callbacks = PromiseCallbacks(resolve: resolve, reject: reject)
+
     Task(priority: .userInitiated) { @MainActor [weak self] in
       guard let self else { return }
 
       guard let session = self.session else {
-        let error = self.makeError("MLX_GEN_ERR", "No model loaded")
-        reject("MLX_GEN_ERR", error.localizedDescription, error)
+        let error = Self.makeError("MLX_GEN_ERR", "No model loaded")
+        callbacks.fail(code: "MLX_GEN_ERR", message: error.localizedDescription, error: error)
         return
       }
 
       do {
         let reply = try await session.respond(to: prompt)
-        resolve(reply)
+        callbacks.fulfill(reply)
       } catch {
         let message = "Generation failed: \(error.localizedDescription)"
-        reject("MLX_GEN_ERR", message, error)
+        callbacks.fail(code: "MLX_GEN_ERR", message: message, error: error)
       }
     }
   }
