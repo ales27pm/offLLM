@@ -56,8 +56,12 @@ legacy_error_indicates_removed() {
     return 1
   fi
 
-  local lower="${message,,}"
-  [[ "$lower" == *"--legacy"* ]] || return 1
+  local lower
+  lower="$(printf '%s' "$message" | LC_ALL=C tr '[:upper:]' '[:lower:]')"
+  case "$lower" in
+    *--legacy*) ;;
+    *) return 1 ;;
+  esac
 
   local token
   for token in \
