@@ -109,10 +109,13 @@ jobs:
           set -euxo pipefail
           RB="$DERIVED_DATA/ResultBundle.xcresult"
           rm -rf "$RB"
+          mkdir -p "$DERIVED_DATA"
           xcodebuild -resolvePackageDependencies \
             -${XCODE_CONTAINER_TYPE} "$XCODE_CONTAINER" \
             -scheme "$SCHEME" \
-            -clonedSourcePackagesDirPath "$DERIVED_DATA/SourcePackages"
+            -clonedSourcePackagesDirPath "$DERIVED_DATA/SourcePackages" \
+            -derivedDataPath "$DERIVED_DATA" \
+            -resultBundlePath "$RB"
 
       - name: Export resolve-package xcresult JSON
         if: always()
