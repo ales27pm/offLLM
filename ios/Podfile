@@ -151,5 +151,16 @@ post_install do |installer|
     end
     user_project.save
   end
+
+  patch_script = File.join(__dir__, 'scripts', 'patch-react-native-contacts.sh')
+  if File.exist?(patch_script)
+    Pod::UI.puts('[Podfile] Ensuring react-native-contacts orientation compatibility…')
+    env = { 'PODS_ROOT' => installer.sandbox.root.to_s }
+    unless system(env, 'bash', patch_script)
+      Pod::UI.warn('[Podfile] Failed to patch react-native-contacts orientation enum.')
+    end
+  else
+    Pod::UI.warn('[Podfile] Missing ios/scripts/patch-react-native-contacts.sh; skipping contacts orientation patch.')
+  end
 end
 
