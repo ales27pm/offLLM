@@ -109,15 +109,47 @@ jobs:
           set -euxo pipefail
           RB="$DERIVED_DATA/ResultBundle.xcresult"
           rm -rf "$RB"
+          mkdir -p "$DERIVED_DATA"
           xcodebuild -resolvePackageDependencies \
             -${XCODE_CONTAINER_TYPE} "$XCODE_CONTAINER" \
             -scheme "$SCHEME" \
-            -clonedSourcePackagesDirPath "$DERIVED_DATA/SourcePackages"
+            -clonedSourcePackagesDirPath "$DERIVED_DATA/SourcePackages" \
+            -derivedDataPath "$DERIVED_DATA" \
+            -resultBundlePath "$RB"
+          RESOLVE_RESULT_BUNDLE=""
+          if [ -d "$RB" ]; then
+            RESOLVE_RESULT_BUNDLE="$RB"
+          fi
+          SEARCH_ROOTS=("$DERIVED_DATA/Logs" "$HOME/Library/Developer/Xcode/DerivedData")
+          for root in "${SEARCH_ROOTS[@]}"; do
+            if [ -d "$root" ]; then
+              while IFS= read -r candidate; do
+                if [ -d "$candidate" ]; then
+                  if [ -z "$RESOLVE_RESULT_BUNDLE" ]; then
+                    RESOLVE_RESULT_BUNDLE="$candidate"
+                  else
+                    BEST_MTIME="$(stat -f %m "$RESOLVE_RESULT_BUNDLE")"
+                    CANDIDATE_MTIME="$(stat -f %m "$candidate")"
+                    if [ "$CANDIDATE_MTIME" -gt "$BEST_MTIME" ]; then
+                      RESOLVE_RESULT_BUNDLE="$candidate"
+                    fi
+                  fi
+                fi
+              done < <(find "$root" -type d -path '*/Logs/Resolve*.xcresult')
+            fi
+          done
+          if [ -n "$RESOLVE_RESULT_BUNDLE" ]; then
+            echo "Using resolve bundle at $RESOLVE_RESULT_BUNDLE"
+          fi
+          if [ -n "$RESOLVE_RESULT_BUNDLE" ]; then
+            echo "RESOLVE_RESULT_BUNDLE=$RESOLVE_RESULT_BUNDLE" >> "$GITHUB_ENV"
+          fi
 
       - name: Export resolve-package xcresult JSON
         if: always()
         run: |
-          RB="$DERIVED_DATA/ResultBundle.xcresult"
+          set -euo pipefail
+          RB="${RESOLVE_RESULT_BUNDLE:-$DERIVED_DATA/ResultBundle.xcresult}"
           mkdir -p build
           if [ -d "$RB" ]; then
             if ! xcrun xcresulttool get --legacy --path "$RB" --format json > build/ResultBundle_resolve.json 2>/dev/null; then
