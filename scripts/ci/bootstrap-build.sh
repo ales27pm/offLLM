@@ -1,6 +1,24 @@
 #!/usr/bin/env bash
 set -euo pipefail
 
+SCRIPT_DIR="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
+ROOT_DIR="$(cd "$SCRIPT_DIR/../.." && pwd)"
+ENV_FILE="$ROOT_DIR/.env"
+DEFAULT_ENV_FILE="$ROOT_DIR/.env.default"
+
+if [ -f "$ENV_FILE" ]; then
+  set -a
+  # shellcheck disable=SC1090
+  source "$ENV_FILE"
+  set +a
+elif [ -f "$DEFAULT_ENV_FILE" ]; then
+  echo "ℹ️ No .env file found; loading defaults from $DEFAULT_ENV_FILE"
+  set -a
+  # shellcheck disable=SC1090
+  source "$DEFAULT_ENV_FILE"
+  set +a
+fi
+
 SCHEME="${SCHEME:-monGARS}"
 CONFIGURATION="${CONFIGURATION:-Release}"
 BUILD_DIR="${BUILD_DIR:-build}"

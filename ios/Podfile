@@ -1,3 +1,5 @@
+require 'open3'
+
 platform :ios, '18.0'
 
 # --- Auto-detect the .xcodeproj near this Podfile ---
@@ -150,6 +152,40 @@ post_install do |installer|
       end
     end
     user_project.save
+  end
+
+  patch_script = File.join(__dir__, 'scripts', 'patch-react-native-contacts.sh')
+  if File.exist?(patch_script)
+    Pod::UI.puts('[Podfile] Ensuring react-native-contacts orientation compatibility…')
+    env = {
+      'PODS_ROOT' => installer.sandbox.root.to_s,
+      'PATCH_IDEMPOTENT' => '1',
+    }
+    stdout_str, stderr_str, status = Open3.capture3(env, 'bash', patch_script)
+    if status.success?
+      stdout_str.each_line do |line|
+        next if line.strip.empty?
+        Pod::UI.puts("[Podfile] #{line.strip}")
+      end
+      stderr_str.each_line do |line|
+        next if line.strip.empty?
+        Pod::UI.warn("[Podfile] Patch script STDERR: #{line.strip}")
+      end
+    else
+      Pod::UI.warn('[Podfile] Failed to patch react-native-contacts orientation enum.')
+      Pod::UI.warn("[Podfile] Patch script exited with status #{status.exitstatus}.")
+      stdout_str.each_line do |line|
+        next if line.strip.empty?
+        Pod::UI.warn("[Podfile] STDOUT: #{line.strip}")
+      end
+      stderr_str.each_line do |line|
+        next if line.strip.empty?
+        Pod::UI.warn("[Podfile] STDERR: #{line.strip}")
+      end
+      Pod::UI.warn('[Podfile] This may be due to sandboxing or parallel execution in CI. Consider rerunning the patch manually or ensuring it remains idempotent.')
+    end
+  else
+    Pod::UI.warn('[Podfile] Missing ios/scripts/patch-react-native-contacts.sh; skipping contacts orientation patch.')
   end
 end
 
