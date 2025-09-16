@@ -10,7 +10,11 @@ const devFlag =
     ? (globalThis as DevFlagGlobal).__DEV__
     : undefined;
 
-const isDevelopment = devFlag ?? process?.env?.NODE_ENV !== "production";
+// Prefer explicit "development" check; avoid defaulting to true when NODE_ENV is undefined.
+const isDevelopment =
+  typeof devFlag === "boolean"
+    ? devFlag
+    : (process?.env?.NODE_ENV?.toLowerCase?.() === "development");
 const DEBUG_LOGGING = Config.DEBUG_LOGGING === "1";
 
 if (DEBUG_LOGGING) {
