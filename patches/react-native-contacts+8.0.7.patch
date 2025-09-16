@@ -2,10 +2,11 @@ diff --git a/node_modules/react-native-contacts/ios/RCTContacts/RCTContacts.mm b
 index 5e2f0d6..ff51127 100644
 --- a/node_modules/react-native-contacts/ios/RCTContacts/RCTContacts.mm
 +++ b/node_modules/react-native-contacts/ios/RCTContacts/RCTContacts.mm
-@@ -6,6 +6,62 @@
+@@ -6,6 +6,63 @@
  #import <React/RCTUtils.h>
  #import <Photos/Photos.h>
- 
++#import <ImageIO/CGImageProperties.h>
+
 +static UIWindow *RCTContactsActiveWindow(void)
 +{
 +    for (UIScene *scene in UIApplication.sharedApplication.connectedScenes) {
@@ -189,7 +190,7 @@ index 5e2f0d6..ff51127 100644
 +
 +        [imageManager requestImageDataAndOrientationForAsset:asset
 +                                                     options:options
-+                                               resultHandler:^(NSData * _Nullable data, __unused NSString * _Nullable dataUTI, __unused UIImageOrientation orientation, __unused NSDictionary * _Nullable info) {
++                                               resultHandler:^(NSData * _Nullable data, __unused NSString * _Nullable dataUTI, __unused CGImagePropertyOrientation orientation, __unused NSDictionary * _Nullable info) {
 +            imageData = data;
 +            dispatch_semaphore_signal(semaphore);
 +        }];

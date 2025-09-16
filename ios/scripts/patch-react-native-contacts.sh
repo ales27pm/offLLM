@@ -105,11 +105,11 @@ if 'requestImageDataForAsset:' in text:
     changes.append('requestImageDataAndOrientationForAsset')
 
 handler_pattern = re.compile(
-    r'resultHandler:\^\(\s*NSData \* _Nullable data,\s*NSString \* _Nullable dataUTI,\s*UIImageOrientation\s+orientation,\s*NSDictionary \* _Nullable info\s*\)'
+    r'resultHandler:\^\(\s*NSData \* _Nullable data,\s*(?:__unused\s+)?NSString \* _Nullable dataUTI,\s*(?:__unused\s+)?UIImageOrientation\s+orientation,\s*(?:__unused\s+)?NSDictionary \* _Nullable info\s*\)'
 )
 if handler_pattern.search(text):
     text = handler_pattern.sub(
-        'resultHandler:^(NSData * _Nullable data, NSString * _Nullable dataUTI, CGImagePropertyOrientation orientation, NSDictionary * _Nullable info)',
+        'resultHandler:^(NSData * _Nullable data, __unused NSString * _Nullable dataUTI, __unused CGImagePropertyOrientation orientation, __unused NSDictionary * _Nullable info)',
         text,
     )
     updated = True
