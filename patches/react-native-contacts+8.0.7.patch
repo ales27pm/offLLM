@@ -1,0 +1,201 @@
+diff --git a/node_modules/react-native-contacts/ios/RCTContacts/RCTContacts.mm b/node_modules/react-native-contacts/ios/RCTContacts/RCTContacts.mm
+index 5e2f0d6..0bae52b 100644
+--- a/node_modules/react-native-contacts/ios/RCTContacts/RCTContacts.mm
++++ b/node_modules/react-native-contacts/ios/RCTContacts/RCTContacts.mm
+@@ -1,11 +1,66 @@
+ #import <AddressBook/AddressBook.h>
+ #import <UIKit/UIKit.h>
+ #import "RCTContacts.h"
+-#import <AssetsLibrary/AssetsLibrary.h>
+ #import <React/RCTLog.h>
+ #import <React/RCTUtils.h>
+ #import <Photos/Photos.h>
+ 
++static UIWindow *RCTContactsActiveWindow(void)
++{
++    for (UIScene *scene in UIApplication.sharedApplication.connectedScenes) {
++        if (scene.activationState != UISceneActivationStateForegroundActive) {
++            continue;
++        }
++
++        if (![scene isKindOfClass:[UIWindowScene class]]) {
++            continue;
++        }
++
++        UIWindowScene *windowScene = (UIWindowScene *)scene;
++        for (UIWindow *window in windowScene.windows) {
++            if (window.isKeyWindow) {
++                return window;
++            }
++        }
++
++        if (windowScene.windows.count > 0) {
++            return windowScene.windows.firstObject;
++        }
++    }
++
++    return nil;
++}
++
++static UIViewController *RCTContactsTopViewController(void)
++{
++    UIWindow *window = RCTContactsActiveWindow();
++    if (!window) {
++        id<UIApplicationDelegate> appDelegate = UIApplication.sharedApplication.delegate;
++        if ([appDelegate respondsToSelector:@selector(window)]) {
++            window = appDelegate.window;
++        }
++    }
++    UIViewController *rootViewController = window.rootViewController;
++
++    while (rootViewController.presentedViewController) {
++        rootViewController = rootViewController.presentedViewController;
++    }
++
++    return rootViewController;
++}
++
++static NSString *RCTContactsAssetIdentifierFromURL(NSURL *assetURL)
++{
++    NSURLComponents *components = [NSURLComponents componentsWithURL:assetURL resolvingAgainstBaseURL:NO];
++    for (NSURLQueryItem *item in components.queryItems) {
++        if ([item.name isEqualToString:@"id"]) {
++            return item.value;
++        }
++    }
++
++    return nil;
++}
++
+ @implementation RCTContacts {
+     CNContactStore * contactStore;
+ 
+@@ -255,14 +310,14 @@ RCT_EXPORT_METHOD(getContactsByEmailAddress:(NSString *)string
+                                        ]];
+ 
+     CNContactFetchRequest * request = [[CNContactFetchRequest alloc]initWithKeysToFetch:keysToFetch];
+-    BOOL success = [contactStore enumerateContactsWithFetchRequest:request error:&contactError usingBlock:^(CNContact * __nonnull contact, BOOL * __nonnull stop){
++    [contactStore enumerateContactsWithFetchRequest:request error:&contactError usingBlock:^(CNContact * __nonnull contact, BOOL * __nonnull stop){
+         NSDictionary *contactDict = [self contactToDictionary: contact withThumbnails:false];
+         [contacts addObject:contactDict];
+     }];
+ 
+     NSUInteger contactsCount = [contacts count];
+ 
+-    NSNumber *count = [NSNumber numberWithInt:contactsCount];
++    NSNumber *count = @(contactsCount);
+ 
+     resolve(count);
+ }
+@@ -311,7 +366,7 @@ RCT_EXPORT_METHOD(getCount:(RCTPromiseResolveBlock) resolve rejecter:(RCTPromise
+ 
+     CNContactFetchRequest * request = [[CNContactFetchRequest alloc] initWithKeysToFetch:keysToFetch];
+     NSError* contactError;
+-    BOOL success = [contactStore enumerateContactsWithFetchRequest:request error:&contactError usingBlock:^(CNContact * __nonnull contact, BOOL * __nonnull stop){
++    [contactStore enumerateContactsWithFetchRequest:request error:&contactError usingBlock:^(CNContact * __nonnull contact, BOOL * __nonnull stop){
+         NSDictionary *contactDict = [self contactToDictionary: contact withThumbnails:withThumbnails];
+         [contacts addObject:contactDict];
+     }];
+@@ -741,12 +796,8 @@ RCT_EXPORT_METHOD(openExistingContact:(NSDictionary *)contactData resolver:(RCTP
+         dispatch_async(dispatch_get_main_queue(), ^{
+             UINavigationController* navigation = [[UINavigationController alloc] initWithRootViewController:contactViewController];
+ 
+-            UIViewController *currentViewController = [UIApplication sharedApplication].keyWindow.rootViewController;
+-
+-            while (currentViewController.presentedViewController)
+-            {
+-                currentViewController = currentViewController.presentedViewController;
+-            }
++            UIViewController *currentViewController = RCTContactsTopViewController();
++            UIWindow *presentingWindow = RCTContactsActiveWindow();
+ 
+             UIActivityIndicatorViewStyle activityIndicatorStyle;
+             UIActivityIndicatorView *activityIndicator = [[UIActivityIndicatorView alloc] initWithActivityIndicatorStyle:UIActivityIndicatorViewStyleMedium];
+@@ -761,7 +812,8 @@ RCT_EXPORT_METHOD(openExistingContact:(NSDictionary *)contactData resolver:(RCTP
+ 
+             // Cover the contact view with an activity indicator so we can put it in edit mode without user seeing the transition
+             UIActivityIndicatorView *activityIndicatorView = [[UIActivityIndicatorView alloc] initWithActivityIndicatorStyle:activityIndicatorStyle];
+-            activityIndicatorView.frame = UIApplication.sharedApplication.keyWindow.frame;
++            CGRect windowBounds = presentingWindow ? presentingWindow.bounds : UIScreen.mainScreen.bounds;
++            activityIndicatorView.frame = windowBounds;
+             [activityIndicatorView startAnimating];
+             activityIndicatorView.backgroundColor = activityIndicatorBackgroundColor;
+             [navigation.view addSubview:activityIndicatorView];
+@@ -780,7 +832,9 @@ RCT_EXPORT_METHOD(openExistingContact:(NSDictionary *)contactData resolver:(RCTP
+ 
+ 
+             // We need to wait for a short while otherwise contactViewController will not respond to the selector (it has not initialized)
+-            [contactViewController performSelector:@selector(toggleEditing:) withObject:nil afterDelay:0.1];
++            dispatch_after(dispatch_time(DISPATCH_TIME_NOW, (int64_t)(0.1 * NSEC_PER_SEC)), dispatch_get_main_queue(), ^{
++                [contactViewController setEditing:YES animated:YES];
++            });
+ 
+             // remove the activity indicator after a delay so the underlying transition will have time to complete
+             dispatch_after(dispatch_time(DISPATCH_TIME_NOW, (int64_t)(0.5 * NSEC_PER_SEC)), dispatch_get_main_queue(), ^{
+@@ -1181,16 +1235,23 @@ enum { WDASSETURL_PENDINGREADS = 1, WDASSETURL_ALLFINISHED = 0};
+     dispatch_semaphore_t semaphore = dispatch_semaphore_create(0);
+ 
+     dispatch_async(dispatch_get_global_queue(DISPATCH_QUEUE_PRIORITY_DEFAULT, 0), ^{
+-        PHFetchResult<PHAsset *> *result = [PHAsset fetchAssetsWithALAssetURLs:@[assetURL] options:nil];
+-        if (result.count > 0) {
+-            PHAsset *asset = result.firstObject;
++        NSString *identifier = RCTContactsAssetIdentifierFromURL(assetURL);
++        PHFetchOptions *fetchOptions = [[PHFetchOptions alloc] init];
++        fetchOptions.fetchLimit = 1;
++        if (identifier.length > 0) {
++            fetchOptions.predicate = [NSPredicate predicateWithFormat:@"localIdentifier BEGINSWITH %@", identifier];
++        }
++
++        PHFetchResult<PHAsset *> *result = [PHAsset fetchAssetsWithOptions:fetchOptions];
++        PHAsset *asset = result.firstObject;
++        if (asset) {
+             PHImageManager *imageManager = [PHImageManager defaultManager];
+             PHImageRequestOptions *options = [[PHImageRequestOptions alloc] init];
+-            options.synchronous = YES; // Load image synchronously
++            options.synchronous = YES;
+ 
+-            [imageManager requestImageDataForAsset:asset
+-                                          options:options
+-                                    resultHandler:^(NSData * _Nullable data, NSString * _Nullable dataUTI, UIImageOrientation orientation, NSDictionary * _Nullable info) {
++            [imageManager requestImageDataAndOrientationForAsset:asset
++                                                         options:options
++                                                   resultHandler:^(NSData * _Nullable data, __unused NSString * _Nullable dataUTI, __unused UIImageOrientation orientation, __unused NSDictionary * _Nullable info) {
+                 imageData = data;
+                 dispatch_semaphore_signal(semaphore);
+             }];
+@@ -1925,12 +1986,8 @@ RCT_EXPORT_METHOD(removeContactsFromGroup:(NSString *)groupId
+          dispatch_async(dispatch_get_main_queue(), ^{
+              UINavigationController* navigation = [[UINavigationController alloc] initWithRootViewController:contactViewController];
+ 
+-             UIViewController *currentViewController = [UIApplication sharedApplication].keyWindow.rootViewController;
+-
+-             while (currentViewController.presentedViewController)
+-             {
+-                 currentViewController = currentViewController.presentedViewController;
+-             }
++             UIViewController *currentViewController = RCTContactsTopViewController();
++             UIWindow *presentingWindow = RCTContactsActiveWindow();
+ 
+              UIActivityIndicatorViewStyle activityIndicatorStyle;
+              UIActivityIndicatorView *activityIndicator = [[UIActivityIndicatorView alloc] initWithActivityIndicatorStyle:UIActivityIndicatorViewStyleMedium];
+@@ -1945,7 +2002,8 @@ RCT_EXPORT_METHOD(removeContactsFromGroup:(NSString *)groupId
+ 
+              // Cover the contact view with an activity indicator so we can put it in edit mode without user seeing the transition
+              UIActivityIndicatorView *activityIndicatorView = [[UIActivityIndicatorView alloc] initWithActivityIndicatorStyle:activityIndicatorStyle];
+-             activityIndicatorView.frame = UIApplication.sharedApplication.keyWindow.frame;
++             CGRect windowBounds = presentingWindow ? presentingWindow.bounds : UIScreen.mainScreen.bounds;
++             activityIndicatorView.frame = windowBounds;
+              [activityIndicatorView startAnimating];
+              activityIndicatorView.backgroundColor = activityIndicatorBackgroundColor;
+              [navigation.view addSubview:activityIndicatorView];
+@@ -1964,7 +2022,9 @@ RCT_EXPORT_METHOD(removeContactsFromGroup:(NSString *)groupId
+ 
+ 
+              // We need to wait for a short while otherwise contactViewController will not respond to the selector (it has not initialized)
+-             [contactViewController performSelector:@selector(toggleEditing:) withObject:nil afterDelay:0.1];
++             dispatch_after(dispatch_time(DISPATCH_TIME_NOW, (int64_t)(0.1 * NSEC_PER_SEC)), dispatch_get_main_queue(), ^{
++                 [contactViewController setEditing:YES animated:YES];
++             });
+ 
+              // remove the activity indicator after a delay so the underlying transition will have time to complete
+              dispatch_after(dispatch_time(DISPATCH_TIME_NOW, (int64_t)(0.5 * NSEC_PER_SEC)), dispatch_get_main_queue(), ^{

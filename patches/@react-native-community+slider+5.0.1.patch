@@ -1,0 +1,35 @@
+diff --git a/node_modules/@react-native-community/slider/ios/RNCSliderComponentView.mm b/node_modules/@react-native-community/slider/ios/RNCSliderComponentView.mm
+index 928c532..e768a4e 100644
+--- a/node_modules/@react-native-community/slider/ios/RNCSliderComponentView.mm
++++ b/node_modules/@react-native-community/slider/ios/RNCSliderComponentView.mm
+@@ -271,14 +271,16 @@ using namespace facebook::react;
+ {
+     NSString *uri = [[NSString alloc] initWithUTF8String:source.uri.c_str()];
+     if ((BOOL)uri.length) {
++        RCTImageLoaderProgressBlock progressBlock = ^(__unused int64_t progress, __unused int64_t total) {};
++        RCTImageLoaderPartialLoadBlock partialBlock = ^(__unused UIImage *image) {};
+         [[[RCTBridge currentBridge] moduleForName:@"ImageLoader"]
+         loadImageWithURLRequest:NSURLRequestFromImageSource(source)
+         size:CGSizeMake(source.size.width, source.size.height)
+         scale:source.scale
+         clipped:NO
+         resizeMode:RCTResizeModeCover
+-        progressBlock:nil
+-        partialLoadBlock:nil
++        progressBlock:progressBlock
++        partialLoadBlock:partialBlock
+         completionBlock:completionBlock];
+     } else {
+         failureBlock();
+@@ -294,6 +296,11 @@ using namespace facebook::react;
+     }
+ }
+ 
++- (float)discreteValue:(float)value
++{
++    return [slider discreteValue:value];
++}
++
+ @end
+ 
+ Class<RCTComponentViewProtocol> RNCSliderCls(void)
