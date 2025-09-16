@@ -28,21 +28,47 @@ then
   exit 1
 fi
 
-TARGET_FILE="$PODS_DIR/react-native-contacts/ios/RCTContacts.mm"
-
-if [ ! -f "$TARGET_FILE" ]; then
-  TARGET_FILE="$(python3 - "$PODS_DIR" <<'PY'
+TARGET_FILE="$(python3 - "$PODS_DIR" <<'PY'
 import pathlib
 import sys
 
 pods_dir = pathlib.Path(sys.argv[1])
-matches = sorted(pods_dir.rglob('react-native-contacts/ios/RCTContacts.mm'))
-if matches:
-    print(matches[0])
+
+# Prefer common layouts before falling back to an exhaustive search. Older
+# releases stored the source at Pods/react-native-contacts/ios/RCTContacts.mm
+# while modern CocoaPods development pods surface it at
+# Pods/Development Pods/react-native-contacts/ios/RCTContacts/RCTContacts.mm.
+direct_paths = [
+    pods_dir / 'react-native-contacts' / 'ios' / 'RCTContacts.mm',
+    pods_dir / 'react-native-contacts' / 'ios' / 'RCTContacts' / 'RCTContacts.mm',
+]
+for path in direct_paths:
+    if path.exists():
+        print(path)
+        sys.exit(0)
+
+# Fall back to searching the sandbox. Follow symlinks so "Development Pods"
+# entries resolve into the node_modules workspace when necessary.
+candidates = []
+for candidate in pods_dir.rglob('RCTContacts.mm'):
+    try:
+        resolved = candidate.resolve()
+    except FileNotFoundError:
+        resolved = candidate
+    candidate_str = str(candidate)
+    resolved_str = str(resolved)
+    if 'react-native-contacts' not in candidate_str and 'react-native-contacts' not in resolved_str:
+        continue
+    if 'Headers' in candidate_str:
+        continue
+    candidates.append((len(candidate_str), candidate_str, candidate))
+
+if candidates:
+    candidates.sort()
+    print(candidates[0][2])
 PY
 )"
-  TARGET_FILE="${TARGET_FILE%$'\r'}"
-fi
+TARGET_FILE="${TARGET_FILE%$'\r'}"
 
 if [ -z "$TARGET_FILE" ] || [ ! -f "$TARGET_FILE" ]; then
   echo "ℹ️ react-native-contacts pod not found under $PODS_DIR; skipping orientation patch."
