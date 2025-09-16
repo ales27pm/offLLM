@@ -1,3 +1,4 @@
+# yamllint disable rule:line-length
 name: iOS unsigned device build
 
 on:
@@ -102,7 +103,7 @@ jobs:
           echo "XCODE_CONTAINER_TYPE=$TYPE" >> "$GITHUB_ENV"
 
       - name: iOS Doctor (workspace must exist)
-        if: env.XCODE_CONTAINER_TYPE == 'workspace'
+        if: ${{ env.XCODE_CONTAINER_TYPE == 'workspace' }}
         run: |
           chmod +x scripts/ios_doctor.sh || true
           ./scripts/ios_doctor.sh
@@ -147,7 +148,7 @@ jobs:
           fi
 
       - name: Export resolve-package xcresult JSON
-        if: always()
+        if: ${{ always() }}
         run: |
           # Avoid 'set -x' to prevent exposing secrets in logs
           set -euo pipefail
@@ -172,7 +173,7 @@ jobs:
           fi
 
       - name: Ensure resolve xcresult JSON artifact
-        if: always()
+        if: ${{ always() }}
         run: |
           set -euo pipefail
           mkdir -p build
@@ -190,7 +191,7 @@ jobs:
           fi
 
       - name: Archive (device) — stop on errors
-        if: steps.sdk.outputs.present == 'true'
+        if: ${{ steps.sdk.outputs.present == 'true' }}
         env:
           RB_ARCHIVE: ${{ env.DERIVED_DATA }}/ResultBundle_archive.xcresult
           ARCHIVE_PATH: ${{ env.DERIVED_DATA }}/Archive.xcarchive
@@ -208,12 +209,12 @@ jobs:
             -archivePath "$ARCHIVE_PATH"
 
       - name: Fallback note if device platform is missing
-        if: steps.sdk.outputs.present != 'true'
+        if: ${{ steps.sdk.outputs.present != 'true' }}
         run: |
           echo "::warning title=Device platform unavailable::This runner image lacks the iOS Device platform. See uploaded xcresult for details."
 
       - name: Fail if compiler errors exist (archive)
-        if: steps.sdk.outputs.present == 'true'
+        if: ${{ steps.sdk.outputs.present == 'true' }}
         run: |
           set -euo pipefail
           RB="${DERIVED_DATA}/ResultBundle_archive.xcresult"
@@ -241,12 +242,12 @@ jobs:
           fi
 
       - name: Package unsigned IPA from archive (robust)
-        if: steps.sdk.outputs.present == 'true'
+        if: ${{ steps.sdk.outputs.present == 'true' }}
         run: |
           ./scripts/package_ipa.sh "$DERIVED_DATA/Archive.xcarchive" "$OUTPUT_DIR" "$SCHEME"
 
       - name: Upload archive artifacts
-        if: always()
+        if: ${{ always() }}
         uses: actions/upload-artifact@de65e23aa2b7e23d713bb51fbfcb6d502f8667d8
         with:
           name: ios-archive-and-ipa

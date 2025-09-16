@@ -1,3 +1,4 @@
+# yamllint disable rule:line-length
 name: iOS Unsigned Build
 
 on:
@@ -88,8 +89,8 @@ jobs:
         run: |
           #!/usr/bin/env bash
           set -euo pipefail
-          # Clean previous artifacts
-          rm -rf build
+          # Clean previous archive artifacts without removing resolve bundles
+          rm -rf "$ARCHIVE_PATH" "$RESULT_PATH" build-log.txt
           # Build archive with code signing disabled
           set -o pipefail
           xcodebuild "$XCODE_CONTAINER_FLAG" "$XCODE_CONTAINER_PATH" \
@@ -215,7 +216,7 @@ jobs:
           fi
 
       - name: Create Payload and IPA
-        if: success()
+        if: ${{ success() }}
         run: |
           mkdir -p "$OUTPUT_DIR_ABS"
           APP_PATH="$ARCHIVE_PATH/Products/Applications/${XCODE_SCHEME}.app"
@@ -231,7 +232,7 @@ jobs:
           rm -rf "$PAYLOAD_DIR"
 
       - name: Package .app bundle
-        if: success()
+        if: ${{ success() }}
         run: |
           mkdir -p "$OUTPUT_DIR_ABS"
           APP_DIR="$ARCHIVE_PATH/Products/Applications"
