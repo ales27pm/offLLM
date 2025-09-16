@@ -14,7 +14,7 @@ const devFlag =
 const isDevelopment =
   typeof devFlag === "boolean"
     ? devFlag
-    : (process?.env?.NODE_ENV?.toLowerCase?.() === "development");
+    : process?.env?.NODE_ENV?.toLowerCase?.() === "development";
 const DEBUG_LOGGING = Config.DEBUG_LOGGING === "1";
 
 if (DEBUG_LOGGING) {
