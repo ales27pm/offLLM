@@ -56,6 +56,9 @@ jobs:
       - name: NPM install (root)
         run: npm ci
 
+      - name: Validate patch-package patches
+        run: npx --yes patch-package --check
+
       - name: Install XcodeGen (if needed)
         run: |
           if ! command -v xcodegen >/dev/null 2>&1; then
@@ -159,7 +162,7 @@ jobs:
             fi
           else
             echo '{}' > build/ResultBundle_resolve.json
-            echo "::notice title=Resolve xcresult missing::No resolve-result xcresult produced"
+            echo "::notice title=Resolve xcresult missing::No resolve-result xcresult produced (stub JSON emitted)"
           fi
 
       - name: Check for iOS Device SDK
