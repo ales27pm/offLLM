@@ -1,8 +1,8 @@
 diff --git a/node_modules/react-native-contacts/ios/RCTContacts/RCTContacts.mm b/node_modules/react-native-contacts/ios/RCTContacts/RCTContacts.mm
-index 5e2f0d6..c47f7d1 100644
+index 5e2f0d6..fd7fb9f 100644
 --- a/node_modules/react-native-contacts/ios/RCTContacts/RCTContacts.mm
 +++ b/node_modules/react-native-contacts/ios/RCTContacts/RCTContacts.mm
-@@ -6,6 +6,101 @@
+@@ -6,6 +6,62 @@
  #import <React/RCTUtils.h>
  #import <Photos/Photos.h>
  
@@ -62,49 +62,10 @@ index 5e2f0d6..c47f7d1 100644
 +    return nil;
 +}
 +
-+static NSData *RCTContactsLoadLegacyAsset(NSURL *assetURL)
-+{
-+    if (assetURL == nil) {
-+        return nil;
-+    }
-+
-+    __block NSData *legacyData = nil;
-+    dispatch_semaphore_t legacySemaphore = dispatch_semaphore_create(0);
-+
-+    ALAssetsLibrary *library = [[ALAssetsLibrary alloc] init];
-+    [library assetForURL:assetURL
-+            resultBlock:^(ALAsset *asset) {
-+                if (asset) {
-+                    ALAssetRepresentation *representation = [asset defaultRepresentation];
-+                    if (representation) {
-+                        NSUInteger size = (NSUInteger)representation.size;
-+                        if (size > 0) {
-+                            uint8_t *buffer = malloc(size);
-+                            if (buffer != NULL) {
-+                                NSError *error = nil;
-+                                NSUInteger bytesRead = [representation getBytes:buffer fromOffset:0 length:size error:&error];
-+                                if (!error && bytesRead > 0) {
-+                                    legacyData = [NSData dataWithBytes:buffer length:bytesRead];
-+                                }
-+                                free(buffer);
-+                            }
-+                        }
-+                    }
-+                }
-+                dispatch_semaphore_signal(legacySemaphore);
-+            }
-+           failureBlock:^(__unused NSError *error) {
-+                dispatch_semaphore_signal(legacySemaphore);
-+            }];
-+
-+    dispatch_semaphore_wait(legacySemaphore, DISPATCH_TIME_FOREVER);
-+    return legacyData;
-+}
-+
  @implementation RCTContacts {
      CNContactStore * contactStore;
  
-@@ -741,11 +836,12 @@ RCT_EXPORT_METHOD(openExistingContact:(NSDictionary *)contactData resolver:(RCTP
+@@ -741,11 +797,12 @@ RCT_EXPORT_METHOD(openExistingContact:(NSDictionary *)contactData resolver:(RCTP
          dispatch_async(dispatch_get_main_queue(), ^{
              UINavigationController* navigation = [[UINavigationController alloc] initWithRootViewController:contactViewController];
  
@@ -122,7 +83,7 @@ index 5e2f0d6..c47f7d1 100644
              }
  
              UIActivityIndicatorViewStyle activityIndicatorStyle;
-@@ -761,7 +857,8 @@ RCT_EXPORT_METHOD(openExistingContact:(NSDictionary *)contactData resolver:(RCTP
+@@ -761,7 +818,8 @@ RCT_EXPORT_METHOD(openExistingContact:(NSDictionary *)contactData resolver:(RCTP
  
              // Cover the contact view with an activity indicator so we can put it in edit mode without user seeing the transition
              UIActivityIndicatorView *activityIndicatorView = [[UIActivityIndicatorView alloc] initWithActivityIndicatorStyle:activityIndicatorStyle];
@@ -132,7 +93,7 @@ index 5e2f0d6..c47f7d1 100644
              [activityIndicatorView startAnimating];
              activityIndicatorView.backgroundColor = activityIndicatorBackgroundColor;
              [navigation.view addSubview:activityIndicatorView];
-@@ -780,7 +877,9 @@ RCT_EXPORT_METHOD(openExistingContact:(NSDictionary *)contactData resolver:(RCTP
+@@ -780,7 +838,9 @@ RCT_EXPORT_METHOD(openExistingContact:(NSDictionary *)contactData resolver:(RCTP
  
  
              // We need to wait for a short while otherwise contactViewController will not respond to the selector (it has not initialized)
@@ -143,7 +104,7 @@ index 5e2f0d6..c47f7d1 100644
  
              // remove the activity indicator after a delay so the underlying transition will have time to complete
              dispatch_after(dispatch_time(DISPATCH_TIME_NOW, (int64_t)(0.5 * NSEC_PER_SEC)), dispatch_get_main_queue(), ^{
-@@ -1175,28 +1274,49 @@ RCT_EXPORT_METHOD(updateContact:(NSDictionary *)contactData resolver:(RCTPromise
+@@ -1175,28 +1235,49 @@ RCT_EXPORT_METHOD(updateContact:(NSDictionary *)contactData resolver:(RCTPromise
  
  enum { WDASSETURL_PENDINGREADS = 1, WDASSETURL_ALLFINISHED = 0};
  
@@ -170,30 +131,30 @@ index 5e2f0d6..c47f7d1 100644
 -            }];
 -        } else {
 +    dispatch_async(dispatch_get_global_queue(QOS_CLASS_DEFAULT, 0), ^{
-+        BOOL isAssetsLibraryScheme = [[assetURL.scheme lowercaseString] isEqualToString:@"assets-library"];
-+        NSString *identifier = RCTContactsAssetIdentifierFromURL(assetURL);
-+
-+        if (identifier.length == 0) {
-+            if (isAssetsLibraryScheme) {
-+                imageData = RCTContactsLoadLegacyAsset(assetURL);
-+            }
-+            dispatch_semaphore_signal(semaphore);
++        if (assetURL == nil) {
+             dispatch_semaphore_signal(semaphore);
 +            return;
 +        }
 +
-+        PHFetchOptions *fetchOptions = [[PHFetchOptions alloc] init];
-+        fetchOptions.fetchLimit = 1;
-+        fetchOptions.predicate = [NSPredicate predicateWithFormat:@"localIdentifier BEGINSWITH %@", identifier];
++        NSString *lowercaseScheme = assetURL.scheme.lowercaseString;
++        BOOL isAssetsLibraryScheme = [lowercaseScheme isEqualToString:@"assets-library"];
++        NSString *identifier = RCTContactsAssetIdentifierFromURL(assetURL);
 +
-+        PHFetchResult<PHAsset *> *result = [PHAsset fetchAssetsWithOptions:fetchOptions];
-+        PHAsset *asset = result.firstObject;
-+        if (!asset) {
-+            if (isAssetsLibraryScheme) {
-+                imageData = RCTContactsLoadLegacyAsset(assetURL);
-+            }
-             dispatch_semaphore_signal(semaphore);
-+            return;
++        PHFetchResult<PHAsset *> *result = nil;
++        if (identifier.length > 0) {
++            PHFetchOptions *fetchOptions = [[PHFetchOptions alloc] init];
++            fetchOptions.fetchLimit = 1;
++            fetchOptions.predicate = [NSPredicate predicateWithFormat:@"localIdentifier BEGINSWITH %@", identifier];
++            result = [PHAsset fetchAssetsWithOptions:fetchOptions];
++        } else if (isAssetsLibraryScheme) {
++            result = [PHAsset fetchAssetsWithALAssetURLs:@[assetURL] options:nil];
          }
++
++        PHAsset *asset = result.firstObject;
++        if (asset == nil) {
++            dispatch_semaphore_signal(semaphore);
++            return;
++        }
 +
 +        PHImageManager *imageManager = [PHImageManager defaultManager];
 +        PHImageRequestOptions *options = [[PHImageRequestOptions alloc] init];
@@ -209,7 +170,15 @@ index 5e2f0d6..c47f7d1 100644
      });
  
      dispatch_semaphore_wait(semaphore, DISPATCH_TIME_FOREVER);
-@@ -1925,11 +2045,12 @@ RCT_EXPORT_METHOD(removeContactsFromGroup:(NSString *)groupId
+@@ -1204,6 +1285,7 @@ enum { WDASSETURL_PENDINGREADS = 1, WDASSETURL_ALLFINISHED = 0};
+     return imageData;
+ }
+ 
++
+ RCT_EXPORT_METHOD(deleteContact:(NSDictionary *)contactData resolver:(RCTPromiseResolveBlock) resolve
+     rejecter:(RCTPromiseRejectBlock) reject)
+ {
+@@ -1925,11 +2007,12 @@ RCT_EXPORT_METHOD(removeContactsFromGroup:(NSString *)groupId
           dispatch_async(dispatch_get_main_queue(), ^{
               UINavigationController* navigation = [[UINavigationController alloc] initWithRootViewController:contactViewController];
  
@@ -227,7 +196,7 @@ index 5e2f0d6..c47f7d1 100644
               }
  
               UIActivityIndicatorViewStyle activityIndicatorStyle;
-@@ -1945,7 +2066,8 @@ RCT_EXPORT_METHOD(removeContactsFromGroup:(NSString *)groupId
+@@ -1945,7 +2028,8 @@ RCT_EXPORT_METHOD(removeContactsFromGroup:(NSString *)groupId
  
               // Cover the contact view with an activity indicator so we can put it in edit mode without user seeing the transition
               UIActivityIndicatorView *activityIndicatorView = [[UIActivityIndicatorView alloc] initWithActivityIndicatorStyle:activityIndicatorStyle];
@@ -237,7 +206,7 @@ index 5e2f0d6..c47f7d1 100644
               [activityIndicatorView startAnimating];
               activityIndicatorView.backgroundColor = activityIndicatorBackgroundColor;
               [navigation.view addSubview:activityIndicatorView];
-@@ -1964,7 +2086,9 @@ RCT_EXPORT_METHOD(removeContactsFromGroup:(NSString *)groupId
+@@ -1964,7 +2048,9 @@ RCT_EXPORT_METHOD(removeContactsFromGroup:(NSString *)groupId
  
  
               // We need to wait for a short while otherwise contactViewController will not respond to the selector (it has not initialized)

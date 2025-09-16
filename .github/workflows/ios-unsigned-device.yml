@@ -158,7 +158,8 @@ jobs:
               xcrun xcresulttool get object --path "$RB" --format json > build/ResultBundle_resolve.json
             fi
           else
-            echo "::warning title=No resolve xcresult::No resolve-result xcresult produced"
+            echo '{}' > build/ResultBundle_resolve.json
+            echo "::notice title=Resolve xcresult missing::No resolve-result xcresult produced"
           fi
 
       - name: Check for iOS Device SDK
