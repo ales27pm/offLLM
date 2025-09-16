@@ -39,14 +39,47 @@ def parse_log(path: Path):
     return errors, warnings
 
 
+def _run_xcresulttool(path: Path):
+    commands = [
+        [
+            "xcrun",
+            "xcresulttool",
+            "get",
+            "--format",
+            "json",
+            "--legacy",
+            "--path",
+            str(path),
+        ],
+        ["xcrun", "xcresulttool", "get", "--format", "json", "--path", str(path)],
+    ]
+
+    last_error = None
+    for index, cmd in enumerate(commands):
+        proc = subprocess.run(cmd, capture_output=True, text=True)
+        if proc.returncode == 0:
+            return proc.stdout
+
+        combined = (proc.stderr or "") + (proc.stdout or "")
+        last_error = combined or f"xcresulttool exited with {proc.returncode}"
+
+        if index == 0:
+            lower = combined.lower()
+            if "--legacy" in cmd and "legacy" in lower and (
+                "unknown option" in lower or "unrecognized option" in lower
+            ):
+                continue
+
+        break
+
+    raise RuntimeError(last_error or "xcresulttool failed")
+
+
 def parse_xcresult(path: Path):
     if not path.exists():
         return []
     try:
-        out = subprocess.check_output(
-            ["xcrun", "xcresulttool", "get", "--format", "json", "--path", str(path)],
-            text=True,
-        )
+        out = _run_xcresulttool(path)
         data = json.loads(out)
     except Exception as e:  # xcresulttool missing or parse error
         return [f"(xcresult parse failed: {e})"]

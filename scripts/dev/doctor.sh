@@ -141,7 +141,17 @@ XCRESULT="$BUILD_DIR/monGARS.xcresult"
  XC_SUMMARY_JSON="$REPORT_DIR/xcresult_summary.json"
  if [[ -d "$XCRESULT" ]]; then
    log "Extracting issues JSON from xcresult…"
-   xcrun xcresulttool get --format json --path "$XCRESULT" > "$XC_SUMMARY_JSON" || true
+   tmp_err="$(mktemp)"
+   if ! xcrun xcresulttool get --format json --legacy --path "$XCRESULT" \
+     > "$XC_SUMMARY_JSON" 2>"$tmp_err"; then
+     if grep -qiE "(unknown|unrecognized) option '--legacy'" "$tmp_err"; then
+       xcrun xcresulttool get --format json --path "$XCRESULT" \
+         > "$XC_SUMMARY_JSON" || true
+     else
+       cat "$tmp_err" >&2 || true
+     fi
+   fi
+   rm -f "$tmp_err"
  fi
 
  # Grep errors/warnings from build log

@@ -295,7 +295,17 @@ xcodebuild \
 
 # ---------- Export xcresult JSON (best-effort) ----------
 if [ -d "${BUILD_DIR}/${SCHEME}.xcresult" ]; then
-  xcrun xcresulttool get --path "${BUILD_DIR}/${SCHEME}.xcresult" --format json --legacy > "${BUILD_DIR}/${SCHEME}.xcresult.json" || true
+  tmp_err="$(mktemp)"
+  if ! xcrun xcresulttool get --path "${BUILD_DIR}/${SCHEME}.xcresult" --format json --legacy \
+    > "${BUILD_DIR}/${SCHEME}.xcresult.json" 2>"$tmp_err"; then
+    if grep -qiE "(unknown|unrecognized) option '--legacy'" "$tmp_err"; then
+      xcrun xcresulttool get --path "${BUILD_DIR}/${SCHEME}.xcresult" --format json \
+        > "${BUILD_DIR}/${SCHEME}.xcresult.json" || true
+    else
+      cat "$tmp_err" >&2 || true
+    fi
+  fi
+  rm -f "$tmp_err"
 fi
 
 # ---------- Package unsigned IPA ----------

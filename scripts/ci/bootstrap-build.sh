@@ -87,7 +87,17 @@ fi
 
 echo "==> Export xcresult JSON (if available)"
 if command -v xcrun >/dev/null 2>&1 && [ -d "$BUILD_DIR/$SCHEME.xcresult" ]; then
-  xcrun xcresulttool get --format json --path "$BUILD_DIR/$SCHEME.xcresult" > "$BUILD_DIR/$SCHEME.xcresult.json" || true
+  tmp_err="$(mktemp)"
+  if ! xcrun xcresulttool get --format json --legacy --path "$BUILD_DIR/$SCHEME.xcresult" \
+    > "$BUILD_DIR/$SCHEME.xcresult.json" 2>"$tmp_err"; then
+    if grep -qiE "(unknown|unrecognized) option '--legacy'" "$tmp_err"; then
+      xcrun xcresulttool get --format json --path "$BUILD_DIR/$SCHEME.xcresult" \
+        > "$BUILD_DIR/$SCHEME.xcresult.json" || true
+    else
+      cat "$tmp_err" >&2 || true
+    fi
+  fi
+  rm -f "$tmp_err"
 fi
 
 echo "Done."

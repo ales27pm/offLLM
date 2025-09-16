@@ -1,9 +1,36 @@
 import path from "node:path";
 import { sh, getValues } from "./util.mjs";
 
-export function parseXCResult(xcresultPath) {
-  // Use xcrun xcresulttool if available (macOS runners have it)
-  const { code, stdout, stderr } = sh("xcrun", [
+function shouldRetryWithoutLegacy(result) {
+  if (!result || result.code === 0) {
+    return false;
+  }
+
+  const haystack = `${result.stderr ?? ""}${result.stdout ?? ""}`.toLowerCase();
+  if (!haystack.includes("--legacy")) {
+    return false;
+  }
+
+  return /unknown option|unrecognized option/.test(haystack);
+}
+
+function runXCResultTool(xcresultPath) {
+  const withLegacyArgs = [
+    "xcresulttool",
+    "get",
+    "--format",
+    "json",
+    "--legacy",
+    "--path",
+    xcresultPath,
+  ];
+
+  const withLegacy = sh("xcrun", withLegacyArgs);
+  if (withLegacy.code === 0 || !shouldRetryWithoutLegacy(withLegacy)) {
+    return withLegacy;
+  }
+
+  const withoutLegacy = sh("xcrun", [
     "xcresulttool",
     "get",
     "--format",
@@ -11,6 +38,25 @@ export function parseXCResult(xcresultPath) {
     "--path",
     xcresultPath,
   ]);
+
+  if (withoutLegacy.code === 0) {
+    return withoutLegacy;
+  }
+
+  return {
+    ...withoutLegacy,
+    stderr:
+      withoutLegacy.stderr ||
+      withoutLegacy.stdout ||
+      withLegacy.stderr ||
+      withLegacy.stdout ||
+      "xcresulttool failed",
+  };
+}
+
+export function parseXCResult(xcresultPath) {
+  // Use xcrun xcresulttool if available (macOS runners have it)
+  const { code, stdout, stderr } = runXCResultTool(xcresultPath);
 
   if (code !== 0) {
     return {
