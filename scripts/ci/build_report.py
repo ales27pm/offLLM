@@ -15,6 +15,24 @@ import subprocess
 from pathlib import Path
 
 
+LEGACY_UNSUPPORTED_TOKENS = (
+    "unknown option",
+    "unrecognized option",
+    "invalid option",
+    "invalid argument",
+    "not supported",
+    "no longer supported",
+    "unsupported option",
+    "does not support",
+    "has been removed",
+    "was removed",
+    "removed in",
+    "not a valid option",
+)
+
+_LEGACY_SUPPORT_STATE = None
+
+
 def parse_args():
     p = argparse.ArgumentParser(description="Generate CI build reports")
     p.add_argument("--log", required=True, help="Path to xcodebuild.log")
@@ -39,14 +57,106 @@ def parse_log(path: Path):
     return errors, warnings
 
 
+def _legacy_flag_state():
+    global _LEGACY_SUPPORT_STATE
+
+    if _LEGACY_SUPPORT_STATE is not None:
+        return _LEGACY_SUPPORT_STATE
+
+    try:
+        probe = subprocess.run(
+            ["xcrun", "xcresulttool", "get", "--help"],
+            capture_output=True,
+            text=True,
+            check=False,
+        )
+    except FileNotFoundError:
+        _LEGACY_SUPPORT_STATE = "unknown"
+        return _LEGACY_SUPPORT_STATE
+
+    haystack = (probe.stdout or "") + (probe.stderr or "")
+    lower = haystack.lower()
+
+    if "--legacy" in lower:
+        _LEGACY_SUPPORT_STATE = "supported"
+    elif probe.returncode == 0:
+        _LEGACY_SUPPORT_STATE = "unsupported"
+    else:
+        _LEGACY_SUPPORT_STATE = "unknown"
+
+    return _LEGACY_SUPPORT_STATE
+
+
+def _legacy_message_indicates_unsupported(message: str) -> bool:
+    if not message:
+        return False
+    lower = message.lower()
+    if "--legacy" not in lower:
+        return False
+    return any(token in lower for token in LEGACY_UNSUPPORTED_TOKENS)
+
+
+def _run_xcresulttool(path: Path):
+    with_legacy = [
+        "xcrun",
+        "xcresulttool",
+        "get",
+        "--format",
+        "json",
+        "--legacy",
+        "--path",
+        str(path),
+    ]
+    without_legacy = [
+        "xcrun",
+        "xcresulttool",
+        "get",
+        "--format",
+        "json",
+        "--path",
+        str(path),
+    ]
+
+    state = _legacy_flag_state()
+    order = [with_legacy, without_legacy]
+    if state == "unsupported":
+        order = [without_legacy, with_legacy]
+
+    failures = []
+
+    for cmd in order:
+        proc = subprocess.run(cmd, capture_output=True, text=True)
+        if proc.returncode == 0:
+            return proc.stdout
+
+        combined = (proc.stderr or "") + (proc.stdout or "")
+        failures.append((combined, proc.returncode))
+
+    if not failures:
+        raise RuntimeError("xcresulttool failed")
+
+    best_message = ""
+    best_code = failures[-1][1]
+    for combined, code in failures:
+        if not combined:
+            continue
+        if not best_message:
+            best_message = combined
+            best_code = code
+            continue
+        if _legacy_message_indicates_unsupported(best_message) and not _legacy_message_indicates_unsupported(combined):
+            best_message = combined
+            best_code = code
+
+    message = best_message or f"xcresulttool exited with {best_code}"
+    raise RuntimeError(message)
+
+
 def parse_xcresult(path: Path):
     if not path.exists():
         return []
     try:
-        out = subprocess.check_output(
-            ["xcrun", "xcresulttool", "get", "--format", "json", "--path", str(path)],
-            text=True,
-        )
+        out = _run_xcresulttool(path)
         data = json.loads(out)
     except Exception as e:  # xcresulttool missing or parse error
         return [f"(xcresult parse failed: {e})"]
