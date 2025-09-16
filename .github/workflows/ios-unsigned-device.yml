@@ -56,6 +56,9 @@ jobs:
       - name: NPM install (root)
         run: npm ci
 
+      - name: Validate patch-package patches
+        run: npx --yes patch-package --check
+
       - name: Install XcodeGen (if needed)
         run: |
           if ! command -v xcodegen >/dev/null 2>&1; then
@@ -158,7 +161,25 @@ jobs:
               xcrun xcresulttool get object --path "$RB" --format json > build/ResultBundle_resolve.json
             fi
           else
-            echo "::warning title=No resolve xcresult::No resolve-result xcresult produced"
+            ts="$(date -u +"%Y-%m-%dT%H:%M:%SZ")"
+            printf '{\n  "notice": "Resolve result bundle missing",\n  "generatedAt": "%s",\n  "searched": [\n    "%s",\n    "%s",\n    "%s"\n  ]\n}\n' \
+              "$ts" \
+              "${DERIVED_DATA}/ResultBundle.xcresult" \
+              "${DERIVED_DATA}/Logs" \
+              "${HOME}/Library/Developer/Xcode/DerivedData" \
+              > build/ResultBundle_resolve.json
+            echo "::notice title=Resolve xcresult missing::No resolve-result xcresult produced (stub JSON emitted)"
+          fi
+
+      - name: Ensure resolve xcresult JSON artifact
+        if: always()
+        run: |
+          set -euo pipefail
+          mkdir -p build
+          if [ ! -f build/ResultBundle_resolve.json ]; then
+            ts="$(date -u +"%Y-%m-%dT%H:%M:%SZ")"
+            printf '{\n  "notice": "Resolve result bundle not generated",\n  "generatedAt": "%s"\n}\n' "$ts" \
+              > build/ResultBundle_resolve.json
           fi
 
       - name: Check for iOS Device SDK

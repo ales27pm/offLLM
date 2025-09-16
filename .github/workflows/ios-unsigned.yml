@@ -26,6 +26,9 @@ jobs:
       - name: Install npm dependencies
         run: npm ci
 
+      - name: Validate patch-package patches
+        run: npx --yes patch-package --check
+
       - name: Install Ruby gems and XcodeGen/Pods
         run: |
           cd ios
@@ -58,7 +61,7 @@ jobs:
         if: always()
         run: |
           mkdir -p "$OUTPUT_DIR"
-          OUTPUT_DIR_ABS="$(cd "$OUTPUT_DIR" && pwd)"
+          OUTPUT_DIR_ABS="$(python3 -c "import os,sys; root=os.environ.get('GITHUB_WORKSPACE') or os.getcwd(); target=os.environ['OUTPUT_DIR']; sys.stdout.write(os.path.realpath(os.path.join(root, target)))")"
           echo "OUTPUT_DIR_ABS=$OUTPUT_DIR_ABS" >>"$GITHUB_ENV"
 
       - name: Collect build log
@@ -67,6 +70,43 @@ jobs:
           mkdir -p "$OUTPUT_DIR_ABS"
           if [ -f build-log.txt ]; then
             cp build-log.txt "$OUTPUT_DIR_ABS/"
+          fi
+
+      - name: Export archive xcresult JSON
+        if: always()
+        run: |
+          set -euo pipefail
+          mkdir -p build
+          RESULT_BUNDLE="$RESULT_PATH"
+          if [ -d "$RESULT_BUNDLE" ]; then
+            if ! xcrun xcresulttool get --legacy --path "$RESULT_BUNDLE" --format json \
+              > build/ResultBundle_unsigned.json 2>build/xcresulttool_unsigned_error.log; then
+              echo "::warning title=xcresulttool legacy export failed::Falling back to object export"
+              if ! xcrun xcresulttool get object --path "$RESULT_BUNDLE" --format json \
+                > build/ResultBundle_unsigned.json 2>>build/xcresulttool_unsigned_error.log; then
+                ts="$(date -u +"%Y-%m-%dT%H:%M:%SZ")"
+                error_log_path="$(pwd)/build/xcresulttool_unsigned_error.log"
+                printf '{\n  "notice": "Unable to export archive xcresult",\n  "generatedAt": "%s",\n  "resultBundle": "%s",\n  "errorLog": "%s"\n}\n' \
+                  "$ts" \
+                  "$RESULT_BUNDLE" \
+                  "$error_log_path" \
+                  > build/ResultBundle_unsigned.json
+              fi
+            fi
+          else
+            ts="$(date -u +"%Y-%m-%dT%H:%M:%SZ")"
+            printf '{\n  "notice": "Archive result bundle not produced",\n  "generatedAt": "%s",\n  "expectedPath": "%s"\n}\n' \
+              "$ts" \
+              "$RESULT_BUNDLE" \
+              > build/ResultBundle_unsigned.json
+          fi
+
+          if [ ! -s build/ResultBundle_unsigned.json ]; then
+            ts="$(date -u +"%Y-%m-%dT%H:%M:%SZ")"
+            printf '{\n  "notice": "Archive result bundle export yielded empty output",\n  "generatedAt": "%s",\n  "expectedPath": "%s"\n}\n' \
+              "$ts" \
+              "$RESULT_BUNDLE" \
+              > build/ResultBundle_unsigned.json
           fi
 
       - name: Create Payload and IPA
@@ -105,4 +145,6 @@ jobs:
             ${{ env.OUTPUT_DIR }}/${{ env.XCODE_SCHEME }}.ipa
             ${{ env.OUTPUT_DIR }}/${{ env.XCODE_SCHEME }}.zip
             ${{ env.OUTPUT_DIR }}/build-log.txt
+            build/ResultBundle_unsigned.json
+            build/xcresulttool_unsigned_error.log
           if-no-files-found: warn

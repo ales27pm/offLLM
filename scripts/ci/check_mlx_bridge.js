@@ -108,6 +108,7 @@ function main() {
       rel: "ios/MyOfflineLLMApp/MLX/MLXModule.swift",
       substrings: [
         "@objc(MLXModule)",
+        "@MainActor",
         "final class MLXModule: NSObject",
         "LLMModelFactory.shared.loadContainer",
         "ChatSession(",

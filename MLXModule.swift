@@ -4,6 +4,7 @@ import MLXLLM
 import MLXLMCommon
 
 @objc(MLXModule)
+@MainActor
 class MLXModule: RCTEventEmitter {
     @objc class func moduleName() -> String! {
         return "MLXModule"
@@ -29,7 +30,7 @@ class MLXModule: RCTEventEmitter {
     @objc func generateText(_ options: NSDictionary,
                             resolver resolve: @escaping RCTPromiseResolveBlock,
                             rejecter reject: @escaping RCTPromiseRejectBlock) {
-        Task {
+        Task(priority: .userInitiated) { @MainActor in
             // Parse required parameters
             guard let modelId = options["modelId"] as? String else {
                 reject("MLXModule", "Missing or invalid modelId", nil)
@@ -51,7 +52,7 @@ class MLXModule: RCTEventEmitter {
 
                 // Create a chat session for text generation
                 let session = ChatSession(model)
-                
+
                 // Start inference
                 let genStart = Date()
                 if streaming && hasListeners {
