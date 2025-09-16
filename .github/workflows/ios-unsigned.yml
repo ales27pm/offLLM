@@ -27,6 +27,13 @@ jobs:
         with:
           node-version: "20"
 
+      - name: Set up Ruby
+        uses: ruby/setup-ruby@v1
+        with:
+          ruby-version: "3.2.9"
+          bundler-cache: true
+          working-directory: ios
+
       - name: Install npm dependencies
         run: npm ci
 
@@ -35,9 +42,7 @@ jobs:
 
       - name: Install Ruby gems
         working-directory: ios
-        run: |
-          gem install bundler
-          bundle install
+        run: bundle check || bundle install --jobs 4 --retry 3
 
       - name: CocoaPods install
         working-directory: ios
