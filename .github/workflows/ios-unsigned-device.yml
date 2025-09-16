@@ -152,7 +152,9 @@ jobs:
           mkdir -p build
           if [ -d "$RB" ]; then
             # Attempt to export as JSON (legacy path first, then object path)
-            if ! xcrun xcresulttool get --legacy --path "$RB" --format json > build/ResultBundle_resolve.json 2>/dev/null; then
+            if ! xcrun xcresulttool get --legacy --path "$RB" --format json > build/ResultBundle_resolve.json 2>build/xcresulttool_error.log; then
+              echo "::warning title=xcresulttool legacy export failed::See build/xcresulttool_error.log for details"
+              cat build/xcresulttool_error.log
               xcrun xcresulttool get object --path "$RB" --format json > build/ResultBundle_resolve.json
             fi
           else
