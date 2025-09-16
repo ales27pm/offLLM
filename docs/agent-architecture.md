@@ -29,6 +29,25 @@
 - `SearchService` wraps multiple web search providers, adds caching and rate-limiting, and optionally enriches results with cleaned page content via the readability service.【F:src/services/webSearchService.js†L1-L68】
 - `TreeOfThoughtReasoner` implements multi-branch reasoning with iterative candidate generation, evaluation, and path selection to supply deliberate answers for complex tasks.【F:src/services/treeOfThought.js†L1-L191】
 
+## Workflow and Automation Patterns
+
+- `TreeOfThoughtReasoner.solveComplexProblem` seeds a root node, expands candidate thoughts with configurable branch and depth limits, and returns both the selected solution and the full reasoning tree so workflow engines can replay every step.【F:src/services/treeOfThought.js†L9-L48】
+- The same service scores alternatives via `evaluateThought`, prunes low-signal branches, and can run multiple searches in parallel through `parallelTreeSearch`, illustrating how to orchestrate deterministic multi-step plans on top of the core agent loop.【F:src/services/treeOfThought.js†L49-L120】【F:src/services/treeOfThought.js†L166-L189】
+- Because the reasoner delegates generation and scoring to `LLMService.generate`, any workflow that relies on deterministic memory access or plugin-aware completions stays aligned with the runtime’s plugin and caching policies.【F:src/services/treeOfThought.js†L1-L76】【F:src/services/llmService.js†L116-L187】
+
+## Trust and Safety Platform
+
+- Long-term memory persists through `VectorMemory`, which enforces encryption-at-rest, schema migrations, and storage limits before writing any payloads to disk, keeping sensitive recall data under quota and uniformly structured.【F:src/memory/VectorMemory.ts†L1-L136】
+- Encryption is handled with AES-256-GCM inside `EncryptionService`, guaranteeing authenticated ciphertext for every memory record the persistence layer stores or retrieves.【F:src/services/encryption.ts†L1-L30】
+- External-provider calls respect API governance through `getApiKeys`/`validate`, while `simpleCache` and `rateLimiter` throttle requests so trust policies (key presence, request pacing) are enforced even when tools are invoked in tight loops.【F:src/services/utils/apiKeys.js†L1-L23】【F:src/services/utils/cacheAndRate.js†L1-L27】
+
+## Bridging and Native Turbo Modules
+
+- `LLMService` prefers the generated TurboModule surface (`NativeLLM`) and falls back to legacy `NativeModules`, enabling the same agent loop to run on web, iOS, or Android without code changes while still routing through plugin management and KV-cache bookkeeping.【F:src/services/llmService.js†L1-L187】
+- `registerTurboModules.ts` invokes `TurboModuleRegistry.get` so React Native codegen keeps the LLM interface active, and `MLXModule.ts` wraps the iOS bridge with explicit error messages when the Swift/ObjC implementation is missing.【F:src/registerTurboModules.ts†L1-L15】【F:src/native/MLXModule.ts†L1-L25】
+- On Android, `MonGarsPackage` registers every TurboModule with the bridge, `LlamaTurboModule` exposes the llama.cpp controls to JavaScript, and the JNI layer in `llama_jni.cpp` enforces context/thread limits while providing generation, embedding, and cache maintenance hooks.【F:android/app/src/main/java/com/mongars/MonGarsPackage.java†L11-L45】【F:android/app/src/main/java/com/mongars/LlamaTurboModule.java†L14-L199】【F:android/app/src/main/cpp/llama_jni.cpp†L241-L404】
+- iOS mirrors the pattern: `LLM.swift` defines the TurboModule protocol and implementation, ensuring every method the JS agent expects—model lifecycle, inference, embeddings, cache control—bridges cleanly into Swift.【F:ios/MyOfflineLLMApp/Turbo/LLM.swift†L6-L200】
+
 ## Extending the Agent
 
 1. **Add a new tool**: export a module with an `execute` function and register it through `toolRegistry.register`, or plug it into the advanced tool system if you need categorization or remote invocation.【F:src/core/tools/ToolRegistry.js†L5-L31】【F:src/architecture/toolSystem.js†L1-L231】
@@ -36,4 +55,4 @@
 3. **Augment memory or context**: compose alternative indexers, retrievers, or context engineers by passing custom implementations into `MemoryManager` or extending `ContextEngineer` to tune retrieval and summarization strategies.【F:src/core/memory/MemoryManager.js†L8-L37】【F:src/services/contextEngineer.js†L171-L409】
 4. **Expose new services**: follow the patterns in `ReadabilityService`, `SearchService`, or `TreeOfThoughtReasoner` to encapsulate side-effectful capabilities, then surface them to the agent loop as callable tools or background utilities.【F:src/services/readabilityService.js†L1-L159】【F:src/services/webSearchService.js†L11-L68】【F:src/services/treeOfThought.js†L3-L191】
 
-With these components, OffLLM agents can plan, recall context, adjust their runtime characteristics, and call out to a growing catalog of tools while keeping the orchestration loop compact and extensible.
+With these components, OffLLM agents can plan, recall context, safeguard user data, and bridge native capabilities while keeping the orchestration loop compact and extensible.
