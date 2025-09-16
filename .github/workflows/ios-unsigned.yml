@@ -44,13 +44,13 @@ jobs:
         working-directory: ios
         run: bundle check || bundle install --jobs 4 --retry 3
 
-      - name: CocoaPods install
-        working-directory: ios
-        run: bundle exec pod install --repo-update
-
       - name: Generate iOS project (XcodeGen)
         working-directory: ios
         run: xcodegen generate
+
+      - name: CocoaPods install
+        working-directory: ios
+        run: bundle exec pod install --repo-update
 
       - name: Detect Xcode container
         working-directory: ios
