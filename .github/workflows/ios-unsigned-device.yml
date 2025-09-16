@@ -146,7 +146,8 @@ jobs:
       - name: Export resolve-package xcresult JSON
         if: always()
         run: |
-          set -euxo pipefail
+          # Avoid 'set -x' to prevent exposing secrets in logs
+          set -euo pipefail
           RB="${RESOLVE_RESULT_BUNDLE:-$DERIVED_DATA/ResultBundle.xcresult}"
           mkdir -p build
           if [ -d "$RB" ]; then
