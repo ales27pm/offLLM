@@ -44,6 +44,12 @@ jobs:
         working-directory: ios
         run: bundle check || bundle install --jobs 4 --retry 3
 
+      - name: Install XcodeGen (if needed)
+        run: |
+          if ! command -v xcodegen >/dev/null 2>&1; then
+            brew install xcodegen
+          fi
+
       - name: Generate iOS project (XcodeGen)
         working-directory: ios
         run: xcodegen generate
