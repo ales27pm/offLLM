@@ -10,8 +10,8 @@
 RCT_EXPORT_MODULE();
 
 RCT_EXPORT_METHOD(showMap:(double)latitude longitude:(double)longitude title:(NSString *)title) {
-  MKMapItem *mapItem = [[MKMapItem alloc] init];
-  mapItem.placemark = [[MKPlacemark alloc] initWithCoordinate:CLLocationCoordinate2DMake(latitude, longitude)];
+  MKPlacemark *placemark = [[MKPlacemark alloc] initWithCoordinate:CLLocationCoordinate2DMake(latitude, longitude)];
+  MKMapItem *mapItem = [[MKMapItem alloc] initWithPlacemark:placemark];
   mapItem.name = title;
   [mapItem openInMapsWithLaunchOptions:nil];
 }
