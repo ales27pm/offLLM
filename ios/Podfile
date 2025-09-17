@@ -28,6 +28,8 @@ rescue => e
         "[Podfile] Hint: run 'npm ci' (or 'yarn install') at repo root before 'pod install'."
 end
 
+prepare_react_native_project!
+
 # Ensure glog/src/config.h exists (prevents 'config.h not found' CI errors)
 pre_install do |installer|
   Pod::UI.puts 'Ensuring glog/src/config.h exists…'
@@ -48,21 +50,13 @@ end
 target 'monGARS' do
   config = use_native_modules!
 
-  new_arch_enabled = ENV.fetch('RCT_NEW_ARCH_ENABLED', '1') == '1'
-  fabric_env = ENV['RCT_FABRIC_ENABLED']
-  fabric_enabled =
-    if fabric_env.nil?
-      true
-    else
-      fabric_env == '1'
-    end
-  fabric_enabled = true if new_arch_enabled
+  flags = get_default_flags()
 
   use_react_native!(
     :path => config[:reactNativePath],
-    :hermes_enabled => true,
-    :fabric_enabled => fabric_enabled,
-    :new_arch_enabled => new_arch_enabled,
+    :hermes_enabled => flags[:hermes_enabled],
+    :fabric_enabled => flags[:fabric_enabled],
+    :new_arch_enabled => flags[:new_arch_enabled],
     :app_path => "#{__dir__}/..",
     :config_file_dir => File.expand_path('..', __dir__)
   )
@@ -121,6 +115,44 @@ post_install do |installer|
   installer.pods_project.targets.each do |target|
     removed = remove_hermes_phase.call(target, 'pods')
     Pod::UI.puts "[Podfile] Removed #{removed} legacy Hermes phases from #{target.name}" if removed > 0
+  end
+
+  header_search_fix = '$(PODS_ROOT)/Headers/Public/RCTDeprecation'
+  installer.aggregate_targets.each do |aggregate_target|
+    user_project = aggregate_target.user_project
+    next unless user_project
+
+    project_modified = false
+
+    user_project.targets.each do |target|
+      next unless target.name == 'monGARS'
+
+      target.build_configurations.each do |config|
+        existing = config.build_settings['HEADER_SEARCH_PATHS']
+
+        if existing.nil?
+          config.build_settings['HEADER_SEARCH_PATHS'] = ['$(inherited)', header_search_fix]
+          project_modified = true
+          next
+        end
+
+        if existing.is_a?(Array)
+          unless existing.include?(header_search_fix)
+            existing << header_search_fix
+            config.build_settings['HEADER_SEARCH_PATHS'] = existing
+            project_modified = true
+          end
+        else
+          value = existing.to_s
+          unless value.include?(header_search_fix)
+            config.build_settings['HEADER_SEARCH_PATHS'] = "#{value} #{header_search_fix}"
+            project_modified = true
+          end
+        end
+      end
+    end
+
+    user_project.save if project_modified
   end
 
   # Try to apply RN Contacts orientation patch (if repo has the script)
