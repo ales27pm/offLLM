@@ -2,9 +2,9 @@ name: iOS (unsigned) — Archive + Unsigned IPA
 
 on:
   push:
-    branches: [ main ]
+    branches: [main]
   pull_request:
-    branches: [ main ]
+    branches: [main]
 
 concurrency:
   group: ios-unsigned-${{ github.ref }}
@@ -36,7 +36,7 @@ jobs:
       - uses: actions/setup-node@v4
         with:
           node-version: ${{ env.NODE_VERSION }}
-          cache: 'npm'
+          cache: "npm"
 
       - name: Cache Pods
         uses: actions/cache@v4
@@ -93,7 +93,6 @@ jobs:
             build/xcodebuild-list.txt
             build/build-settings.txt
           if-no-files-found: error
-
 # Notes:
 # - This workflow produces an unsigned IPA suitable for re-signing later.
 # - To export a signed IPA, use `xcodebuild -exportArchive` with a valid exportOptionsPlist
