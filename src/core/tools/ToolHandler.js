@@ -1,3 +1,8 @@
+import logger from "../../utils/logger";
+
+const getArgKeys = (args) =>
+  args && typeof args === "object" ? Object.keys(args) : [];
+
 export default class ToolHandler {
   constructor(toolRegistry) {
     this.toolRegistry = toolRegistry;
@@ -41,15 +46,44 @@ export default class ToolHandler {
     return args;
   }
 
-  async execute(calls) {
+  async execute(calls, options = {}) {
     const results = [];
+    const { tracer } = options;
     for (const { name, args } of calls) {
       const tool = this.toolRegistry.getTool(name);
-      if (!tool) continue;
+      if (!tool) {
+        if (tracer && typeof tracer.warn === "function") {
+          tracer.warn(`Unknown tool requested: ${name}`, { tool: name });
+        }
+        logger.warn("ToolHandler", `Tool ${name} is not registered`, {
+          tool: name,
+        });
+        continue;
+      }
+      const step =
+        tracer && typeof tracer.startStep === "function"
+          ? tracer.startStep(`tool:${name}`, {
+              tool: name,
+              argKeys: getArgKeys(args),
+            })
+          : null;
       try {
         const res = await tool.execute(args);
+        if (step && tracer && typeof tracer.endStep === "function") {
+          tracer.endStep(step, {
+            tool: name,
+            resultType: typeof res,
+          });
+        }
         results.push({ role: "tool", name, content: JSON.stringify(res) });
       } catch (error) {
+        if (step && tracer && typeof tracer.failStep === "function") {
+          tracer.failStep(step, error, { tool: name });
+        }
+        logger.error("ToolHandler", `Tool ${name} execution failed`, error, {
+          tool: name,
+          argKeys: getArgKeys(args),
+        });
         results.push({
           role: "tool",
           name,

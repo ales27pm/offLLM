@@ -153,17 +153,17 @@ class Logger {
     }
   }
 
-  error(tag: string, message: string, error?: unknown): void {
+  error(tag: string, message: string, error?: unknown, data?: unknown): void {
     if (!this.shouldLog(LogLevel.ERROR)) {
       return;
     }
     const normalizedError =
       error instanceof Error
         ? error
-        : error
+        : error !== undefined && error !== null
           ? new Error(String(error))
           : undefined;
-    this.addLog(LogLevel.ERROR, tag, message, undefined, normalizedError);
+    this.addLog(LogLevel.ERROR, tag, message, data, normalizedError);
   }
 
   time(tag: string, label: string): void {
