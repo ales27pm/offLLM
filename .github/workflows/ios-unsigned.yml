@@ -37,6 +37,13 @@ jobs:
           node-version: ${{ env.NODE_VERSION }}
           cache: 'npm'
 
+      - name: Set up Ruby ${{ env.RUBY_VERSION }}
+        uses: ruby/setup-ruby@v1
+        with:
+          ruby-version: ${{ env.RUBY_VERSION }}
+          bundler-cache: true
+          working-directory: ios
+
       - name: Cache Pods
         uses: actions/cache@v4
         with:
@@ -48,10 +55,25 @@ jobs:
         run: |
           npm ci
 
-      - name: Install CocoaPods
+      - name: Install XcodeGen
         run: |
-          cd ios
-          bundle exec pod install --repo-update || pod install --repo-update
+          if ! command -v xcodegen >/dev/null 2>&1; then
+            brew install xcodegen
+          fi
+
+      - name: Generate Xcode project
+        working-directory: ios
+        run: xcodegen generate
+
+      - name: Install CocoaPods
+        working-directory: ios
+        run: |
+          set -euo pipefail
+          if bundle exec pod install --repo-update; then
+            exit 0
+          fi
+          echo "bundle exec pod install failed; retrying with system pod"
+          pod install --repo-update
 
       - name: Build — Simulator (generic destination)
         env:
@@ -96,6 +118,13 @@ jobs:
           node-version: ${{ env.NODE_VERSION }}
           cache: 'npm'
 
+      - name: Set up Ruby ${{ env.RUBY_VERSION }}
+        uses: ruby/setup-ruby@v1
+        with:
+          ruby-version: ${{ env.RUBY_VERSION }}
+          bundler-cache: true
+          working-directory: ios
+
       - name: Cache Pods
         uses: actions/cache@v4
         with:
@@ -106,10 +135,25 @@ jobs:
       - name: Install JS deps
         run: npm ci
 
-      - name: Install CocoaPods
+      - name: Install XcodeGen
         run: |
-          cd ios
-          bundle exec pod install --repo-update || pod install --repo-update
+          if ! command -v xcodegen >/dev/null 2>&1; then
+            brew install xcodegen
+          fi
+
+      - name: Generate Xcode project
+        working-directory: ios
+        run: xcodegen generate
+
+      - name: Install CocoaPods
+        working-directory: ios
+        run: |
+          set -euo pipefail
+          if bundle exec pod install --repo-update; then
+            exit 0
+          fi
+          echo "bundle exec pod install failed; retrying with system pod"
+          pod install --repo-update
 
       - name: Build — Generic iOS Device (Archive)
         env:
