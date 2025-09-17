@@ -1,0 +1,100 @@
+name: iOS (unsigned) — Archive + Unsigned IPA
+
+on:
+  push:
+    branches: [ main ]
+  pull_request:
+    branches: [ main ]
+
+concurrency:
+  group: ios-unsigned-${{ github.ref }}
+  cancel-in-progress: true
+
+env:
+  NODE_VERSION: "20"
+  RUBY_VERSION: "3.2"
+  XCODE_VERSION: "16.4"
+  SCHEME: "monGARS"
+  WORKSPACE: "ios/monGARS.xcworkspace"
+  DERIVED_DATA: "${{ github.workspace }}/build/DerivedData"
+  ARCHIVE_PATH: "${{ github.workspace }}/build/Archives/monGARS.xcarchive"
+  RESULT_BUNDLE_DEV: "${{ github.workspace }}/build/ResultBundle_device.xcresult"
+  IPA_OUT: "${{ github.workspace }}/build/ipa-unsigned/monGARS-unsigned.ipa"
+
+jobs:
+  device-archive:
+    name: Device archive + unsigned IPA
+    runs-on: macos-15
+    steps:
+      - uses: actions/checkout@v4
+
+      - name: Select Xcode ${{ env.XCODE_VERSION }}
+        run: |
+          sudo xcode-select -s "/Applications/Xcode_${XCODE_VERSION}.app"
+          xcodebuild -version
+
+      - uses: actions/setup-node@v4
+        with:
+          node-version: ${{ env.NODE_VERSION }}
+          cache: 'npm'
+
+      - name: Cache Pods
+        uses: actions/cache@v4
+        with:
+          path: ios/Pods
+          key: pods-${{ runner.os }}-${{ hashFiles('ios/Podfile.lock') }}
+          restore-keys: pods-${{ runner.os }}-
+
+      - name: Install JS deps
+        run: npm ci
+
+      - name: Install CocoaPods
+        run: |
+          cd ios
+          pod --version
+          pod install --repo-update
+
+      - name: Debug — list schemes & settings
+        run: |
+          mkdir -p build
+          xcodebuild -list -workspace "${WORKSPACE}" > build/xcodebuild-list.txt || true
+          xcodebuild -showBuildSettings -workspace "${WORKSPACE}" -scheme "${SCHEME}" > build/build-settings.txt || true
+
+      - name: Archive — Generic iOS Device (unsigned)
+        env:
+          RCT_NEW_ARCH_ENABLED: "1"
+        run: |
+          rm -rf "${DERIVED_DATA}"
+          mkdir -p "$(dirname "$RESULT_BUNDLE_DEV")" "$(dirname "$ARCHIVE_PATH")"
+          xcodebuild             -workspace "${WORKSPACE}"             -scheme "${SCHEME}"             -configuration Release             -destination "generic/platform=iOS"             -derivedDataPath "${DERIVED_DATA}"             -archivePath "${ARCHIVE_PATH}"             -resultBundlePath "${RESULT_BUNDLE_DEV}"             CODE_SIGNING_ALLOWED=NO             CODE_SIGNING_REQUIRED=NO             clean archive | xcpretty && exit ${PIPESTATUS[0]}
+
+      - name: Package Unsigned IPA (zip Payload)
+        run: |
+          APP_PATH="$(/usr/bin/find "${DERIVED_DATA}/Build/Products/Release-iphoneos" -maxdepth 1 -name '*.app' -print -quit)"
+          if [ -z "$APP_PATH" ]; then
+            echo "::error::Could not find built .app under ${DERIVED_DATA}/Build/Products/Release-iphoneos"
+            exit 1
+          fi
+          mkdir -p "$(dirname "$IPA_OUT")" Payload
+          cp -R "$APP_PATH" "Payload/"
+          # Preserve bundle attributes/resource forks
+          ditto -c -k --sequesterRsrc --keepParent "Payload" "$IPA_OUT"
+          rm -rf Payload
+          echo "Created unsigned IPA at: $IPA_OUT"
+
+      - name: Upload Artifacts
+        uses: actions/upload-artifact@v4
+        with:
+          name: ios-device-unsigned
+          path: |
+            ${{ env.ARCHIVE_PATH }}
+            ${{ env.IPA_OUT }}
+            ${{ env.RESULT_BUNDLE_DEV }}
+            build/xcodebuild-list.txt
+            build/build-settings.txt
+          if-no-files-found: error
+
+# Notes:
+# - This workflow produces an unsigned IPA suitable for re-signing later.
+# - To export a signed IPA, use `xcodebuild -exportArchive` with a valid exportOptionsPlist
+#   and remove CODE_SIGNING_* disables from the archive step.
