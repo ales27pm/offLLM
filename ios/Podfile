@@ -48,7 +48,7 @@ end
 target 'monGARS' do
   config = use_native_modules!
 
-  new_arch_enabled = ENV.fetch('RCT_NEW_ARCH_ENABLED', '0') == '1'
+  new_arch_enabled = ENV.fetch('RCT_NEW_ARCH_ENABLED', '1') == '1'
   fabric_env = ENV['RCT_FABRIC_ENABLED']
   fabric_enabled =
     if fabric_env.nil?

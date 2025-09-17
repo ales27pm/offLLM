@@ -19,6 +19,7 @@ env:
   DERIVED_DATA: "${{ github.workspace }}/build/DerivedData"
   RESULT_BUNDLE_SIM: "${{ github.workspace }}/build/ResultBundle_sim.xcresult"
   RESULT_BUNDLE_DEV: "${{ github.workspace }}/build/ResultBundle_device.xcresult"
+  RCT_NEW_ARCH_ENABLED: "1"
 
 jobs:
   sim-build:
@@ -43,6 +44,9 @@ jobs:
           ruby-version: ${{ env.RUBY_VERSION }}
           bundler-cache: true
           working-directory: ios
+
+      - name: Install xcpretty
+        run: gem install xcpretty
 
       - name: Cache Pods
         uses: actions/cache@v4
@@ -124,6 +128,9 @@ jobs:
           ruby-version: ${{ env.RUBY_VERSION }}
           bundler-cache: true
           working-directory: ios
+
+      - name: Install xcpretty
+        run: gem install xcpretty
 
       - name: Cache Pods
         uses: actions/cache@v4
