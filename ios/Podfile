@@ -20,8 +20,6 @@ project_path =
 raise "No .xcodeproj found near Podfile (#{__dir__})" unless project_path
 project File.basename(project_path)
 
-use_frameworks! linkage: :static
-
 begin
   rn_path = File.join(__dir__, '..', 'node_modules', 'react-native')
   require File.join(rn_path, 'scripts', 'react_native_pods')
