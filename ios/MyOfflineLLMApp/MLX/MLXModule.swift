@@ -4,6 +4,18 @@ import React
 import MLXLLM
 import MLXLMCommon
 
+private actor ChatSessionActor {
+  private let session: ChatSession
+
+  init(session: ChatSession) {
+    self.session = session
+  }
+
+  func respond(to prompt: String) async throws -> String {
+    try await session.respond(to: prompt)
+  }
+}
+
 @MainActor
 private final class PromiseCallbacks {
   private let resolve: RCTPromiseResolveBlock
@@ -32,8 +44,12 @@ final class MLXModule: NSObject {
   @objc static func requiresMainQueueSetup() -> Bool { false }
 
   // MARK: - State
+  private enum SessionAccessError: Error {
+    case noActiveSession
+  }
+
   private var container: ModelContainer?
-  private var session: ChatSession?
+  private var sessionActor: ChatSessionActor?
 
   // Prefer a light model first for CI/device sanity checks
   private let fallbackModelIDs: [String] = [
@@ -56,11 +72,11 @@ final class MLXModule: NSObject {
 
   private func setActive(container: ModelContainer) {
     self.container = container
-    self.session = ChatSession(container)
+    self.sessionActor = ChatSessionActor(session: ChatSession(container))
   }
 
   private func clearActive() {
-    session = nil
+    sessionActor = nil
     container = nil
   }
 
@@ -128,15 +144,12 @@ final class MLXModule: NSObject {
     Task(priority: .userInitiated) { @MainActor [weak self] in
       guard let self else { return }
 
-      guard let session = self.session else {
+      do {
+        let reply = try await self.respondUsingActiveSession(to: prompt)
+        callbacks.fulfill(reply)
+      } catch SessionAccessError.noActiveSession {
         let error = Self.makeError("MLX_GEN_ERR", "No model loaded")
         callbacks.fail(code: "MLX_GEN_ERR", message: error.localizedDescription, error: error)
-        return
-      }
-
-      do {
-        let reply = try await session.respond(to: prompt)
-        callbacks.fulfill(reply)
       } catch {
         let message = "Generation failed: \(error.localizedDescription)"
         callbacks.fail(code: "MLX_GEN_ERR", message: message, error: error)
@@ -144,12 +157,21 @@ final class MLXModule: NSObject {
     }
   }
 
+  @MainActor
+  private func respondUsingActiveSession(to prompt: String) async throws -> String {
+    guard let sessionActor else {
+      throw SessionAccessError.noActiveSession
+    }
+
+    return try await sessionActor.respond(to: prompt)
+  }
+
   /// Reset the multi-turn chat context (keeps the loaded model).
   /// JS: MLXModule.reset(): void
   @objc(reset)
   func reset() {
     if let container {
-      session = ChatSession(container)
+      sessionActor = ChatSessionActor(session: ChatSession(container))
     }
   }
 

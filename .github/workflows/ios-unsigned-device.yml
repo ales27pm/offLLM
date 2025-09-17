@@ -37,6 +37,7 @@ jobs:
         with:
           ruby-version: "3.2"
           bundler-cache: true
+          working-directory: ios
 
       - name: Cache CocoaPods
         uses: actions/cache@0400d5f644dc74513175e3cd8d07132dd4860809
@@ -54,8 +55,12 @@ jobs:
           rm -rf "$DERIVED_DATA" ~/Library/Developer/Xcode/DerivedData
           rm -rf "$HOME/Library/Developer/Xcode/DerivedData/SourcePackages"
 
-      - name: NPM install (root)
-        run: npm ci
+      - name: Run JS checks (tests, lint, format)
+        run: |
+          npm ci
+          npm test
+          npm run lint
+          npm run format:check
 
       - name: Validate patch-package patches
         run: npx --yes patch-package --check
@@ -87,19 +92,21 @@ jobs:
         run: bundle exec pod install
 
       - name: Detect Xcode container
+        working-directory: ios
         run: |
           set -euo pipefail
-          CONTAINER="$(/usr/bin/find ios -maxdepth 1 -name '*.xcworkspace' -print -quit)"
+          CONTAINER="$(/usr/bin/find . -maxdepth 1 -name '*.xcworkspace' -print -quit)"
           TYPE="workspace"
           if [ -z "$CONTAINER" ]; then
-            CONTAINER="$(/usr/bin/find ios -maxdepth 1 -name '*.xcodeproj' -print -quit)"
+            CONTAINER="$(/usr/bin/find . -maxdepth 1 -name '*.xcodeproj' -print -quit)"
             TYPE="project"
           fi
           if [ -z "$CONTAINER" ]; then
             echo "::error title=No Xcode container::No ios/*.xcworkspace or ios/*.xcodeproj found"
             exit 1
           fi
-          echo "XCODE_CONTAINER=$CONTAINER" >> "$GITHUB_ENV"
+          CONTAINER="${CONTAINER#./}"
+          echo "XCODE_CONTAINER=$(pwd)/$CONTAINER" >> "$GITHUB_ENV"
           echo "XCODE_CONTAINER_TYPE=$TYPE" >> "$GITHUB_ENV"
 
       - name: iOS Doctor (workspace must exist)

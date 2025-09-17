@@ -11,12 +11,12 @@ jobs:
     runs-on: macos-15
     env:
       XCODE_CONTAINER_FLAG: -workspace
-      XCODE_CONTAINER_PATH: ios/monGARS.xcworkspace
+      XCODE_CONTAINER_PATH: monGARS.xcworkspace
       XCODE_CONTAINER_TYPE: workspace
       XCODE_SCHEME: monGARS
-      ARCHIVE_PATH: build/monGARS.xcarchive
-      RESULT_PATH: build/monGARS.xcresult
-      RESOLVE_RESULT_BUNDLE: build/resolve-package.xcresult
+      ARCHIVE_PATH: ${{ github.workspace }}/build/monGARS.xcarchive
+      RESULT_PATH: ${{ github.workspace }}/build/monGARS.xcresult
+      RESOLVE_RESULT_BUNDLE: ${{ github.workspace }}/build/resolve-package.xcresult
       OUTPUT_DIR: build/output
     steps:
       - name: Checkout repository
@@ -27,15 +27,19 @@ jobs:
         with:
           node-version: "20"
 
-      - name: Set up Ruby
+      - name: Set up Ruby (Gemfile in ios/)
         uses: ruby/setup-ruby@v1
         with:
           ruby-version: "3.2.9"
           bundler-cache: true
           working-directory: ios
 
-      - name: Install npm dependencies
-        run: npm ci
+      - name: Run JS checks (tests, lint, format)
+        run: |
+          npm ci
+          npm test
+          npm run lint
+          npm run format:check
 
       - name: Validate patch-package patches
         run: npx --yes patch-package --check
@@ -81,7 +85,7 @@ jobs:
             FLAG="-project"
           fi
 
-          echo "XCODE_CONTAINER_PATH=ios/${CONTAINER}" >>"$GITHUB_ENV"
+          echo "XCODE_CONTAINER_PATH=${CONTAINER}" >>"$GITHUB_ENV"
           echo "XCODE_CONTAINER_FLAG=${FLAG}" >>"$GITHUB_ENV"
           echo "XCODE_CONTAINER_TYPE=${TYPE}" >>"$GITHUB_ENV"
 
@@ -90,7 +94,9 @@ jobs:
           #!/usr/bin/env bash
           set -euo pipefail
           mkdir -p build/swiftpm
-          xcodebuild "$XCODE_CONTAINER_FLAG" "$XCODE_CONTAINER_PATH" \
+          mkdir -p "$(dirname "$RESOLVE_RESULT_BUNDLE")"
+          rm -rf "$RESOLVE_RESULT_BUNDLE"
+          xcodebuild "$XCODE_CONTAINER_FLAG" "ios/$XCODE_CONTAINER_PATH" \
             -scheme "$XCODE_SCHEME" \
             -resolvePackageDependencies \
             -clonedSourcePackagesDirPath build/swiftpm \
@@ -104,12 +110,12 @@ jobs:
           rm -rf "$ARCHIVE_PATH" "$RESULT_PATH" build-log.txt
           # Build archive with code signing disabled
           set -o pipefail
-          xcodebuild "$XCODE_CONTAINER_FLAG" "$XCODE_CONTAINER_PATH" \
+          xcodebuild "$XCODE_CONTAINER_FLAG" "ios/$XCODE_CONTAINER_PATH" \
             -scheme "$XCODE_SCHEME" -configuration Release \
             -destination generic/platform=iOS \
             CODE_SIGN_IDENTITY="" CODE_SIGNING_REQUIRED=NO CODE_SIGNING_ALLOWED=NO \
-            -archivePath $ARCHIVE_PATH \
-            -resultBundlePath $RESULT_PATH \
+            -archivePath "$ARCHIVE_PATH" \
+            -resultBundlePath "$RESULT_PATH" \
             clean archive | tee build-log.txt
 
       - name: Prepare output directory
@@ -127,7 +133,7 @@ jobs:
             cp build-log.txt "$OUTPUT_DIR_ABS/"
           fi
 
-      - name: Export resolve-package xcresult JSON
+      - name: Export resolve-package xcresult → JSON
         if: ${{ always() }}
         run: |
           #!/usr/bin/env bash
@@ -137,16 +143,17 @@ jobs:
           ERROR_LOG="build/xcresulttool_resolve_error.log"
           : >"$ERROR_LOG"
           if [ -d "$RESOLVE_RESULT_BUNDLE" ]; then
-            if xcrun xcresulttool export --path "$RESOLVE_RESULT_BUNDLE" --type json --output "$OUTPUT_JSON" 2>"$ERROR_LOG"; then
-              echo "✅ xcresult → JSON succeeded"
-            else
-              echo "❌ xcresult export failed; see $ERROR_LOG"
-              if [ ! -s "$OUTPUT_JSON" ]; then
-                ts="$(date -u +"%Y-%m-%dT%H:%M:%SZ")"
-                printf '{\n  "notice": "Resolve package result export failed",\n  "generatedAt": "%s",\n  "resultBundle": "%s"\n}\n' \
-                  "$ts" \
-                  "$RESOLVE_RESULT_BUNDLE" \
-                  >"$OUTPUT_JSON"
+            if ! xcrun xcresulttool get --legacy --path "$RESOLVE_RESULT_BUNDLE" --format json >"$OUTPUT_JSON" 2>"$ERROR_LOG"; then
+              echo "::warning title=xcresulttool legacy export failed::Falling back to non-legacy"
+              if ! xcrun xcresulttool get object --path "$RESOLVE_RESULT_BUNDLE" --format json >"$OUTPUT_JSON" 2>>"$ERROR_LOG"; then
+                echo "❌ xcresult export failed; see $ERROR_LOG"
+                if [ ! -s "$OUTPUT_JSON" ]; then
+                  ts="$(date -u +"%Y-%m-%dT%H:%M:%SZ")"
+                  printf '{\n  "notice": "Resolve package result export failed",\n  "generatedAt": "%s",\n  "resultBundle": "%s"\n}\n' \
+                    "$ts" \
+                    "$RESOLVE_RESULT_BUNDLE" \
+                    >"$OUTPUT_JSON"
+                fi
               fi
             fi
           else
@@ -206,16 +213,17 @@ jobs:
           ERROR_LOG="build/xcresulttool_archive_error.log"
           : >"$ERROR_LOG"
           if [ -d "$RESULT_PATH" ]; then
-            if xcrun xcresulttool export --path "$RESULT_PATH" --type json --output "$OUTPUT_JSON" 2>"$ERROR_LOG"; then
-              echo "✅ xcresult → JSON succeeded"
-            else
-              echo "❌ xcresult export failed; see $ERROR_LOG"
-              if [ ! -s "$OUTPUT_JSON" ]; then
-                ts="$(date -u +"%Y-%m-%dT%H:%M:%SZ")"
-                printf '{\n  "notice": "Archive result export failed",\n  "generatedAt": "%s",\n  "resultBundle": "%s"\n}\n' \
-                  "$ts" \
-                  "$RESULT_PATH" \
-                  >"$OUTPUT_JSON"
+            if ! xcrun xcresulttool get --legacy --path "$RESULT_PATH" --format json >"$OUTPUT_JSON" 2>"$ERROR_LOG"; then
+              echo "::warning title=xcresulttool legacy export failed::Falling back to non-legacy"
+              if ! xcrun xcresulttool get object --path "$RESULT_PATH" --format json >"$OUTPUT_JSON" 2>>"$ERROR_LOG"; then
+                echo "❌ xcresult export failed; see $ERROR_LOG"
+                if [ ! -s "$OUTPUT_JSON" ]; then
+                  ts="$(date -u +"%Y-%m-%dT%H:%M:%SZ")"
+                  printf '{\n  "notice": "Archive result export failed",\n  "generatedAt": "%s",\n  "resultBundle": "%s"\n}\n' \
+                    "$ts" \
+                    "$RESULT_PATH" \
+                    >"$OUTPUT_JSON"
+                fi
               fi
             fi
           else
