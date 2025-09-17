@@ -1,528 +1,138 @@
-# yamllint disable rule:line-length
-name: iOS Unsigned Build
+name: iOS (unsigned) — Simulator app & Device archive
 
 on:
   push:
-    branches: [main]
+    branches: [ main ]
   pull_request:
+    branches: [ main ]
+
+concurrency:
+  group: ios-unsigned-${{ github.ref }}
+  cancel-in-progress: true
+
+env:
+  NODE_VERSION: "20"
+  RUBY_VERSION: "3.2"
+  XCODE_VERSION: "16.4"
+  SCHEME: "MyOfflineLLMApp"
+  WORKSPACE: "ios/MyOfflineLLMApp.xcworkspace"
+  DERIVED_DATA: "${{ github.workspace }}/build/DerivedData"
+  RESULT_BUNDLE_SIM: "${{ github.workspace }}/build/ResultBundle_sim.xcresult"
+  RESULT_BUNDLE_DEV: "${{ github.workspace }}/build/ResultBundle_device.xcresult"
 
 jobs:
-  build-ios:
+  sim-build:
+    name: Simulator build (.app for iPhone 16 Pro / iOS 18)
     runs-on: macos-15
-    env:
-      XCODE_CONTAINER_FLAG: -workspace
-      XCODE_CONTAINER_PATH: monGARS.xcworkspace
-      XCODE_CONTAINER_TYPE: workspace
-      XCODE_SCHEME: monGARS
-      ARCHIVE_PATH: ${{ github.workspace }}/build/monGARS.xcarchive
-      RESULT_PATH: ${{ github.workspace }}/build/monGARS.xcresult
-      RESOLVE_RESULT_BUNDLE: ${{ github.workspace }}/build/resolve-package.xcresult
-      OUTPUT_DIR: build/output
-      DERIVED_DATA: ${{ github.workspace }}/build/DerivedData
     steps:
-      - name: Checkout repository
-        uses: actions/checkout@v4
+      - uses: actions/checkout@v4
 
-      - name: Set up Node.js (for codegen/pod install)
-        uses: actions/setup-node@v4
+      - name: Select Xcode ${{ env.XCODE_VERSION }}
+        run: |
+          sudo xcode-select -s "/Applications/Xcode_${XCODE_VERSION}.app"
+          xcodebuild -version
+
+      - uses: actions/setup-node@v4
         with:
-          node-version: "20"
+          node-version: ${{ env.NODE_VERSION }}
+          cache: 'npm'
 
-      - name: Set up Ruby (Gemfile in ios/)
-        uses: ruby/setup-ruby@v1
+      - name: Cache Pods
+        uses: actions/cache@v4
         with:
-          ruby-version: "3.2.9"
-          bundler-cache: true
-          working-directory: ios
+          path: ios/Pods
+          key: pods-${{ runner.os }}-${{ hashFiles('ios/Podfile.lock') }}
+          restore-keys: pods-${{ runner.os }}-
 
-      - name: Run JS checks (tests, lint, format)
+      - name: Install JS deps
         run: |
           npm ci
-          npm test
-          npm run lint
-          npm run format:check
 
-      - name: Validate patch-package patches
-        run: npx --yes patch-package --check
-
-      - name: Install Ruby gems
-        working-directory: ios
-        run: bundle check || bundle install --jobs 4 --retry 3
-
-      - name: Install XcodeGen (if needed)
+      - name: Install CocoaPods
         run: |
-          if ! command -v xcodegen >/dev/null 2>&1; then
-            brew install xcodegen
-          fi
+          cd ios
+          bundle exec pod install --repo-update || pod install --repo-update
 
-      - name: Generate iOS project (XcodeGen)
-        working-directory: ios
-        run: xcodegen generate
-
-      - name: CocoaPods install
-        working-directory: ios
-        run: bundle exec pod install --repo-update
-
-      - name: Capture iOS environment diagnostics
+      - name: Build — Simulator (generic destination)
+        env:
+          RCT_NEW_ARCH_ENABLED: "1"
         run: |
-          #!/usr/bin/env bash
-          set -euo pipefail
-          mkdir -p build/diagnostics
-          LOG="build/diagnostics/environment.log"
-          {
-            echo "Collected at (UTC): $(date -u +\"%Y-%m-%dT%H:%M:%SZ\")"
-            echo "Runner name: ${RUNNER_NAME:-unknown}"
-            echo "Runner OS: ${RUNNER_OS:-unknown}"
-            echo "Runner image: ${ImageOS:-unknown} ${ImageVersion:-unknown}"
-            echo
-            echo "## macOS"
-            if command -v sw_vers >/dev/null 2>&1; then
-              sw_vers
-            else
-              echo "sw_vers unavailable"
-            fi
-            echo
-            echo "## Xcode"
-            if command -v xcode-select >/dev/null 2>&1; then
-              echo "xcode-select: $(xcode-select -p)"
-            else
-              echo "xcode-select not found"
-            fi
-            if command -v xcodebuild >/dev/null 2>&1; then
-              xcodebuild -version || true
-              xcodebuild -showsdks || true
-            else
-              echo "xcodebuild unavailable"
-            fi
-            echo
-            echo "## Tool versions"
-            if command -v xcodegen >/dev/null 2>&1; then
-              echo "xcodegen: $(xcodegen --version)"
-            else
-              echo "xcodegen: unavailable"
-            fi
-            if command -v swift >/dev/null 2>&1; then
-              swift --version || true
-            else
-              echo "swift: unavailable"
-            fi
-            if command -v clang >/dev/null 2>&1; then
-              clang --version | head -n 1 || true
-            else
-              echo "clang: unavailable"
-            fi
-            if command -v ruby >/dev/null 2>&1; then
-              echo "ruby: $(ruby --version)"
-            else
-              echo "ruby: unavailable"
-            fi
-            if command -v bundle >/dev/null 2>&1; then
-              echo "bundler: $(bundle --version)"
-            else
-              echo "bundler: unavailable"
-            fi
-            if command -v pod >/dev/null 2>&1; then
-              echo "cocoapods: $(pod --version)"
-            else
-              echo "cocoapods: unavailable"
-            fi
-            if command -v node >/dev/null 2>&1; then
-              echo "node: $(node --version)"
-            else
-              echo "node: unavailable"
-            fi
-            if command -v npm >/dev/null 2>&1; then
-              echo "npm: $(npm --version)"
-            else
-              echo "npm: unavailable"
-            fi
-            if command -v python3 >/dev/null 2>&1; then
-              echo "python3: $(python3 --version)"
-            else
-              echo "python3: unavailable"
-            fi
-          } | tee "$LOG"
+          mkdir -p "$(dirname "$RESULT_BUNDLE_SIM")"
+          xcodebuild \
+            -workspace "${WORKSPACE}" \
+            -scheme "${SCHEME}" \
+            -configuration Release \
+            -sdk iphonesimulator \
+            -destination "generic/platform=iOS Simulator" \
+            -derivedDataPath "${DERIVED_DATA}" \
+            -resultBundlePath "${RESULT_BUNDLE_SIM}" \
+            CODE_SIGNING_ALLOWED=NO \
+            CODE_SIGNING_REQUIRED=NO \
+            clean build | xcpretty && exit ${PIPESTATUS[0]}
 
-          (
-            cd ios
-            if command -v bundle >/dev/null 2>&1; then
-              bundle env > ../build/diagnostics/bundle-env.log 2>&1 || true
-              bundle exec pod --version > ../build/diagnostics/pod-version.log 2>&1 || true
-              bundle exec pod env > ../build/diagnostics/pod-env.log 2>&1 || true
-            fi
-          ) || true
-
-      - name: Detect Xcode container
-        working-directory: ios
-        run: |
-          #!/usr/bin/env bash
-          set -euo pipefail
-          CONTAINER="$(find . -maxdepth 1 -name '*.xcworkspace' -print -quit)"
-          TYPE="workspace"
-          if [ -z "$CONTAINER" ]; then
-            CONTAINER="$(find . -maxdepth 1 -name '*.xcodeproj' -print -quit)"
-            TYPE="project"
-          fi
-
-          if [ -z "$CONTAINER" ]; then
-            echo "::error::No Xcode workspace (.xcworkspace) or project (.xcodeproj) found in $(pwd)"
-            exit 1
-          fi
-
-          CONTAINER="${CONTAINER#./}"
-          FLAG="-workspace"
-          if [ "$TYPE" = "project" ]; then
-            FLAG="-project"
-          fi
-
-          echo "XCODE_CONTAINER_PATH=${CONTAINER}" >>"$GITHUB_ENV"
-          echo "XCODE_CONTAINER_FLAG=${FLAG}" >>"$GITHUB_ENV"
-          echo "XCODE_CONTAINER_TYPE=${TYPE}" >>"$GITHUB_ENV"
-
-      - name: Snapshot Xcode project metadata
-        run: |
-          #!/usr/bin/env bash
-          set -euo pipefail
-          mkdir -p build/diagnostics
-          if [ -z "${XCODE_CONTAINER_PATH:-}" ]; then
-            echo "XCODE_CONTAINER_PATH not set; skipping metadata snapshot" > build/diagnostics/xcodebuild-metadata.log
-            exit 0
-          fi
-          xcodebuild "$XCODE_CONTAINER_FLAG" "ios/$XCODE_CONTAINER_PATH" -list -json \
-            > build/diagnostics/xcodebuild-list.json 2> build/diagnostics/xcodebuild-list.stderr || true
-          xcodebuild "$XCODE_CONTAINER_FLAG" "ios/$XCODE_CONTAINER_PATH" -list \
-            > build/diagnostics/xcodebuild-list.txt 2>&1 || true
-          xcodebuild "$XCODE_CONTAINER_FLAG" "ios/$XCODE_CONTAINER_PATH" \
-            -scheme "$XCODE_SCHEME" -showBuildSettings \
-            > build/diagnostics/build-settings.log 2>&1 || true
-          if [ -s build/diagnostics/xcodebuild-list.stderr ]; then
-            printf '\n(list -json stderr)\n' >> build/diagnostics/xcodebuild-list.txt
-            cat build/diagnostics/xcodebuild-list.stderr >> build/diagnostics/xcodebuild-list.txt || true
-            rm -f build/diagnostics/xcodebuild-list.stderr
-          else
-            rm -f build/diagnostics/xcodebuild-list.stderr
-          fi
-
-      - name: Resolve Swift package dependencies
-        run: |
-          #!/usr/bin/env bash
-          set -euo pipefail
-          mkdir -p build/swiftpm
-          mkdir -p "$(dirname "$RESOLVE_RESULT_BUNDLE")"
-          mkdir -p "$DERIVED_DATA"
-          rm -rf "$RESOLVE_RESULT_BUNDLE"
-          xcodebuild "$XCODE_CONTAINER_FLAG" "ios/$XCODE_CONTAINER_PATH" \
-            -scheme "$XCODE_SCHEME" \
-            -resolvePackageDependencies \
-            -clonedSourcePackagesDirPath build/swiftpm \
-            -derivedDataPath "$DERIVED_DATA" \
-            -resultBundlePath "$RESOLVE_RESULT_BUNDLE"
-
-      - name: Build and Archive (unsigned)
-        run: |
-          #!/usr/bin/env bash
-          set -euo pipefail
-          # Clean previous archive artifacts without removing resolve bundles
-          rm -rf "$ARCHIVE_PATH" "$RESULT_PATH" "$DERIVED_DATA" build-log.txt
-          mkdir -p "$DERIVED_DATA"
-          # Build archive with code signing disabled
-          set -o pipefail
-          xcodebuild "$XCODE_CONTAINER_FLAG" "ios/$XCODE_CONTAINER_PATH" \
-            -scheme "$XCODE_SCHEME" -configuration Release \
-            -destination generic/platform=iOS \
-            CODE_SIGN_IDENTITY="" CODE_SIGNING_REQUIRED=NO CODE_SIGNING_ALLOWED=NO \
-            -archivePath "$ARCHIVE_PATH" \
-            -resultBundlePath "$RESULT_PATH" \
-            -derivedDataPath "$DERIVED_DATA" \
-            clean archive | tee build-log.txt
-
-      - name: Prepare output directory
-        if: ${{ always() }}
-        run: |
-          mkdir -p "$OUTPUT_DIR"
-          OUTPUT_DIR_ABS="$(python3 -c "import os,sys; root=os.environ.get('GITHUB_WORKSPACE') or os.getcwd(); target=os.environ['OUTPUT_DIR']; sys.stdout.write(os.path.realpath(os.path.join(root, target)))")"
-          echo "OUTPUT_DIR_ABS=$OUTPUT_DIR_ABS" >>"$GITHUB_ENV"
-
-      - name: Collect build log
-        if: ${{ always() }}
-        run: |
-          mkdir -p "$OUTPUT_DIR_ABS"
-          if [ -f build-log.txt ]; then
-            cp build-log.txt "$OUTPUT_DIR_ABS/"
-          fi
-
-      - name: Summarize xcodebuild log
-        if: ${{ always() }}
-        run: |
-          python3 <<'PY'
-          from pathlib import Path
-
-          out_dir = Path("build/diagnostics")
-          out_dir.mkdir(parents=True, exist_ok=True)
-          log_path = Path("build-log.txt")
-          summary_path = out_dir / "xcodebuild-errors.log"
-
-          if not log_path.exists():
-              summary_path.write_text("build-log.txt not found\n", encoding="utf-8")
-          else:
-              lines = log_path.read_text(encoding="utf-8", errors="ignore").splitlines()
-              errors: list[str] = []
-              warnings: list[str] = []
-              for line in lines:
-                  stripped = line.strip()
-                  if not stripped:
-                      continue
-                  lower = stripped.lower()
-                  if (
-                      "error:" in lower
-                      or lower.startswith("error ")
-                      or " fatal error" in lower
-                      or " build failed" in lower
-                      or lower.startswith("ld: fatal error")
-                  ):
-                      errors.append(stripped)
-                  elif (
-                      " warning:" in lower
-                      or lower.startswith("warning:")
-                      or lower.startswith("ld: warning")
-                  ):
-                      warnings.append(stripped)
-              tail = lines[-60:]
-              with summary_path.open("w", encoding="utf-8") as handle:
-                  handle.write(f"Errors ({len(errors)}):\n")
-                  for entry in errors[:50]:
-                      handle.write(f"- {entry}\n")
-                  if len(errors) > 50:
-                      handle.write(f"… (+{len(errors) - 50} more)\n")
-                  handle.write("\nWarnings ({}):\n".format(len(warnings)))
-                  for entry in warnings[:50]:
-                      handle.write(f"- {entry}\n")
-                  if len(warnings) > 50:
-                      handle.write(f"… (+{len(warnings) - 50} more)\n")
-                  handle.write("\nLog tail:\n")
-                  for entry in tail:
-                      handle.write(entry + "\n")
-          PY
-
-      - name: Catalog DerivedData logs
-        if: ${{ always() }}
-        run: |
-          python3 <<'PY'
-          import os
-          import shutil
-          import time
-          from pathlib import Path
-
-          out_dir = Path("build/diagnostics")
-          out_dir.mkdir(parents=True, exist_ok=True)
-          base = Path(os.environ.get("DERIVED_DATA", os.path.expanduser("~/Library/Developer/Xcode/DerivedData")))
-          listing = out_dir / "derived-data.txt"
-
-          if not base.exists():
-              listing.write_text(f"DerivedData directory not found: {base}\n", encoding="utf-8")
-          else:
-              entries = sorted([p for p in base.iterdir() if p.is_dir()], key=lambda p: p.stat().st_mtime, reverse=True)
-              lines: list[str] = [f"DerivedData base: {base}"]
-              for entry in entries[:6]:
-                  try:
-                      mtime = time.strftime("%Y-%m-%d %H:%M:%SZ", time.gmtime(entry.stat().st_mtime))
-                  except FileNotFoundError:
-                      continue
-                  lines.append(f"- {entry.name} (modified {mtime})")
-                  logs_dir = entry / "Logs" / "Build"
-                  if logs_dir.is_dir():
-                      candidates = sorted(
-                          [p for p in logs_dir.glob("*.xcactivitylog") if p.is_file()],
-                          key=lambda p: p.stat().st_mtime,
-                          reverse=True,
-                      )
-                      if candidates:
-                          chosen = candidates[0]
-                          size = chosen.stat().st_size
-                          human_size = f"{size / (1024 * 1024):.1f} MiB"
-                          if size <= 8 * 1024 * 1024:
-                              target = out_dir / f"{entry.name}_{chosen.name}"
-                              try:
-                                  shutil.copy2(chosen, target)
-                                  lines.append(f"  Copied log: {target.name} ({human_size})")
-                              except Exception as exc:
-                                  lines.append(f"  Failed to copy {chosen.name}: {exc}")
-                          else:
-                              lines.append(f"  Skipped log {chosen.name} ({human_size}) — larger than 8 MiB")
-              listing.write_text("\n".join(lines) + "\n", encoding="utf-8")
-          PY
-
-      - name: Collect unified log (xcodebuild)
-        if: ${{ always() }}
-        run: |
-          #!/usr/bin/env bash
-          set -euo pipefail
-          mkdir -p build/diagnostics
-          if command -v log >/dev/null 2>&1; then
-            if ! log show --predicate 'process == "xcodebuild"' --style compact --last 30m \
-              > build/diagnostics/unified-xcodebuild.log 2> build/diagnostics/unified-xcodebuild.err; then
-              {
-                echo "Failed to collect unified log via 'log show'"
-                cat build/diagnostics/unified-xcodebuild.err || true
-              } > build/diagnostics/unified-xcodebuild.log
-            fi
-            rm -f build/diagnostics/unified-xcodebuild.err
-          else
-            echo "'log' command unavailable on this runner" > build/diagnostics/unified-xcodebuild.log
-          fi
-
-      - name: Export resolve-package xcresult → JSON
-        if: ${{ always() }}
-        run: |
-          #!/usr/bin/env bash
-          set -euo pipefail
-          mkdir -p build
-          OUTPUT_JSON="build/resolve-package.json"
-          ERROR_LOG="build/xcresulttool_resolve_error.log"
-          : >"$ERROR_LOG"
-          if [ -d "$RESOLVE_RESULT_BUNDLE" ]; then
-            if ! xcrun xcresulttool get --legacy --path "$RESOLVE_RESULT_BUNDLE" --format json >"$OUTPUT_JSON" 2>"$ERROR_LOG"; then
-              echo "::warning title=xcresulttool legacy export failed::Falling back to non-legacy"
-              if ! xcrun xcresulttool get object --path "$RESOLVE_RESULT_BUNDLE" --format json >"$OUTPUT_JSON" 2>>"$ERROR_LOG"; then
-                echo "❌ xcresult export failed; see $ERROR_LOG"
-                if [ ! -s "$OUTPUT_JSON" ]; then
-                  ts="$(date -u +"%Y-%m-%dT%H:%M:%SZ")"
-                  printf '{\n  "notice": "Resolve package result export failed",\n  "generatedAt": "%s",\n  "resultBundle": "%s"\n}\n' \
-                    "$ts" \
-                    "$RESOLVE_RESULT_BUNDLE" \
-                    >"$OUTPUT_JSON"
-                fi
-              fi
-            fi
-          else
-            ts="$(date -u +"%Y-%m-%dT%H:%M:%SZ")"
-            printf '{\n  "notice": "Resolve package result bundle not produced",\n  "generatedAt": "%s",\n  "expectedPath": "%s"\n}\n' \
-              "$ts" \
-              "$RESOLVE_RESULT_BUNDLE" \
-              >"$OUTPUT_JSON"
-          fi
-
-      - name: Export archive xcresult JSON
-        if: ${{ always() }}
-        run: |
-          #!/usr/bin/env bash
-          set -euo pipefail
-          mkdir -p build
-          : >"build/xcresulttool_unsigned_error.log"
-          RESULT_BUNDLE="$RESULT_PATH"
-          if [ -d "$RESULT_BUNDLE" ]; then
-            if ! xcrun xcresulttool get --legacy --path "$RESULT_BUNDLE" --format json \
-              > build/ResultBundle_unsigned.json 2>build/xcresulttool_unsigned_error.log; then
-              echo "::warning title=xcresulttool legacy export failed::Falling back to object export"
-              if ! xcrun xcresulttool get object --path "$RESULT_BUNDLE" --format json \
-                > build/ResultBundle_unsigned.json 2>>build/xcresulttool_unsigned_error.log; then
-                ts="$(date -u +"%Y-%m-%dT%H:%M:%SZ")"
-                error_log_path="$(pwd)/build/xcresulttool_unsigned_error.log"
-                printf '{\n  "notice": "Unable to export archive xcresult",\n  "generatedAt": "%s",\n  "resultBundle": "%s",\n  "errorLog": "%s"\n}\n' \
-                  "$ts" \
-                  "$RESULT_BUNDLE" \
-                  "$error_log_path" \
-                  > build/ResultBundle_unsigned.json
-              fi
-            fi
-          else
-            ts="$(date -u +"%Y-%m-%dT%H:%M:%SZ")"
-            printf '{\n  "notice": "Archive result bundle not produced",\n  "generatedAt": "%s",\n  "expectedPath": "%s"\n}\n' \
-              "$ts" \
-              "$RESULT_BUNDLE" \
-              > build/ResultBundle_unsigned.json
-          fi
-
-          if [ ! -s build/ResultBundle_unsigned.json ]; then
-            ts="$(date -u +"%Y-%m-%dT%H:%M:%SZ")"
-            printf '{\n  "notice": "Archive result bundle export yielded empty output",\n  "generatedAt": "%s",\n  "expectedPath": "%s"\n}\n' \
-              "$ts" \
-              "$RESULT_BUNDLE" \
-              > build/ResultBundle_unsigned.json
-          fi
-
-      - name: Export archive xcresult → JSON
-        if: ${{ always() }}
-        run: |
-          #!/usr/bin/env bash
-          set -euo pipefail
-          mkdir -p build
-          OUTPUT_JSON="build/archive-result.json"
-          ERROR_LOG="build/xcresulttool_archive_error.log"
-          : >"$ERROR_LOG"
-          if [ -d "$RESULT_PATH" ]; then
-            if ! xcrun xcresulttool get --legacy --path "$RESULT_PATH" --format json >"$OUTPUT_JSON" 2>"$ERROR_LOG"; then
-              echo "::warning title=xcresulttool legacy export failed::Falling back to non-legacy"
-              if ! xcrun xcresulttool get object --path "$RESULT_PATH" --format json >"$OUTPUT_JSON" 2>>"$ERROR_LOG"; then
-                echo "❌ xcresult export failed; see $ERROR_LOG"
-                if [ ! -s "$OUTPUT_JSON" ]; then
-                  ts="$(date -u +"%Y-%m-%dT%H:%M:%SZ")"
-                  printf '{\n  "notice": "Archive result export failed",\n  "generatedAt": "%s",\n  "resultBundle": "%s"\n}\n' \
-                    "$ts" \
-                    "$RESULT_PATH" \
-                    >"$OUTPUT_JSON"
-                fi
-              fi
-            fi
-          else
-            ts="$(date -u +"%Y-%m-%dT%H:%M:%SZ")"
-            printf '{\n  "notice": "Archive result bundle not produced",\n  "generatedAt": "%s",\n  "expectedPath": "%s"\n}\n' \
-              "$ts" \
-              "$RESULT_PATH" \
-              >"$OUTPUT_JSON"
-          fi
-
-      - name: Publish diagnostics summary
-        if: ${{ always() }}
-        run: |
-          python3 scripts/ci/emit_ios_diagnostics_summary.py \
-            --label "iOS unsigned build" \
-            --result-json build/ResultBundle_unsigned.json \
-            --result-json build/archive-result.json \
-            --result-json build/resolve-package.json \
-            --artifact-path build/diagnostics
-
-      - name: Create Payload and IPA
-        if: ${{ success() }}
-        run: |
-          mkdir -p "$OUTPUT_DIR_ABS"
-          APP_PATH="$ARCHIVE_PATH/Products/Applications/${XCODE_SCHEME}.app"
-          PAYLOAD_DIR="$OUTPUT_DIR_ABS/Payload"
-          rm -f "$OUTPUT_DIR_ABS/${XCODE_SCHEME}.ipa"
-          rm -rf "$PAYLOAD_DIR"
-          mkdir -p "$PAYLOAD_DIR"
-          cp -R "$APP_PATH" "$PAYLOAD_DIR/"
-          (
-            cd "$OUTPUT_DIR_ABS"
-            zip -r "${XCODE_SCHEME}.ipa" Payload
-          )
-          rm -rf "$PAYLOAD_DIR"
-
-      - name: Package .app bundle
-        if: ${{ success() }}
-        run: |
-          mkdir -p "$OUTPUT_DIR_ABS"
-          APP_DIR="$ARCHIVE_PATH/Products/Applications"
-          rm -f "$OUTPUT_DIR_ABS/${XCODE_SCHEME}.zip"
-          (
-            cd "$APP_DIR" && zip -r "$OUTPUT_DIR_ABS/${XCODE_SCHEME}.zip" "${XCODE_SCHEME}.app"
-          )
-
-      - name: Upload build artifacts
-        if: ${{ always() }}
+      - name: Upload Simulator Artifacts
         uses: actions/upload-artifact@v4
         with:
-          name: ios-unsigned-ipa
+          name: ios-sim-products
           path: |
-            ${{ env.RESULT_PATH }}
-            ${{ env.OUTPUT_DIR }}/${{ env.XCODE_SCHEME }}.ipa
-            ${{ env.OUTPUT_DIR }}/${{ env.XCODE_SCHEME }}.zip
-            ${{ env.OUTPUT_DIR }}/build-log.txt
-            build/ResultBundle_unsigned.json
-            build/resolve-package.json
-            build/archive-result.json
-            build/xcresulttool_unsigned_error.log
-            build/xcresulttool_resolve_error.log
-            build/xcresulttool_archive_error.log
-            build/diagnostics
+            build/DerivedData/Build/Products/Release-iphonesimulator/*.app
+            ${{ env.RESULT_BUNDLE_SIM }}
+          if-no-files-found: warn
+
+  device-archive:
+    name: Device archive (.xcarchive, unsigned)
+    runs-on: macos-15
+    needs: sim-build
+    steps:
+      - uses: actions/checkout@v4
+
+      - name: Select Xcode ${{ env.XCODE_VERSION }}
+        run: |
+          sudo xcode-select -s "/Applications/Xcode_${XCODE_VERSION}.app"
+          xcodebuild -version
+
+      - uses: actions/setup-node@v4
+        with:
+          node-version: ${{ env.NODE_VERSION }}
+          cache: 'npm'
+
+      - name: Cache Pods
+        uses: actions/cache@v4
+        with:
+          path: ios/Pods
+          key: pods-${{ runner.os }}-${{ hashFiles('ios/Podfile.lock') }}
+          restore-keys: pods-${{ runner.os }}-
+
+      - name: Install JS deps
+        run: npm ci
+
+      - name: Install CocoaPods
+        run: |
+          cd ios
+          bundle exec pod install --repo-update || pod install --repo-update
+
+      - name: Build — Generic iOS Device (Archive)
+        env:
+          RCT_NEW_ARCH_ENABLED: "1"
+        run: |
+          mkdir -p "$(dirname "$RESULT_BUNDLE_DEV")"
+          xcodebuild \
+            -workspace "${WORKSPACE}" \
+            -scheme "${SCHEME}" \
+            -configuration Release \
+            -destination "generic/platform=iOS" \
+            -derivedDataPath "${DERIVED_DATA}" \
+            -resultBundlePath "${RESULT_BUNDLE_DEV}" \
+            CODE_SIGNING_ALLOWED=NO \
+            CODE_SIGNING_REQUIRED=NO \
+            clean build archive | xcpretty && exit ${PIPESTATUS[0]}
+
+      - name: Upload Device Artifacts
+        uses: actions/upload-artifact@v4
+        with:
+          name: ios-device-archive
+          path: |
+            build/DerivedData/Build/Products/Release-iphoneos/*.app
+            build/DerivedData/Build/Intermediates.noindex/ArchiveIntermediates/${{ env.SCHEME }}/BuildProductsPath/Release-iphoneos/*.app
+            ${{ env.RESULT_BUNDLE_DEV }}
           if-no-files-found: warn

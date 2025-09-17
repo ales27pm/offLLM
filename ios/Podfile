@@ -2,6 +2,8 @@ require 'open3'
 
 platform :ios, '18.0'
 
+install! 'cocoapods', :disable_input_output_paths => true
+
 # --- Auto-detect the .xcodeproj near this Podfile ---
 #
 project_candidates = Dir.glob(File.join(__dir__, '*.xcodeproj')).sort
@@ -22,28 +24,9 @@ use_frameworks! linkage: :static
 
 begin
   rn_path = File.join(__dir__, '..', 'node_modules', 'react-native')
-
-  # React Native CocoaPods helpers (modern path)
   require File.join(rn_path, 'scripts', 'react_native_pods')
-
-  # Autolinking helpers — try modern first, then legacy file names
-  autolink_candidates = [
-    File.join(rn_path, 'scripts', 'autolink-ios.rb'),
-    File.join(rn_path, 'scripts', 'native_modules.rb')
-  ]
-  autolink_loaded = false
-  autolink_candidates.each do |cand|
-    if File.exist?(cand)
-      require cand
-      autolink_loaded = true
-      break
-    end
-  end
-
-  # No hard failure if autolink script filename changes across RN minor versions
-  Pod::UI.warn('[Podfile] Could not load autolink helper; relying on use_native_modules!') unless autolink_loaded
-
-rescue LoadError => e
+  require File.join(rn_path, 'scripts', 'react_native_pods_utils')
+rescue => e
   abort "[Podfile] Could not load React Native pod helpers: #{e.message}\n" \
         "[Podfile] Hint: run 'npm ci' (or 'yarn install') at repo root before 'pod install'."
 end
@@ -59,50 +42,46 @@ pre_install do |installer|
   if File.directory?(glog_src) && !File.exist?(config_h)
     if File.exist?(config_ios)
       FileUtils.cp(config_ios, config_h)
-      Pod::UI.puts 'Copied glog/src/config_ios.h -> config.h'
     elsif File.exist?(config_cmake)
       FileUtils.cp(config_cmake, config_h)
-      Pod::UI.puts 'Copied glog/src/config.h.cmake -> config.h'
-    else
-      Pod::UI.warn 'Could not find a glog config template to copy.'
     end
   end
 end
 
-target 'monGARS' do
+target 'MyOfflineLLMApp' do
+  config = use_native_modules!
+
+  # Flags change depending on the env values
+  flags = get_default_flags()
+
   use_react_native!(
+    :path => config[:reactNativePath],
     :hermes_enabled => true,
     :fabric_enabled => true,
-    :app_path => "#{Pod::Config.instance.installation_root}/.."
+    :app_path => "#{__dir__}/..",
+    :turbomodule_enabled => true,
+    :flipper_configuration => FlipperConfiguration.disabled,
+    :production => true,
+    :flags => flags
   )
 
-  # ---- Conditionally add pods that exist in node_modules ----
-  def add_pod_if_present(name, rel_path)
-    abs = File.join(__dir__, rel_path)
-    spec = Dir[File.join(abs, '*.podspec')].first
-    if spec && File.exist?(spec)
-      pod name, :path => rel_path
-    else
-      Pod::UI.warn "Skipping #{name} — no podspec at #{rel_path}"
-    end
+  # Add third-party pods only if present (keeps CI resilient)
+  def add_pod_if_present(name, path)
+    pod name, :path => path if File.exist?(File.join(__dir__, path))
   end
 
-  # Community modules
   add_pod_if_present 'RNCAsyncStorage', '../node_modules/@react-native-async-storage/async-storage'
-  # Clipboard package moved orgs in the past; try the canonical one first
-  if Dir.exist?(File.join(__dir__, '../node_modules/@react-native-clipboard/clipboard'))
-    add_pod_if_present 'RNCClipboard', '../node_modules/@react-native-clipboard/clipboard'
-  else
-    add_pod_if_present 'RNCClipboard', '../node_modules/@react-native-community/clipboard'
-  end
-  # Slider: rely on autolinking only to avoid podspec name mismatches
-  # (historically exposed as `RNCSlider` with `react-native-slider.podspec`).
-  # If needed, autolink will add it; do not declare manually here.
-  add_pod_if_present 'react-native-voice', '../node_modules/@react-native-voice/voice'
-  add_pod_if_present 'RNFS', '../node_modules/react-native-fs'
+  add_pod_if_present 'react-native-clipboard', '../node_modules/@react-native-community/clipboard'
+  add_pod_if_present 'react-native-slider', '../node_modules/@react-native-community/slider'
   add_pod_if_present 'RNDeviceInfo', '../node_modules/react-native-device-info'
-  add_pod_if_present 'react-native-contacts', '../node_modules/react-native-contacts'
-  add_pod_if_present 'react-native-config', '../node_modules/react-native-config'
+  add_pod_if_present 'RNFS', '../node_modules/react-native-fs'
+  add_pod_if_present 'react-native-blob-util', '../node_modules/react-native-blob-util'
+  add_pod_if_present 'react-native-safe-area-context', '../node_modules/react-native-safe-area-context'
+  add_pod_if_present 'react-native-restart', '../node_modules/react-native-restart'
+  add_pod_if_present 'react-native-quick-base64', '../node_modules/react-native-quick-base64'
+  add_pod_if_present 'react-native-get-random-values', '../node_modules/react-native-get-random-values'
+  add_pod_if_present 'react-native-uuid', '../node_modules/react-native-uuid'
+  add_pod_if_present 'react-native-mmkv', '../node_modules/react-native-mmkv'
   add_pod_if_present 'react-native-sqlite-storage', '../node_modules/react-native-sqlite-storage'
   add_pod_if_present 'react-native-music-control', '../node_modules/react-native-music-control'
 
@@ -111,19 +90,18 @@ end
 
 post_install do |installer|
   react_native_post_install(installer)
-  if ENV['CI']
-    # Safe even if not strictly needed: prevents stale I/O path analysis issues on CI
-    installer.pods_project.targets.each do |t|
-      t.build_configurations.each do |c|
-        c.build_settings['DISABLE_INPUT_OUTPUT_PATHS'] = 'YES'
-      end
+
+  # Unconditionally disable I/O path analysis to avoid flaky .xcfilelist issues
+  installer.pods_project.targets.each do |t|
+    t.build_configurations.each do |c|
+      c.build_settings['DISABLE_INPUT_OUTPUT_PATHS'] = 'YES'
     end
   end
 
+  # Remove obsolete Hermes phase if present (idempotent)
   hermes_phase_labels = ['[Hermes] Replace Hermes']
   remove_hermes_phase = lambda do |target, scope|
     return 0 unless target.respond_to?(:shell_script_build_phases)
-
     phases = target.shell_script_build_phases.select do |phase|
       phase_name = phase.respond_to?(:name) ? phase.name.to_s.strip : ''
       display_name =
@@ -132,94 +110,29 @@ post_install do |installer|
         else
           phase_name
         end
-      hermes_phase_labels.include?(phase_name) || hermes_phase_labels.include?(display_name)
+      hermes_phase_labels.include?(display_name)
     end
-
-    phases.each do |phase|
-      label = if phase.respond_to?(:display_name)
-                phase.display_name
-              elsif phase.respond_to?(:name)
-                phase.name
-              else
-                '[Hermes] Replace Hermes'
-              end
-      Pod::UI.puts("[Podfile] Removing '#{label}' build phase from #{scope} target #{target.name}")
-      target.build_phases.delete(phase)
-    end
-
-    phases.length
+    removed = 0
+    phases.each { |p| target.build_phases.delete(p); removed += 1 }
+    removed
   end
 
-  pods_project_removed = 0
-  installer.pods_project.targets.each do |t|
-    t.build_configurations.each do |c|
-      # Match project + satisfy RN 0.81+ minimums
-      c.build_settings['IPHONEOS_DEPLOYMENT_TARGET'] = '18.0'
-      # Keep debug previews off to reduce noise in CI
-      if c.name == 'Debug'
-        c.build_settings['SWIFT_OPTIMIZATION_LEVEL'] = '-Onone'
-      end
-      # Avoid failing the CI on pod warnings
-      c.build_settings['GCC_TREAT_WARNINGS_AS_ERRORS'] = 'NO'
-      # CI stability: allow CocoaPods script phases on Xcode 15+
-      c.build_settings['ENABLE_USER_SCRIPT_SANDBOXING'] = 'NO'
-      # Help SPM (MLX/MLXLLM) interop with Pods-produced frameworks
-      c.build_settings['BUILD_LIBRARY_FOR_DISTRIBUTION'] = 'YES'
-      c.build_settings['DISABLE_INPUT_OUTPUT_PATHS'] = 'YES' if ENV['CI']
-    end
-    pods_project_removed += remove_hermes_phase.call(t, 'Pods')
-  end
-  installer.pods_project.save if pods_project_removed.positive?
-
-  installer.aggregate_targets.each do |aggregate_target|
-    user_project = aggregate_target.user_project
-    next unless user_project
-    user_project.build_configurations.each do |config|
-      config.build_settings['IPHONEOS_DEPLOYMENT_TARGET'] = '18.0'
-      config.build_settings['DISABLE_INPUT_OUTPUT_PATHS'] = 'YES' if ENV['CI']
-    end
-    user_project.targets.each do |t|
-      t.build_configurations.each do |config|
-        config.build_settings['IPHONEOS_DEPLOYMENT_TARGET'] = '18.0'
-        config.build_settings['DISABLE_INPUT_OUTPUT_PATHS'] = 'YES' if ENV['CI']
-      end
-      remove_hermes_phase.call(t, 'user')
-    end
-    user_project.save
+  installer.pods_project.targets.each do |target|
+    removed = remove_hermes_phase.call(target, 'pods')
+    Pod::UI.puts "[Podfile] Removed #{removed} legacy Hermes phases from #{target.name}" if removed > 0
   end
 
+  # Try to apply RN Contacts orientation patch (if repo has the script)
   patch_script = File.join(__dir__, 'scripts', 'patch-react-native-contacts.sh')
   if File.exist?(patch_script)
-    Pod::UI.puts('[Podfile] Ensuring react-native-contacts orientation compatibility…')
-    env = {
-      'PODS_ROOT' => installer.sandbox.root.to_s,
-      'PATCH_IDEMPOTENT' => '1',
-    }
-    stdout_str, stderr_str, status = Open3.capture3(env, 'bash', patch_script)
-    if status.success?
-      stdout_str.each_line do |line|
-        next if line.strip.empty?
-        Pod::UI.puts("[Podfile] #{line.strip}")
-      end
-      stderr_str.each_line do |line|
-        next if line.strip.empty?
-        Pod::UI.warn("[Podfile] Patch script STDERR: #{line.strip}")
-      end
-    else
-      Pod::UI.warn('[Podfile] Failed to patch react-native-contacts orientation enum.')
-      Pod::UI.warn("[Podfile] Patch script exited with status #{status.exitstatus}.")
-      stdout_str.each_line do |line|
-        next if line.strip.empty?
-        Pod::UI.warn("[Podfile] STDOUT: #{line.strip}")
-      end
-      stderr_str.each_line do |line|
-        next if line.strip.empty?
-        Pod::UI.warn("[Podfile] STDERR: #{line.strip}")
-      end
-      Pod::UI.warn('[Podfile] This may be due to sandboxing or parallel execution in CI. Consider rerunning the patch manually or ensuring it remains idempotent.')
+    stdout_str, stderr_str, status = Open3.capture3('bash', patch_script)
+    if !status.success?
+      stdout_str.each_line { |line| Pod::UI.warn("[Podfile] STDOUT: #{line.strip}") unless line.strip.empty? }
+      stderr_str.each_line { |line| Pod::UI.warn("[Podfile] STDERR: #{line.strip}") unless line.strip.empty? }
+      Pod::UI.warn('[Podfile] Contacts patch failed (non-fatal). ' \
+                   'This may be due to sandboxing or idempotency. Consider re-running the patch manually.')
     end
   else
     Pod::UI.warn('[Podfile] Missing ios/scripts/patch-react-native-contacts.sh; skipping contacts orientation patch.')
   end
 end
-
