@@ -37,6 +37,7 @@ jobs:
         with:
           ruby-version: "3.2"
           bundler-cache: true
+          working-directory: ios
 
       - name: Cache CocoaPods
         uses: actions/cache@0400d5f644dc74513175e3cd8d07132dd4860809
