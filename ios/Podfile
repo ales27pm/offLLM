@@ -48,19 +48,22 @@ pre_install do |installer|
 end
 
 target 'MyOfflineLLMApp' do
-  config = use_native_modules!
-
-  # Flags change depending on the env values
-  flags = get_default_flags()
+  new_arch_enabled = ENV.fetch('RCT_NEW_ARCH_ENABLED', '0') == '1'
+  fabric_enabled =
+    if ENV.key?('RCT_FABRIC_ENABLED')
+      ENV['RCT_FABRIC_ENABLED'] == '1'
+    else
+      true
+    end
+  fabric_enabled = true if new_arch_enabled
 
   use_react_native!(
-    :path => config[:reactNativePath],
+    :path => File.join(__dir__, '..', 'node_modules', 'react-native'),
     :hermes_enabled => true,
-    :fabric_enabled => true,
+    :fabric_enabled => fabric_enabled,
+    :new_arch_enabled => new_arch_enabled,
     :app_path => "#{__dir__}/..",
-    :turbomodule_enabled => true,
-    :production => true,
-    :flags => flags
+    :config_file_dir => File.expand_path('..', __dir__)
   )
 
   # Add third-party pods only if present (keeps CI resilient)
