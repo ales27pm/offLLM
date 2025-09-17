@@ -11,12 +11,12 @@ jobs:
     runs-on: macos-15
     env:
       XCODE_CONTAINER_FLAG: -workspace
-      XCODE_CONTAINER_PATH: ios/monGARS.xcworkspace
+      XCODE_CONTAINER_PATH: monGARS.xcworkspace
       XCODE_CONTAINER_TYPE: workspace
       XCODE_SCHEME: monGARS
-      ARCHIVE_PATH: build/monGARS.xcarchive
-      RESULT_PATH: build/monGARS.xcresult
-      RESOLVE_RESULT_BUNDLE: build/resolve-package.xcresult
+      ARCHIVE_PATH: ${{ github.workspace }}/build/monGARS.xcarchive
+      RESULT_PATH: ${{ github.workspace }}/build/monGARS.xcresult
+      RESOLVE_RESULT_BUNDLE: ${{ github.workspace }}/build/resolve-package.xcresult
       OUTPUT_DIR: build/output
     steps:
       - name: Checkout repository
@@ -81,9 +81,7 @@ jobs:
             FLAG="-project"
           fi
 
-          # Use the absolute path so callers outside ios/ resolve the container correctly
-          ABS_PATH="$(pwd)/${CONTAINER}"
-          echo "XCODE_CONTAINER_PATH=${ABS_PATH}" >>"$GITHUB_ENV"
+          echo "XCODE_CONTAINER_PATH=${CONTAINER}" >>"$GITHUB_ENV"
           echo "XCODE_CONTAINER_FLAG=${FLAG}" >>"$GITHUB_ENV"
           echo "XCODE_CONTAINER_TYPE=${TYPE}" >>"$GITHUB_ENV"
 
@@ -92,7 +90,9 @@ jobs:
           #!/usr/bin/env bash
           set -euo pipefail
           mkdir -p build/swiftpm
-          xcodebuild "$XCODE_CONTAINER_FLAG" "$XCODE_CONTAINER_PATH" \
+          mkdir -p "$(dirname "$RESOLVE_RESULT_BUNDLE")"
+          rm -rf "$RESOLVE_RESULT_BUNDLE"
+          xcodebuild "$XCODE_CONTAINER_FLAG" "ios/$XCODE_CONTAINER_PATH" \
             -scheme "$XCODE_SCHEME" \
             -resolvePackageDependencies \
             -clonedSourcePackagesDirPath build/swiftpm \
@@ -106,12 +106,12 @@ jobs:
           rm -rf "$ARCHIVE_PATH" "$RESULT_PATH" build-log.txt
           # Build archive with code signing disabled
           set -o pipefail
-          xcodebuild "$XCODE_CONTAINER_FLAG" "$XCODE_CONTAINER_PATH" \
+          xcodebuild "$XCODE_CONTAINER_FLAG" "ios/$XCODE_CONTAINER_PATH" \
             -scheme "$XCODE_SCHEME" -configuration Release \
             -destination generic/platform=iOS \
             CODE_SIGN_IDENTITY="" CODE_SIGNING_REQUIRED=NO CODE_SIGNING_ALLOWED=NO \
-            -archivePath $ARCHIVE_PATH \
-            -resultBundlePath $RESULT_PATH \
+            -archivePath "$ARCHIVE_PATH" \
+            -resultBundlePath "$RESULT_PATH" \
             clean archive | tee build-log.txt
 
       - name: Prepare output directory

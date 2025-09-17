@@ -32,6 +32,10 @@ final class MLXModule: NSObject {
   @objc static func requiresMainQueueSetup() -> Bool { false }
 
   // MARK: - State
+  private enum SessionAccessError: Error {
+    case noActiveSession
+  }
+
   private var container: ModelContainer?
   private var session: ChatSession?
 
@@ -128,20 +132,26 @@ final class MLXModule: NSObject {
     Task(priority: .userInitiated) { @MainActor [weak self] in
       guard let self else { return }
 
-      guard let session = self.session else {
+      do {
+        let reply = try await self.respondUsingActiveSession(to: prompt)
+        callbacks.fulfill(reply)
+      } catch SessionAccessError.noActiveSession {
         let error = Self.makeError("MLX_GEN_ERR", "No model loaded")
         callbacks.fail(code: "MLX_GEN_ERR", message: error.localizedDescription, error: error)
-        return
-      }
-
-      do {
-        let reply = try await session.respond(to: prompt)
-        callbacks.fulfill(reply)
       } catch {
         let message = "Generation failed: \(error.localizedDescription)"
         callbacks.fail(code: "MLX_GEN_ERR", message: message, error: error)
       }
     }
+  }
+
+  @MainActor
+  private func respondUsingActiveSession(to prompt: String) async throws -> String {
+    guard let session else {
+      throw SessionAccessError.noActiveSession
+    }
+
+    return try await session.respond(to: prompt)
   }
 
   /// Reset the multi-turn chat context (keeps the loaded model).
