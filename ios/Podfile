@@ -46,17 +46,20 @@ pre_install do |installer|
 end
 
 target 'MyOfflineLLMApp' do
+  config = use_native_modules!
+
   new_arch_enabled = ENV.fetch('RCT_NEW_ARCH_ENABLED', '0') == '1'
+  fabric_env = ENV['RCT_FABRIC_ENABLED']
   fabric_enabled =
-    if ENV.key?('RCT_FABRIC_ENABLED')
-      ENV['RCT_FABRIC_ENABLED'] == '1'
-    else
+    if fabric_env.nil?
       true
+    else
+      fabric_env == '1'
     end
   fabric_enabled = true if new_arch_enabled
 
   use_react_native!(
-    :path => File.join(__dir__, '..', 'node_modules', 'react-native'),
+    :path => config[:reactNativePath],
     :hermes_enabled => true,
     :fabric_enabled => fabric_enabled,
     :new_arch_enabled => new_arch_enabled,
@@ -84,7 +87,6 @@ target 'MyOfflineLLMApp' do
   add_pod_if_present 'react-native-sqlite-storage', '../node_modules/react-native-sqlite-storage'
   add_pod_if_present 'react-native-music-control', '../node_modules/react-native-music-control'
 
-  use_native_modules!
 end
 
 post_install do |installer|
