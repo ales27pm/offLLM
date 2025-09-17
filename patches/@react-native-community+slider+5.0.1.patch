@@ -1,23 +1,26 @@
 diff --git a/node_modules/@react-native-community/slider/ios/RNCSliderComponentView.mm b/node_modules/@react-native-community/slider/ios/RNCSliderComponentView.mm
-index 928c532..aff395b 100644
+index 928c532..8d808ff 100644
 --- a/node_modules/@react-native-community/slider/ios/RNCSliderComponentView.mm
 +++ b/node_modules/@react-native-community/slider/ios/RNCSliderComponentView.mm
 @@ -7,9 +7,19 @@
  #import <react/renderer/components/RNCSlider/Props.h>
  #import <react/renderer/components/RNCSlider/RCTComponentViewHelpers.h>
  #import <React/RCTBridge+Private.h>
+-#import "RCTImagePrimitivesConversions.h"
+-#import <React/RCTImageLoaderProtocol.h>
+-#import "RCTFabricComponentsPlugins.h"
 +#if __has_include(<React/RCTImagePrimitivesConversions.h>)
 +#import <React/RCTImagePrimitivesConversions.h>
 +#elif __has_include(<react/renderer/imagemanager/RCTImagePrimitivesConversions.h>)
 +#import <react/renderer/imagemanager/RCTImagePrimitivesConversions.h>
 +#else
- #import "RCTImagePrimitivesConversions.h"
++#import "RCTImagePrimitivesConversions.h"
 +#endif
- #import <React/RCTImageLoaderProtocol.h>
++#import <React/RCTImageLoaderProtocol.h>
 +#if __has_include(<React/RCTFabricComponentsPlugins.h>)
 +#import <React/RCTFabricComponentsPlugins.h>
 +#else
- #import "RCTFabricComponentsPlugins.h"
++#import "RCTFabricComponentsPlugins.h"
 +#endif
  #import "RNCSlider.h"
  
