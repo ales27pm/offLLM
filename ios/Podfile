@@ -45,7 +45,7 @@ pre_install do |installer|
   end
 end
 
-target 'MyOfflineLLMApp' do
+target 'monGARS' do
   config = use_native_modules!
 
   new_arch_enabled = ENV.fetch('RCT_NEW_ARCH_ENABLED', '0') == '1'
