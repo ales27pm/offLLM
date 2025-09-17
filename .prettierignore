@@ -4,6 +4,8 @@ CI-REPORT.md
 report_agent.md
 REPORT.md
 .github/workflows/ios.yml
+.github/workflows/ios-unsigned.yml
+.github/workflows/ios-unsigned-device.yml
 # ignore disabled workflow files
 .github/workflows/*.yml.disabled
 README.md
