@@ -25,7 +25,6 @@ use_frameworks! linkage: :static
 begin
   rn_path = File.join(__dir__, '..', 'node_modules', 'react-native')
   require File.join(rn_path, 'scripts', 'react_native_pods')
-  require File.join(rn_path, 'scripts', 'react_native_pods_utils')
 rescue => e
   abort "[Podfile] Could not load React Native pod helpers: #{e.message}\n" \
         "[Podfile] Hint: run 'npm ci' (or 'yarn install') at repo root before 'pod install'."
