@@ -59,7 +59,6 @@ target 'MyOfflineLLMApp' do
     :fabric_enabled => true,
     :app_path => "#{__dir__}/..",
     :turbomodule_enabled => true,
-    :flipper_configuration => FlipperConfiguration.disabled,
     :production => true,
     :flags => flags
   )
