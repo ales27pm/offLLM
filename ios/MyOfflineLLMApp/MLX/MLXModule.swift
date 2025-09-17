@@ -31,7 +31,9 @@ private actor ChatSessionActor {
     defer { resumeNextWaiter() }
 
     try Task.checkCancellation()
-    return try await session.respond(to: prompt)
+    return try await MainActor.run {
+      try await session.respond(to: prompt)
+    }
   }
 
   private func waitTurn() async throws {
