@@ -4,15 +4,62 @@ import React
 import MLXLLM
 import MLXLMCommon
 
+extension ChatSession: @unchecked Sendable {}
+
 private actor ChatSessionActor {
+  private struct Waiter {
+    let id: UUID
+    let continuation: CheckedContinuation<Void, Error>
+  }
+
   private let session: ChatSession
+  private var isResponding = false
+  private var waitQueue: [Waiter] = []
 
   init(session: ChatSession) {
     self.session = session
   }
 
   func respond(to prompt: String) async throws -> String {
-    try await session.respond(to: prompt)
+    try Task.checkCancellation()
+
+    if isResponding {
+      try await waitTurn()
+    }
+
+    isResponding = true
+    defer { resumeNextWaiter() }
+
+    try Task.checkCancellation()
+    return try await session.respond(to: prompt)
+  }
+
+  private func waitTurn() async throws {
+    let waiterID = UUID()
+
+    try await withTaskCancellationHandler {
+      try await withCheckedThrowingContinuation { (continuation: CheckedContinuation<Void, Error>) in
+        waitQueue.append(Waiter(id: waiterID, continuation: continuation))
+      }
+    } onCancel: {
+      Task { await self.cancelWaiter(id: waiterID) }
+    }
+  }
+
+  private func resumeNextWaiter() {
+    guard !waitQueue.isEmpty else {
+      isResponding = false
+      return
+    }
+
+    let next = waitQueue.removeFirst()
+    next.continuation.resume(returning: ())
+  }
+
+  private func cancelWaiter(id: UUID) {
+    guard let index = waitQueue.firstIndex(where: { $0.id == id }) else { return }
+    let waiter = waitQueue.remove(at: index)
+    waiter.continuation.resume(throwing: CancellationError())
   }
 }
 

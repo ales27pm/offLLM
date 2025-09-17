@@ -91,6 +91,95 @@ jobs:
           COCOAPODS_DISABLE_STATS: "true"
         run: bundle exec pod install
 
+      - name: Capture iOS environment diagnostics
+        run: |
+          #!/usr/bin/env bash
+          set -euo pipefail
+          mkdir -p build/diagnostics
+          LOG="build/diagnostics/environment.log"
+          {
+            echo "Collected at (UTC): $(date -u +\"%Y-%m-%dT%H:%M:%SZ\")"
+            echo "Runner name: ${RUNNER_NAME:-unknown}"
+            echo "Runner OS: ${RUNNER_OS:-unknown}"
+            echo "Runner image: ${ImageOS:-unknown} ${ImageVersion:-unknown}"
+            echo
+            echo "## macOS"
+            if command -v sw_vers >/dev/null 2>&1; then
+              sw_vers
+            else
+              echo "sw_vers unavailable"
+            fi
+            echo
+            echo "## Xcode"
+            if command -v xcode-select >/dev/null 2>&1; then
+              echo "xcode-select: $(xcode-select -p)"
+            else
+              echo "xcode-select not found"
+            fi
+            if command -v xcodebuild >/dev/null 2>&1; then
+              xcodebuild -version || true
+              xcodebuild -showsdks || true
+            else
+              echo "xcodebuild unavailable"
+            fi
+            echo
+            echo "## Tool versions"
+            if command -v xcodegen >/dev/null 2>&1; then
+              echo "xcodegen: $(xcodegen --version)"
+            else
+              echo "xcodegen: unavailable"
+            fi
+            if command -v swift >/dev/null 2>&1; then
+              swift --version || true
+            else
+              echo "swift: unavailable"
+            fi
+            if command -v clang >/dev/null 2>&1; then
+              clang --version | head -n 1 || true
+            else
+              echo "clang: unavailable"
+            fi
+            if command -v ruby >/dev/null 2>&1; then
+              echo "ruby: $(ruby --version)"
+            else
+              echo "ruby: unavailable"
+            fi
+            if command -v bundle >/dev/null 2>&1; then
+              echo "bundler: $(bundle --version)"
+            else
+              echo "bundler: unavailable"
+            fi
+            if command -v pod >/dev/null 2>&1; then
+              echo "cocoapods: $(pod --version)"
+            else
+              echo "cocoapods: unavailable"
+            fi
+            if command -v node >/dev/null 2>&1; then
+              echo "node: $(node --version)"
+            else
+              echo "node: unavailable"
+            fi
+            if command -v npm >/dev/null 2>&1; then
+              echo "npm: $(npm --version)"
+            else
+              echo "npm: unavailable"
+            fi
+            if command -v python3 >/dev/null 2>&1; then
+              echo "python3: $(python3 --version)"
+            else
+              echo "python3: unavailable"
+            fi
+          } | tee "$LOG"
+
+          (
+            cd ios
+            if command -v bundle >/dev/null 2>&1; then
+              bundle env > ../build/diagnostics/bundle-env.log 2>&1 || true
+              bundle exec pod --version > ../build/diagnostics/pod-version.log 2>&1 || true
+              bundle exec pod env > ../build/diagnostics/pod-env.log 2>&1 || true
+            fi
+          ) || true
+
       - name: Detect Xcode container
         working-directory: ios
         run: |
@@ -108,6 +197,28 @@ jobs:
           CONTAINER="${CONTAINER#./}"
           echo "XCODE_CONTAINER=$(pwd)/$CONTAINER" >> "$GITHUB_ENV"
           echo "XCODE_CONTAINER_TYPE=$TYPE" >> "$GITHUB_ENV"
+
+      - name: Snapshot Xcode project metadata
+        run: |
+          #!/usr/bin/env bash
+          set -euo pipefail
+          mkdir -p build/diagnostics
+          if [ -z "${XCODE_CONTAINER:-}" ] || [ -z "${XCODE_CONTAINER_TYPE:-}" ]; then
+            echo "Xcode container metadata unavailable" > build/diagnostics/xcodebuild-metadata.log
+            exit 0
+          fi
+          FLAG="-${XCODE_CONTAINER_TYPE}"
+          xcodebuild "$FLAG" "$XCODE_CONTAINER" -list -json \
+            > build/diagnostics/xcodebuild-list.json 2> build/diagnostics/xcodebuild-list.stderr || true
+          xcodebuild "$FLAG" "$XCODE_CONTAINER" -list \
+            > build/diagnostics/xcodebuild-list.txt 2>&1 || true
+          xcodebuild "$FLAG" "$XCODE_CONTAINER" -scheme "$SCHEME" -showBuildSettings \
+            > build/diagnostics/build-settings.log 2>&1 || true
+          if [ -s build/diagnostics/xcodebuild-list.stderr ]; then
+            printf '\n(list -json stderr)\n' >> build/diagnostics/xcodebuild-list.txt
+            cat build/diagnostics/xcodebuild-list.stderr >> build/diagnostics/xcodebuild-list.txt || true
+          fi
+          rm -f build/diagnostics/xcodebuild-list.stderr
 
       - name: iOS Doctor (workspace must exist)
         if: ${{ env.XCODE_CONTAINER_TYPE == 'workspace' }}
@@ -205,6 +316,8 @@ jobs:
         run: |
           set -euxo pipefail
           rm -rf "$ARCHIVE_PATH" "$RB_ARCHIVE"
+          LOG_FILE="build-log.txt"
+          rm -f "$LOG_FILE"
           xcodebuild archive \
             -${XCODE_CONTAINER_TYPE} "$XCODE_CONTAINER" \
             -scheme "$SCHEME" \
@@ -213,7 +326,145 @@ jobs:
             CODE_SIGNING_ALLOWED=NO CODE_SIGNING_REQUIRED=NO \
             -derivedDataPath "$DERIVED_DATA" \
             -resultBundlePath "$RB_ARCHIVE" \
-            -archivePath "$ARCHIVE_PATH"
+            -archivePath "$ARCHIVE_PATH" \
+            2>&1 | tee "$LOG_FILE"
+
+      - name: Collect build log
+        if: ${{ always() }}
+        run: |
+          mkdir -p "$OUTPUT_DIR"
+          if [ -f build-log.txt ]; then
+            cp build-log.txt "$OUTPUT_DIR/" || true
+          fi
+
+      - name: Summarize xcodebuild log
+        if: ${{ always() }}
+        run: |
+          python3 <<'PY'
+            from pathlib import Path
+
+            out_dir = Path("build/diagnostics")
+            out_dir.mkdir(parents=True, exist_ok=True)
+            log_path = Path("build-log.txt")
+            summary_path = out_dir / "xcodebuild-errors.log"
+
+            if not log_path.exists():
+                summary_path.write_text("build-log.txt not found\n", encoding="utf-8")
+            else:
+                lines = log_path.read_text(encoding="utf-8", errors="ignore").splitlines()
+                errors: list[str] = []
+                warnings: list[str] = []
+                for line in lines:
+                    stripped = line.strip()
+                    if not stripped:
+                        continue
+                    lower = stripped.lower()
+                    if (
+                        "error:" in lower
+                        or lower.startswith("error ")
+                        or " fatal error" in lower
+                        or " build failed" in lower
+                        or lower.startswith("ld: fatal error")
+                    ):
+                        errors.append(stripped)
+                    elif (
+                        " warning:" in lower
+                        or lower.startswith("warning:")
+                        or lower.startswith("ld: warning")
+                    ):
+                        warnings.append(stripped)
+                tail = lines[-60:]
+                with summary_path.open("w", encoding="utf-8") as handle:
+                    handle.write(f"Errors ({len(errors)}):\n")
+                    for entry in errors[:50]:
+                        handle.write(f"- {entry}\n")
+                    if len(errors) > 50:
+                        handle.write(f"… (+{len(errors) - 50} more)\n")
+                    handle.write("\nWarnings ({}):\n".format(len(warnings)))
+                    for entry in warnings[:50]:
+                        handle.write(f"- {entry}\n")
+                    if len(warnings) > 50:
+                        handle.write(f"… (+{len(warnings) - 50} more)\n")
+                    handle.write("\nLog tail:\n")
+                    for entry in tail:
+                        handle.write(entry + "\n")
+          PY
+
+      - name: Catalog DerivedData logs
+        if: ${{ always() }}
+        run: |
+          python3 <<'PY'
+            import os
+            import shutil
+            import time
+            from pathlib import Path
+
+            out_dir = Path("build/diagnostics")
+            out_dir.mkdir(parents=True, exist_ok=True)
+            base = Path(os.environ.get("DERIVED_DATA", os.path.expanduser("~/Library/Developer/Xcode/DerivedData")))
+            listing = out_dir / "derived-data.txt"
+
+            if not base.exists():
+                listing.write_text(f"DerivedData directory not found: {base}\n", encoding="utf-8")
+            else:
+                entries = sorted([p for p in base.iterdir() if p.is_dir()], key=lambda p: p.stat().st_mtime, reverse=True)
+                lines: list[str] = [f"DerivedData base: {base}"]
+                for entry in entries[:6]:
+                    try:
+                        mtime = time.strftime("%Y-%m-%d %H:%M:%SZ", time.gmtime(entry.stat().st_mtime))
+                    except FileNotFoundError:
+                        continue
+                    lines.append(f"- {entry.name} (modified {mtime})")
+                    logs_dir = entry / "Logs" / "Build"
+                    if logs_dir.is_dir():
+                        candidates = sorted(
+                            [p for p in logs_dir.glob("*.xcactivitylog") if p.is_file()],
+                            key=lambda p: p.stat().st_mtime,
+                            reverse=True,
+                        )
+                        if candidates:
+                            chosen = candidates[0]
+                            size = chosen.stat().st_size
+                            human_size = f"{size / (1024 * 1024):.1f} MiB"
+                            if size <= 8 * 1024 * 1024:
+                                target = out_dir / f"{entry.name}_{chosen.name}"
+                                try:
+                                    shutil.copy2(chosen, target)
+                                    lines.append(f"  Copied log: {target.name} ({human_size})")
+                                except Exception as exc:
+                                    lines.append(f"  Failed to copy {chosen.name}: {exc}")
+                            else:
+                                lines.append(f"  Skipped log {chosen.name} ({human_size}) — larger than 8 MiB")
+                listing.write_text("\n".join(lines) + "\n", encoding="utf-8")
+          PY
+
+      - name: Collect unified log (xcodebuild)
+        if: ${{ always() }}
+        run: |
+          #!/usr/bin/env bash
+          set -euo pipefail
+          mkdir -p build/diagnostics
+          if command -v log >/dev/null 2>&1; then
+            if ! log show --predicate 'process == "xcodebuild"' --style compact --last 30m \
+              > build/diagnostics/unified-xcodebuild.log 2> build/diagnostics/unified-xcodebuild.err; then
+              {
+                echo "Failed to collect unified log via 'log show'"
+                cat build/diagnostics/unified-xcodebuild.err || true
+              } > build/diagnostics/unified-xcodebuild.log
+            fi
+            rm -f build/diagnostics/unified-xcodebuild.err
+          else
+            echo "'log' command unavailable on this runner" > build/diagnostics/unified-xcodebuild.log
+          fi
+
+      - name: Publish diagnostics summary
+        if: ${{ always() }}
+        run: |
+          python3 scripts/ci/emit_ios_diagnostics_summary.py \
+            --label "iOS unsigned device build" \
+            --result-json build/ResultBundle_archive.json \
+            --result-json build/ResultBundle_resolve.json \
+            --artifact-path build/diagnostics
 
       - name: Fallback note if device platform is missing
         if: ${{ steps.sdk.outputs.present != 'true' }}
@@ -261,9 +512,11 @@ jobs:
           path: |
             ${{ env.OUTPUT_DIR }}/*.ipa
             ${{ env.OUTPUT_DIR }}/*.zip
+            ${{ env.OUTPUT_DIR }}/build-log.txt
             ${{ env.DERIVED_DATA }}/Archive.xcarchive
             ${{ env.DERIVED_DATA }}/ResultBundle_archive.xcresult
             build/ResultBundle_archive.json
             build/ResultBundle_resolve.json
+            build/diagnostics
           if-no-files-found: warn
           compression-level: 6
