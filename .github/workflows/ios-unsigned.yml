@@ -26,7 +26,7 @@ jobs:
     name: Simulator build (.app for iPhone 16 Pro / iOS 18)
     runs-on: macos-15
     steps:
-      - uses: actions/checkout@v4
+      - uses: actions/checkout@v5
 
       - name: Select Xcode ${{ env.XCODE_VERSION }}
         run: |
@@ -110,7 +110,7 @@ jobs:
     runs-on: macos-15
     needs: sim-build
     steps:
-      - uses: actions/checkout@v4
+      - uses: actions/checkout@v5
 
       - name: Select Xcode ${{ env.XCODE_VERSION }}
         run: |
