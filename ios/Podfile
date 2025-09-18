@@ -1,4 +1,5 @@
 require 'open3'
+require 'fileutils'
 
 platform :ios, '18.0'
 
@@ -131,7 +132,7 @@ post_install do |installer|
         else
           phase_name
         end
-      hermes_phase_labels.include?(display_name)
+      hermes_phase_labels.any? { |needle| display_name.include?(needle) }
     end
     removed = 0
     phases.each { |p| target.build_phases.delete(p); removed += 1 }
@@ -146,6 +147,20 @@ post_install do |installer|
   header_search_fix = '$(PODS_ROOT)/Headers/Public/RCTDeprecation'
   module_map_path = '$(PODS_ROOT)/Headers/Public/RCTDeprecation/RCTDeprecation.modulemap'
   module_map_flag = "-fmodule-map-file=#{module_map_path}"
+  module_map_disk = File.join(installer.sandbox.root.to_s, 'Headers', 'Public', 'RCTDeprecation', 'RCTDeprecation.modulemap')
+  desired_module_map = <<~MODULEMAP
+    module RCTDeprecation {
+      header "RCTDeprecation.h"
+      export *
+    }
+
+  MODULEMAP
+  FileUtils.mkdir_p(File.dirname(module_map_disk))
+  existing_module_map = File.exist?(module_map_disk) ? File.read(module_map_disk) : nil
+  if existing_module_map != desired_module_map
+    Pod::UI.puts "[Podfile] Writing #{module_map_disk}"
+    File.write(module_map_disk, desired_module_map)
+  end
   installer.aggregate_targets.each do |aggregate_target|
     user_project = aggregate_target.user_project
     next unless user_project

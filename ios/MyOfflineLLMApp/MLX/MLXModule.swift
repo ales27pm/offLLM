@@ -131,20 +131,21 @@ final class MLXModule: NSObject {
     let candidateIDs = idsToTry(from: requestedID)
     Task { [weak self, candidateIDs] in
       guard let self else { return }
-      do {
-        for id in candidateIDs {
-          do {
-            let container = try await Self.loadContainer(modelID: id)
-            await MainActor.run { self.setActive(container: container) }
-            p.ok(["id": id])
-            return
-          } catch {
-            // try next id
-          }
+      var lastError: Error?
+      for id in candidateIDs {
+        do {
+          let container = try await Self.loadContainer(modelID: id)
+          await MainActor.run { self.setActive(container: container) }
+          p.ok(["id": id])
+          return
+        } catch {
+          lastError = error
         }
+      }
+      if let lastError {
+        p.fail("ENOENT", "Failed to load any model id", lastError)
+      } else {
         p.fail("ENOENT", "Failed to load any model id")
-      } catch {
-        p.fail("ELOAD", "Load failed", error)
       }
     }
   }
