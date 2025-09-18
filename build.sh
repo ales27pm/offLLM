@@ -86,15 +86,19 @@ ensure_workspace() {
 
 ensure_workspace
 
-# Step 3.5: Clean DerivedData/ModuleCache to avoid stale AST mismatches
-echo "🧽 Clearing Xcode derived data and module caches..."
+# Step 3.5: Clear module caches without nuking the entire DerivedData tree
+echo "🧽 Clearing Xcode module caches..."
 rm -rf ~/Library/Developer/Xcode/DerivedData/ModuleCache.noindex
-rm -rf ~/Library/Developer/Xcode/DerivedData
-rm -rf "$BUILD_DIR/DerivedData"
+rm -rf ~/Library/Developer/Xcode/DerivedData/ModuleCache
+
+# Force a clean build without deleting caches wholesale
+XCODEBUILD_EXTRA_FLAGS=(
+  -IDEBuildOperationRebuildFromScratch=YES
+)
 
 # Step 4: Run the Xcode build (Simulator, unsigned)
 echo "📦 Building for iOS Simulator (unsigned)..."
-xcodebuild build \
+xcodebuild "${XCODEBUILD_EXTRA_FLAGS[@]}" build \
   -workspace "$WORKSPACE" \
   -scheme "$SCHEME" \
   -configuration Release \

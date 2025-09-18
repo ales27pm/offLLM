@@ -17,12 +17,12 @@ final class MLXEvents: RCTEventEmitter {
   // Single shared instance for convenience
   @MainActor static var shared: MLXEvents?
 
-  override init() {
+  @MainActor override init() {
     super.init()
     MLXEvents.shared = self
   }
 
-  deinit {
+  @MainActor deinit {
     if MLXEvents.shared === self { MLXEvents.shared = nil }
   }
 
