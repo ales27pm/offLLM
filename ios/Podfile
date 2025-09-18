@@ -1,5 +1,8 @@
 require 'open3'
 
+post_install_hook = File.expand_path('scripts/post_install_hardening_hook.rb', __dir__)
+require post_install_hook if File.exist?(post_install_hook)
+
 platform :ios, '18.0'
 
 def env_flag_enabled?(name, default:)

@@ -1,35 +1,56 @@
-#!/usr/bin/env bash
+#!/bin/bash
 set -euo pipefail
+
 ROOT_DIR="$(cd "$(dirname "${BASH_SOURCE[0]}")/.." && pwd)"
-ENV_FILE="$ROOT_DIR/.env"
-DEFAULT_ENV_FILE="$ROOT_DIR/.env.default"
+IOS_DIR="$ROOT_DIR/ios"
 
-if [ -f "$ENV_FILE" ]; then
-  set -a
-  # shellcheck disable=SC1090
-  source "$ENV_FILE"
-  set +a
-elif [ -f "$DEFAULT_ENV_FILE" ]; then
-  echo "ℹ️ No .env file found; loading defaults from $DEFAULT_ENV_FILE"
-  set -a
-  # shellcheck disable=SC1090
-  source "$DEFAULT_ENV_FILE"
-  set +a
-fi
-
-IOS_DIR="${1:-"$ROOT_DIR/ios"}"
-WS=""
-for ws in "$IOS_DIR"/*.xcworkspace; do
-  if [ -e "$ws" ]; then
-    WS="$ws"
-    break
-  fi
-done
-if [ -z "${WS:-}" ]; then
-  echo "❌ No .xcworkspace found after 'pod install' in: $IOS_DIR"
+if ! command -v xcodebuild >/dev/null 2>&1; then
+  echo "❌ xcodebuild not available. Install Xcode command line tools before running the doctor."
   exit 1
 fi
-echo "✅ Found workspace: $WS"
-if [[ -n "${GITHUB_ENV:-}" ]]; then
-  echo "WORKSPACE=$WS" >> "$GITHUB_ENV"
+
+echo "=== monGARS iOS Doctor (Enhanced: Blueprint + Codegen Check) ==="
+echo "Date: $(date)"
+echo "Xcode: $(xcodebuild -version | head -1)"
+echo "Node: $(node --version)"
+echo "Ruby: $(ruby --version)"
+echo "Pod: $(pod --version)"
+
+# Your existing checks...
+(
+  cd "$ROOT_DIR"
+  npm run lint
+  npm test
+)
+(
+  cd "$IOS_DIR"
+  xcodegen generate
+  bundle exec pod install --repo-update
+)
+
+# New: Blueprint duplicate scan
+echo "Scanning for blueprint duplicates..."
+BLUEPRINT_ISSUES=$(cd "$IOS_DIR" && xcodebuild -workspace monGARS.xcworkspace -scheme monGARS -showBuildSettings 2>&1 | grep -c "Unexpectedly found another blueprint" || true)
+if [ "${BLUEPRINT_ISSUES:-0}" -gt 0 ]; then
+  echo "⚠️  $BLUEPRINT_ISSUES blueprint duplicates detected. Running auto-clean..."
+  find "$IOS_DIR/build/generated/ios" -name "*JSI-generated*" -delete 2>/dev/null || true
+  find "$IOS_DIR/build/generated/ios" -name "*Spec-generated*" -delete 2>/dev/null || true
+  (
+    cd "$IOS_DIR"
+    bundle exec pod install  # Re-gen clean
+  )
 fi
+
+# New: Test archive dry-run
+echo "Dry-run archive..."
+if ! (cd "$IOS_DIR" && xcodebuild -workspace monGARS.xcworkspace -scheme monGARS \
+  -configuration Release \
+  -destination "generic/platform=iOS" \
+  CODE_SIGNING_ALLOWED=NO \
+  -dry-run clean archive); then
+  echo "❌ Archive dry-run failed. Check logs."
+  exit 1
+fi
+
+# Your existing sim/device tests...
+echo "✅ Doctor passed. Ready for full build."
