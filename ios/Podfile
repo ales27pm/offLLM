@@ -65,14 +65,12 @@ target 'monGARS' do
   fabric_enabled = env_flag_enabled?('RCT_FABRIC_ENABLED', default: new_arch_enabled)
 
   flags = get_default_flags()
-  flags[:new_arch_enabled] = new_arch_enabled
-  flags[:fabric_enabled] = fabric_enabled
 
   use_react_native!(
     :path => config[:reactNativePath],
     :hermes_enabled => flags[:hermes_enabled],
-    :fabric_enabled => flags[:fabric_enabled],
-    :new_arch_enabled => flags[:new_arch_enabled],
+    :fabric_enabled => fabric_enabled,
+    :new_arch_enabled => new_arch_enabled,
     :app_path => "#{__dir__}/..",
     :config_file_dir => File.expand_path('..', __dir__)
   )
