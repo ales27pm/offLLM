@@ -4,79 +4,50 @@ This workflow documents the deterministic sequence we now follow when React Nati
 
 ## 0. Prerequisites
 
-- **Xcode:** 16.4 (`sudo xcode-select -s "/Applications/Xcode_16.4.app/Contents/Developer"`)
-- **Swift toolchain:** bundled with Xcode 16.4 (Swift 6.1.2)
-- **Ruby:** 3.2 with Bundler (install via `brew install ruby` and `gem install bundler`)
-- **CocoaPods:** managed through Bundler (`bundle install` in the repo root)
-- **Node:** 20.x with npm 10.x (`nvm use 20 && npm install -g npm@latest`)
+- **Xcode 16.4** selected: `sudo xcode-select -s "/Applications/Xcode_16.4.app/Contents/Developer"`
+- **Swift 6.1.2** (bundled with Xcode 16.4)
+- **Ruby 3.2+ with CocoaPods 1.15+**: `gem install cocoapods -v ">= 1.15.0"`
+- **Node 20+ / npm 10+**
 
-## 1. Clean JavaScript dependencies
-
-```bash
-rm -rf node_modules package-lock.json
-npm ci
-```
-
-The clean install guarantees that `node_modules/react-native` resolves to the version recorded in `package.json` (currently `0.81.4`).
-
-## 2. Regenerate iOS projects (if applicable)
+## 1. Patch Swift files (only if not already committed)
 
 ```bash
-cd ios
-xcodegen generate || true
-cd ..
+# MLXEvents.swift
+nonisolated(unsafe) private static weak var sharedStorage: MLXEvents?
+nonisolated(unsafe) static var shared: MLXEvents? { sharedStorage }
+override init() { super.init(); MLXEvents.sharedStorage = self }
+deinit { if MLXEvents.sharedStorage === self { MLXEvents.sharedStorage = nil } }
+
+# MLXModule.swift
+func stream(... onToken: @escaping @Sendable (String) -> Void) async throws {
+  Task { [weak self] in ... }
+}
 ```
 
-`xcodegen` is idempotent; if the workspace is already committed this step simply refreshes derived project files.
+These annotations keep Swift 6 strict-concurrency checks satisfied by ensuring the shared emitter is main-actor scoped and the streaming callback is safe to cross actors.
 
-## 3. Reset iOS Pods and lockfile
+## 2. Reset RN/Hermes Pods
 
 ```bash
 cd ios
 rm -rf Pods Podfile.lock
-bundle install
-bundle exec pod repo update
-bundle exec pod install --repo-update
+pod repo update
+pod install --repo-update
 cd ..
 ```
 
-By deleting the lockfile and the Pods directory we ensure CocoaPods re-resolves React Native + Hermes using the same versions npm installed. The Bundler wrapper keeps pod plugins aligned with the Ruby toolchain in `Gemfile`.
+Removing the lockfile forces CocoaPods to resolve React Native and Hermes against the versions currently installed in `node_modules` (e.g., RN 0.81.4).
 
-## 4. Purge Xcode caches
+## 3. Purge Xcode caches
 
 ```bash
 rm -rf ~/Library/Developer/Xcode/DerivedData
 rm -rf ~/Library/Caches/com.apple.dt.Xcode
 ```
 
-This clears stale module caches that previously triggered `fatal error: module 'RCTDeprecation' in AST file ...`.
+This clears stale module caches that caused the `fatal error: module 'RCTDeprecation' in AST file ...` crash.
 
-## 5. Swift 6 concurrency fixes
-
-The Swift patches are already committed, but keep this checklist handy when auditing changes:
-
-- `MLXEvents.sharedStorage` remains annotated with `nonisolated(unsafe)` and is updated in `init`/`deinit` on the main actor.
-- `MLXModule.stream` takes an `@Sendable` token callback and uses a regular `Task` rather than `Task.detached` when streaming.
-
-If either file changes in the future, re-run these adjustments before shipping.
-
-## 6. Verify React Native and Hermes parity
-
-```bash
-python3 scripts/verify-ios-rn-versions.py
-```
-
-Expected output (with RN 0.81.4):
-
-```
-react-native (package.json): 0.81.4
-React-* pods (Podfile.lock): ['0.81.4']
-hermes-engine pods (Podfile.lock): ['0.81.4']
-```
-
-A non-zero exit code signals drift—repeat Step 3 if that happens.
-
-## 7. iOS build (unsigned)
+## 4. Deterministic iOS build (unsigned)
 
 ```bash
 cd ios
@@ -92,9 +63,17 @@ xcodebuild \
 cd ..
 ```
 
-Using `xcodebuild` avoids the simulator instability that `npx react-native run-ios` introduces on CI agents.
+Using `xcodebuild` avoids the simulator flakiness we see with `npx react-native run-ios`, making the process reproducible on CI and local machines.
 
-## 8. Optional: Archive and produce an unsigned IPA
+## 5. Verify RN/Hermes versions
+
+```bash
+python3 scripts/verify-ios-rn-versions.py
+```
+
+You should see matching versions for `react-native`, all `React-*` pods, and `hermes-engine` (e.g., `0.81.4`). If the script exits non-zero, repeat Step 2.
+
+## 6. Optional: Archive & produce an unsigned IPA
 
 ```bash
 cd ios
@@ -102,8 +81,8 @@ ARCHIVE_PATH=build/monGARS.xcarchive
 APP_NAME=monGARS
 
 xcodebuild \
-  -workspace "$APP_NAME.xcworkspace" \
-  -scheme "$APP_NAME" \
+  -workspace monGARS.xcworkspace \
+  -scheme monGARS \
   -configuration Release \
   -sdk iphoneos \
   -UseModernBuildSystem=YES \
@@ -118,16 +97,12 @@ cp -R "$ARCHIVE_PATH/Products/Applications/${APP_NAME}.app" build/Payload/
 cd ..
 ```
 
-The resulting IPA is unsigned—use it for artifact inspection only.
+The unsigned IPA is suitable for artifact inspection and size checks but cannot be installed on devices without signing.
 
-## 9. Android sanity check (optional)
+## 7. Optional: Deployment target sanity check
 
-```bash
-./android/gradlew :app:assembleDebug
-```
-
-Running the Android build after fixing iOS prevents regressions in shared JavaScript modules that both platforms consume.
+If `platform :ios, '18.0'` in your `Podfile` is higher than required, lower it (for example to `16.0`) and repeat Steps 2–5 to regenerate the lockfile and rebuild.
 
 ---
 
-Following this playbook keeps React Native, Hermes, and Swift concurrency configurations synchronized between JavaScript and native layers. Update this file whenever we evolve the workflow so `Steps.md` remains the single source of truth.
+Following this playbook keeps React Native, Hermes, and Swift concurrency aligned with the committed workflow so future recoveries remain deterministic.
