@@ -26,7 +26,7 @@ jobs:
     name: Device archive + unsigned IPA
     runs-on: macos-15
     steps:
-      - uses: actions/checkout@v4
+      - uses: actions/checkout@v5
 
       - name: Select Xcode ${{ env.XCODE_VERSION }}
         run: |
