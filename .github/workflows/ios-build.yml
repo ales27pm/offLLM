@@ -43,13 +43,19 @@ jobs:
         uses: ruby/setup-ruby@v1
         with:
           ruby-version: "3.2"
-          bundler-cache: false
+          bundler-cache: true
 
-      - name: Ensure CocoaPods present
+      - name: Install xcpretty
         run: |
-          gem install cocoapods -v ">= 1.15.0"
           gem install xcpretty
-          pod --version
+
+      - name: Install XcodeGen
+        run: |
+          brew install xcodegen
+
+      - name: Generate Xcode project (idempotent)
+        run: |
+          xcodegen generate || true
 
       - name: Cache Pods
         uses: actions/cache@v4
@@ -62,11 +68,13 @@ jobs:
           restore-keys: |
             ${{ runner.os }}-pods-
 
-      - name: Pod install (fresh if lock changed)
+      - name: Install Pods (fresh if lock changed)
         working-directory: ios
         run: |
-          pod repo update
-          pod install --repo-update
+          bundle exec pod deintegrate || true
+          rm -rf Pods Podfile.lock
+          bundle exec pod repo update
+          bundle exec pod install --repo-update
 
       - name: Verify RN/Hermes versions match package.json
         run: |
@@ -128,13 +136,19 @@ jobs:
         uses: ruby/setup-ruby@v1
         with:
           ruby-version: "3.2"
-          bundler-cache: false
+          bundler-cache: true
 
-      - name: Ensure CocoaPods present
+      - name: Install xcpretty
         run: |
-          gem install cocoapods -v ">= 1.15.0"
           gem install xcpretty
-          pod --version
+
+      - name: Install XcodeGen
+        run: |
+          brew install xcodegen
+
+      - name: Generate Xcode project (idempotent)
+        run: |
+          xcodegen generate || true
 
       - name: Cache Pods
         uses: actions/cache@v4
@@ -147,11 +161,13 @@ jobs:
           restore-keys: |
             ${{ runner.os }}-pods-
 
-      - name: Pod install (fresh if lock changed)
+      - name: Install Pods (fresh if lock changed)
         working-directory: ios
         run: |
-          pod repo update
-          pod install --repo-update
+          bundle exec pod deintegrate || true
+          rm -rf Pods Podfile.lock
+          bundle exec pod repo update
+          bundle exec pod install --repo-update
 
       - name: Verify RN/Hermes versions match package.json
         run: |
