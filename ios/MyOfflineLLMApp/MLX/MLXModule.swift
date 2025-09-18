@@ -130,14 +130,15 @@ final class MLXModule: NSObject {
   @objc(load:resolver:rejecter:)
   func load(modelID: NSString?, resolve: @escaping RCTPromiseResolveBlock, reject: @escaping RCTPromiseRejectBlock) {
     let p = MLXPromise(resolve, reject)
-    Task.detached { [weak self] in
+    let requestedID = modelID as String?
+    Task { [weak self, requestedID] @MainActor in
       guard let self else { return }
       do {
-        let candidateIDs = await MainActor.run { self.idsToTry(from: modelID as String?) }
+        let candidateIDs = self.idsToTry(from: requestedID)
         for id in candidateIDs {
           do {
             let c = try await Self.loadContainer(modelID: id)
-            await MainActor.run { self.setActive(container: c) }
+            self.setActive(container: c)
             p.ok(["id": id])
             return
           } catch {
@@ -155,7 +156,7 @@ final class MLXModule: NSObject {
   @objc(reset)
   func reset() {
     if let c = container {
-      Task { [weak self] in
+      Task { [weak self] @MainActor in
         await self?.actor?.reset(with: c)
       }
     }
@@ -171,7 +172,7 @@ final class MLXModule: NSObject {
   /// JS: MLXModule.stop(): void
   @objc(stop)
   func stop() {
-    Task { [weak self] in
+    Task { [weak self] @MainActor in
       await self?.actor?.stop()
       await MLXEvents.shared?.emitStopped()
     }
@@ -186,15 +187,16 @@ final class MLXModule: NSObject {
     let p = MLXPromise(resolve, reject)
     let topK = (options?["topK"] as? NSNumber)?.intValue ?? 40
     let temperature = (options?["temperature"] as? NSNumber)?.floatValue ?? 0.7
+    let promptString = prompt as String
 
-    Task.detached { [weak self] in
+    Task { [weak self, promptString] @MainActor in
       guard let self else { return }
-      guard let actor = await self.actor else {
+      guard let actor = self.actor else {
         p.fail("ENOSESSION", "No active session")
         return
       }
       do {
-        let text = try await actor.generateOnce(prompt: prompt as String, topK: topK, temperature: temperature)
+        let text = try await actor.generateOnce(prompt: promptString, topK: topK, temperature: temperature)
         p.ok(text)
       } catch {
         p.fail("EGEN", "Generation failed", error)
@@ -214,11 +216,16 @@ final class MLXModule: NSObject {
 
     // Non-detached Task reduces unnecessary Sendable requirements
     // and avoids data-race diagnostics under Swift 6.
-    Task { [weak self] in
+    let promptString = prompt as String
+
+    Task { [weak self, promptString] @MainActor in
       guard let self else { return }
-      guard let actor = await self.actor else { p.fail("ENOSESSION", "No active session"); return }
+      guard let actor = self.actor else {
+        p.fail("ENOSESSION", "No active session")
+        return
+      }
       do {
-        try await actor.stream(prompt: prompt as String, topK: topK, temperature: temperature) { token in
+        try await actor.stream(prompt: promptString, topK: topK, temperature: temperature) { token in
           Task { @MainActor in MLXEvents.shared?.emitToken(token) }
         }
         Task { @MainActor in MLXEvents.shared?.emitCompleted() }
