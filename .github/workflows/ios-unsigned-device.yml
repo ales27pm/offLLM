@@ -229,15 +229,17 @@ jobs:
       - name: Resolve SwiftPM packages (fail fast)
         run: |
           set -euxo pipefail
-          RB="$DERIVED_DATA/ResultBundle.xcresult"
+          RB="$DERIVED_DATA/ResultBundle_resolve.xcresult"
           rm -rf "$RB"
-          mkdir -p "$DERIVED_DATA"
+          mkdir -p "$DERIVED_DATA" build/diagnostics
+          LOG_PATH="build/diagnostics/resolve-packages.log"
           xcodebuild -resolvePackageDependencies \
             -${XCODE_CONTAINER_TYPE} "$XCODE_CONTAINER" \
             -scheme "$SCHEME" \
             -clonedSourcePackagesDirPath "$DERIVED_DATA/SourcePackages" \
             -derivedDataPath "$DERIVED_DATA" \
-            -resultBundlePath "$RB"
+            -resultBundlePath "$RB" \
+            2>&1 | tee "$LOG_PATH"
           RESOLVE_RESULT_BUNDLE=""
           if [ -d "$RB" ]; then
             RESOLVE_RESULT_BUNDLE="$RB"
@@ -270,7 +272,7 @@ jobs:
         run: |
           # Avoid 'set -x' to prevent exposing secrets in logs
           set -euo pipefail
-          RB="${RESOLVE_RESULT_BUNDLE:-$DERIVED_DATA/ResultBundle.xcresult}"
+          RB="${RESOLVE_RESULT_BUNDLE:-$DERIVED_DATA/ResultBundle_resolve.xcresult}"
           mkdir -p build
           if [ -d "$RB" ]; then
             # Attempt to export as JSON (legacy path first, then object path)
@@ -280,14 +282,43 @@ jobs:
               xcrun xcresulttool get object --path "$RB" --format json > build/ResultBundle_resolve.json
             fi
           else
-            ts="$(date -u +"%Y-%m-%dT%H:%M:%SZ")"
-            printf '{\n  "notice": "Resolve result bundle missing",\n  "generatedAt": "%s",\n  "searched": [\n    "%s",\n    "%s",\n    "%s"\n  ]\n}\n' \
-              "$ts" \
-              "${DERIVED_DATA}/ResultBundle.xcresult" \
-              "${DERIVED_DATA}/Logs" \
-              "${HOME}/Library/Developer/Xcode/DerivedData" \
-              > build/ResultBundle_resolve.json
-            echo "::notice title=Resolve xcresult missing::No resolve-result xcresult produced (stub JSON emitted)"
+            python3 <<'PY'
+          import json
+          import os
+          from datetime import datetime
+          from pathlib import Path
+
+          derived_data = Path(os.environ.get("DERIVED_DATA", ""))
+          out_path = Path("build/ResultBundle_resolve.json")
+          out_path.parent.mkdir(parents=True, exist_ok=True)
+
+          searched = [
+              str(derived_data / "ResultBundle_resolve.xcresult"),
+              str(derived_data / "Logs"),
+              str(Path.home() / "Library/Developer/Xcode/DerivedData"),
+          ]
+
+          payload = {
+              "notice": "Resolve result bundle not produced by xcodebuild; embedding Package.resolved snapshot",
+              "generatedAt": datetime.utcnow().strftime("%Y-%m-%dT%H:%M:%SZ"),
+              "searched": searched,
+          }
+
+          package_resolved = Path("ios/Package.resolved")
+          if package_resolved.is_file():
+              try:
+                  payload["packageResolved"] = json.loads(package_resolved.read_text(encoding="utf-8"))
+              except json.JSONDecodeError:
+                  payload["packageResolvedRaw"] = package_resolved.read_text(encoding="utf-8", errors="ignore")
+
+          log_path = Path("build/diagnostics/resolve-packages.log")
+          if log_path.is_file():
+              lines = log_path.read_text(encoding="utf-8", errors="ignore").splitlines()
+              payload["resolveLogTail"] = lines[-120:]
+
+          out_path.write_text(json.dumps(payload, indent=2) + "\n", encoding="utf-8")
+          PY
+            echo "::notice title=Resolve xcresult missing::No resolve-result xcresult produced; embedded Package.resolved snapshot"
           fi
 
       - name: Ensure resolve xcresult JSON artifact
