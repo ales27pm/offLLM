@@ -2,6 +2,7 @@ import js from "@eslint/js";
 import reactPlugin from "eslint-plugin-react";
 import globals from "globals";
 import tsParser from "@typescript-eslint/parser";
+import tsPlugin from "@typescript-eslint/eslint-plugin";
 
 export default [
   {
@@ -19,7 +20,7 @@ export default [
   },
   js.configs.recommended,
   {
-    files: ["**/*.{js,jsx,ts,tsx}"],
+    files: ["**/*.{js,jsx}"],
     languageOptions: {
       ecmaVersion: 2023,
       sourceType: "module",
@@ -56,6 +57,37 @@ export default [
     files: ["**/*.{ts,tsx}"],
     languageOptions: {
       parser: tsParser,
+      ecmaVersion: 2023,
+      sourceType: "module",
+      parserOptions: {
+        ecmaFeatures: { jsx: true },
+      },
+      globals: {
+        ...globals.node,
+        ...globals.browser,
+        ...globals.jest,
+        console: "readonly",
+        URL: "readonly",
+        setTimeout: "readonly",
+        TextEncoder: "readonly",
+      },
+    },
+    plugins: {
+      react: reactPlugin,
+      "@typescript-eslint": tsPlugin,
+    },
+    rules: {
+      "no-unused-vars": "off",
+      "@typescript-eslint/no-unused-vars": [
+        "error",
+        { argsIgnorePattern: "^_", varsIgnorePattern: "^_" },
+      ],
+      "react/jsx-uses-vars": "error",
+      "react/react-in-jsx-scope": "off",
+      "react/prop-types": "off",
+    },
+    settings: {
+      react: { version: "detect" },
     },
   },
 ];

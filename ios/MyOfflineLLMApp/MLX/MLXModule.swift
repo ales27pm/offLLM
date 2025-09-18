@@ -1,232 +1,216 @@
+//
+//  MLXModule.swift
+//  monGARS
+//
+//  Swift 6-safe RN bridge that streams tokens via MLXEvents.
+//
+
 import Foundation
 import React
 
-import MLXLLM
-import MLXLMCommon
+@preconcurrency import MLXLLM
+@preconcurrency import MLXLMCommon
 
-extension ChatSession: @unchecked Sendable {}
-
-@MainActor
+// MARK: - Actor that owns ChatSession (off-main, concurrency-safe)
 private actor ChatSessionActor {
-  private struct Waiter {
-    let id: UUID
-    let continuation: CheckedContinuation<Void, Error>
-  }
-
-  private let session: ChatSession
+  private var session: ChatSession
   private var isResponding = false
-  private var waitQueue: [Waiter] = []
+  private var shouldStop = false
 
-  init(session: ChatSession) {
-    self.session = session
+  init(container: ModelContainer) {
+    self.session = ChatSession(container)
   }
 
-  func respond(to prompt: String) async throws -> String {
-    try Task.checkCancellation()
-
-    if isResponding {
-      try await waitTurn()
+  func reset(with container: ModelContainer? = nil) {
+    if let c = container {
+      self.session = ChatSession(c)
+    } else {
+      self.session = ChatSession(self.session.container)
     }
+    isResponding = false
+    shouldStop = false
+  }
 
+  func stop() {
+    shouldStop = true
+  }
+
+  func generateOnce(prompt: String, topK: Int, temperature: Float) async throws -> String {
+    guard !isResponding else { return "" }
     isResponding = true
-    defer { resumeNextWaiter() }
+    defer { isResponding = false; shouldStop = false }
 
-    try Task.checkCancellation()
-    return try await session.respond(to: prompt)
-  }
-
-  private func waitTurn() async throws {
-    let waiterID = UUID()
-
-    try await withTaskCancellationHandler {
-      try await withCheckedThrowingContinuation { (continuation: CheckedContinuation<Void, Error>) in
-        waitQueue.append(Waiter(id: waiterID, continuation: continuation))
-      }
-    } onCancel: {
-      Task { await self.cancelWaiter(id: waiterID) }
+    var out = ""
+    let req = GenerateRequest(text: prompt, parameters: .init(topK: topK, temperature: temperature))
+    for try await token in try session.generate(request: req) {
+      if shouldStop { break }
+      out.append(token)
     }
+    return out
   }
 
-  private func resumeNextWaiter() {
-    guard !waitQueue.isEmpty else {
-      isResponding = false
-      return
+  func stream(prompt: String, topK: Int, temperature: Float, onToken: @escaping (String) -> Void) async throws {
+    guard !isResponding else { return }
+    isResponding = true
+    defer { isResponding = false; shouldStop = false }
+
+    let req = GenerateRequest(text: prompt, parameters: .init(topK: topK, temperature: temperature))
+    for try await token in try session.generate(request: req) {
+      if shouldStop { break }
+      onToken(token)
     }
-
-    let next = waitQueue.removeFirst()
-    next.continuation.resume(returning: ())
-  }
-
-  private func cancelWaiter(id: UUID) {
-    guard let index = waitQueue.firstIndex(where: { $0.id == id }) else { return }
-    let waiter = waitQueue.remove(at: index)
-    waiter.continuation.resume(throwing: CancellationError())
   }
 }
 
-@MainActor
-private final class PromiseCallbacks {
-  private let resolve: RCTPromiseResolveBlock
-  private let reject: RCTPromiseRejectBlock
-
-  init(resolve: @escaping RCTPromiseResolveBlock, reject: @escaping RCTPromiseRejectBlock) {
-    self.resolve = resolve
-    self.reject = reject
-  }
-
-  func fulfill(_ value: Any?) {
-    resolve(value)
-  }
-
-  func fail(code: String, message: String, error: Error?) {
-    reject(code, message, error)
-  }
+// MARK: - Promise wrapper for RN
+final class MLXPromise {
+  let resolve: RCTPromiseResolveBlock
+  let reject: RCTPromiseRejectBlock
+  init(_ r: @escaping RCTPromiseResolveBlock, _ j: @escaping RCTPromiseRejectBlock) { resolve = r; reject = j }
+  func ok(_ v: Any?) { resolve(v) }
+  func fail(_ code: String, _ msg: String, _ err: Error? = nil) { reject(code, msg, err) }
 }
 
+// MARK: - RN Module
 @objc(MLXModule)
 @MainActor
 final class MLXModule: NSObject {
 
-  // MARK: - RN module wiring
+  // RN wiring
   @objc static func moduleName() -> String! { "MLXModule" }
   @objc static func requiresMainQueueSetup() -> Bool { false }
 
-  // MARK: - State
-  private enum SessionAccessError: Error {
-    case noActiveSession
-  }
-
+  // State
   private var container: ModelContainer?
-  private var sessionActor: ChatSessionActor?
+  private var actor: ChatSessionActor?
 
-  // Prefer a light model first for CI/device sanity checks
-  private let fallbackModelIDs: [String] = [
-    "TinyLlama/TinyLlama-1.1B-Chat-v1.0",
+  private let fallbacks: [String] = [
+    "mlx-community/gemma-2-2b-it",
+    "mlx-community/llama-3.1-instruct-8b",
+    "mlx-community/phi-3-mini-4k-instruct",
     "openaccess-ai-collective/tiny-mistral"
   ]
 
-  // MARK: - Helpers
-
+  // Helpers
   private static func loadContainer(modelID: String) async throws -> ModelContainer {
-    let configuration = ModelConfiguration(id: modelID)
-    return try await LLMModelFactory.shared.loadContainer(configuration: configuration)
-  }
-
-  private static func makeError(_ code: String, _ message: String, underlying: Error? = nil) -> NSError {
-    var info: [String: Any] = [NSLocalizedDescriptionKey: message]
-    if let underlying { info[NSUnderlyingErrorKey] = underlying }
-    return NSError(domain: "MLX", code: 1, userInfo: info)
+    let cfg = ModelConfiguration(id: modelID)
+    return try await LLMModelFactory.shared.loadContainer(configuration: cfg)
   }
 
   private func setActive(container: ModelContainer) {
     self.container = container
-    self.sessionActor = ChatSessionActor(session: ChatSession(container))
-  }
-
-  private func clearActive() {
-    sessionActor = nil
-    container = nil
+    self.actor = ChatSessionActor(container: container)
   }
 
   private func idsToTry(from requested: String?) -> [String] {
     var ids: [String] = []
-    if let trimmed = requested?.trimmingCharacters(in: .whitespacesAndNewlines),
-       !trimmed.isEmpty {
+    if let trimmed = requested?.trimmingCharacters(in: .whitespacesAndNewlines), !trimmed.isEmpty {
       ids.append(trimmed)
     }
-    ids.append(contentsOf: fallbackModelIDs)
+    ids.append(contentsOf: fallbacks)
     return ids
   }
 
-  // MARK: - React Methods (Promises)
+  // MARK: - JS API
 
-  /// Load a model by HF ID. Falls back to tiny models if the requested one fails.
-  /// JS: MLXModule.load(modelId: string | undefined): Promise<boolean>
+  /// JS: MLXModule.load(modelID?: string): Promise<{id: string}>
   @objc(load:resolver:rejecter:)
-  func load(_ modelID: String?,
-            resolver resolve: @escaping RCTPromiseResolveBlock,
-            rejecter reject: @escaping RCTPromiseRejectBlock) {
-
-    let callbacks = PromiseCallbacks(resolve: resolve, reject: reject)
-
-    Task(priority: .userInitiated) { @MainActor [weak self] in
+  func load(modelID: NSString?, resolve: @escaping RCTPromiseResolveBlock, reject: @escaping RCTPromiseRejectBlock) {
+    let p = MLXPromise(resolve, reject)
+    Task.detached { [weak self] in
       guard let self else { return }
-
-      let ids = self.idsToTry(from: modelID)
-      var lastError: Error?
-
-      for id in ids {
-        do {
-          let model = try await Self.loadContainer(modelID: id)
-          self.setActive(container: model)
-          callbacks.fulfill(true)
-          return
-        } catch {
-          lastError = error
-        }
-      }
-
-      let triedMessage = "Failed to load any model. Tried: \(ids.joined(separator: ", "))"
-      let finalError = lastError ?? Self.makeError("MLX_LOAD_ERR", triedMessage, underlying: lastError)
-      callbacks.fail(code: "MLX_LOAD_ERR", message: triedMessage, error: finalError)
-    }
-  }
-
-  /// Check if a model is loaded.
-  /// JS: MLXModule.isLoaded(): Promise<boolean>
-  @objc(isLoaded:rejecter:)
-  func isLoaded(_ resolve: @escaping RCTPromiseResolveBlock,
-                rejecter _: @escaping RCTPromiseRejectBlock) {
-    resolve(container != nil)
-  }
-
-  /// Generate a response for `prompt` using the current multi-turn session.
-  /// JS: MLXModule.generate(prompt: string): Promise<string>
-  @objc(generate:resolver:rejecter:)
-  func generate(_ prompt: String,
-                resolver resolve: @escaping RCTPromiseResolveBlock,
-                rejecter reject: @escaping RCTPromiseRejectBlock) {
-
-    let callbacks = PromiseCallbacks(resolve: resolve, reject: reject)
-
-    Task(priority: .userInitiated) { @MainActor [weak self] in
-      guard let self else { return }
-
       do {
-        let reply = try await self.respondUsingActiveSession(to: prompt)
-        callbacks.fulfill(reply)
-      } catch SessionAccessError.noActiveSession {
-        let error = Self.makeError("MLX_GEN_ERR", "No model loaded")
-        callbacks.fail(code: "MLX_GEN_ERR", message: error.localizedDescription, error: error)
+        for id in self.idsToTry(from: modelID as String?) {
+          do {
+            let c = try await Self.loadContainer(modelID: id)
+            await MainActor.run { self.setActive(container: c) }
+            p.ok(["id": id])
+            return
+          } catch {
+            // try next id
+          }
+        }
+        p.fail("ENOENT", "Failed to load any model id")
       } catch {
-        let message = "Generation failed: \(error.localizedDescription)"
-        callbacks.fail(code: "MLX_GEN_ERR", message: message, error: error)
+        p.fail("ELOAD", "Load failed", error)
       }
     }
   }
 
-  @MainActor
-  private func respondUsingActiveSession(to prompt: String) async throws -> String {
-    guard let sessionActor else {
-      throw SessionAccessError.noActiveSession
-    }
-
-    return try await sessionActor.respond(to: prompt)
-  }
-
-  /// Reset the multi-turn chat context (keeps the loaded model).
   /// JS: MLXModule.reset(): void
   @objc(reset)
   func reset() {
-    if let container {
-      sessionActor = ChatSessionActor(session: ChatSession(container))
+    if let c = container {
+      Task { [weak self] in
+        await self?.actor?.reset(with: c)
+      }
     }
   }
 
-  /// Unload the model and clear session.
   /// JS: MLXModule.unload(): void
   @objc(unload)
   func unload() {
-    clearActive()
+    self.container = nil
+    self.actor = nil
+  }
+
+  /// JS: MLXModule.stop(): void
+  @objc(stop)
+  func stop() {
+    Task { [weak self] in
+      await self?.actor?.stop()
+      await MLXEvents.shared?.emitStopped()
+    }
+  }
+
+  /// JS: MLXModule.generate(prompt: string, opts?: {topK?: number, temperature?: number}): Promise<string>
+  @objc(generate:options:resolver:rejecter:)
+  func generate(prompt: NSString,
+                options: NSDictionary?,
+                resolve: @escaping RCTPromiseResolveBlock,
+                reject: @escaping RCTPromiseRejectBlock) {
+    let p = MLXPromise(resolve, reject)
+    let topK = (options?["topK"] as? NSNumber)?.intValue ?? 40
+    let temperature = (options?["temperature"] as? NSNumber)?.floatValue ?? 0.7
+
+    Task.detached { [weak self] in
+      guard let self else { return }
+      guard let actor = await self.actor else {
+        p.fail("ENOSESSION", "No active session")
+        return
+      }
+      do {
+        let text = try await actor.generateOnce(prompt: prompt as String, topK: topK, temperature: temperature)
+        p.ok(text)
+      } catch {
+        p.fail("EGEN", "Generation failed", error)
+      }
+    }
+  }
+
+  /// JS: MLXModule.startStream(prompt: string, opts?: {topK?: number, temperature?: number}): Promise<void>
+  @objc(startStream:options:resolver:rejecter:)
+  func startStream(prompt: NSString,
+                   options: NSDictionary?,
+                   resolve: @escaping RCTPromiseResolveBlock,
+                   reject: @escaping RCTPromiseRejectBlock) {
+    let p = MLXPromise(resolve, reject)
+    let topK = (options?["topK"] as? NSNumber)?.intValue ?? 40
+    let temperature = (options?["temperature"] as? NSNumber)?.floatValue ?? 0.7
+
+    Task.detached { [weak self] in
+      guard let self else { return }
+      guard let actor = await self.actor else { p.fail("ENOSESSION", "No active session"); return }
+      do {
+        try await actor.stream(prompt: prompt as String, topK: topK, temperature: temperature) { token in
+          Task { @MainActor in MLXEvents.shared?.emitToken(token) }
+        }
+        Task { @MainActor in MLXEvents.shared?.emitCompleted() }
+        p.ok(nil)
+      } catch {
+        Task { @MainActor in MLXEvents.shared?.emitError("ESTREAM", message: "Stream failed") }
+        p.fail("ESTREAM", "Stream failed", error)
+      }
+    }
   }
 }

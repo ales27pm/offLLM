@@ -1,15 +1,12 @@
 import { Platform } from "react-native";
 import * as FileSystem from "expo-file-system";
 
-/* eslint-disable no-unused-vars */
 export enum LogLevel {
   DEBUG = 0,
   INFO = 1,
   WARN = 2,
   ERROR = 3,
 }
-
-/* eslint-enable no-unused-vars */
 
 export interface LogEntry {
   timestamp: Date;
