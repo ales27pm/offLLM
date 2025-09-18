@@ -63,6 +63,13 @@ targets:
         # Stable toolchain for RN/Folly
         CLANG_CXX_LIBRARY: libc++
         CLANG_CXX_LANGUAGE_STANDARD: c++17
+        OTHER_CPLUSPLUSFLAGS:
+          - "$(inherited)"
+          - "-std=gnu++17"
+          - "-Wno-c++17-extensions"
+        OTHER_CFLAGS:
+          - "$(inherited)"
+          - "-Wno-c++17-extensions"
         OTHER_MTLFLAGS:
           - "$(inherited)"
           - "-Wno-c++17-extensions"
