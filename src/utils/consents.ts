@@ -7,13 +7,11 @@ export interface Consent {
 }
 
 /** Keys for different consent categories in the app */
-/* eslint-disable no-unused-vars */
 export enum ConsentType {
   DATA_SHARING = "DATA_SHARING",
   VOICE_RECORDING = "VOICE_RECORDING",
   // Add more as needed
 }
-/* eslint-enable no-unused-vars */
 
 /**
  * ConsentManager handles persisting user consents.
