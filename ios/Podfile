@@ -139,28 +139,100 @@ post_install do |installer|
     removed
   end
 
-  installer.pods_project.targets.each do |target|
-    removed = remove_hermes_phase.call(target, 'pods')
-    Pod::UI.puts "[Podfile] Removed #{removed} legacy Hermes phases from #{target.name}" if removed > 0
-  end
-
   header_search_fix = '$(PODS_ROOT)/Headers/Public/RCTDeprecation'
   module_map_path = '$(PODS_ROOT)/Headers/Public/RCTDeprecation/RCTDeprecation.modulemap'
   module_map_flag = "-fmodule-map-file=#{module_map_path}"
   module_map_disk = File.join(installer.sandbox.root.to_s, 'Headers', 'Public', 'RCTDeprecation', 'RCTDeprecation.modulemap')
-  desired_module_map = <<~MODULEMAP
-    module RCTDeprecation {
-      header "RCTDeprecation.h"
-      export *
-    }
+  module_map_template = File.join(__dir__, 'Config', 'RCTDeprecation.modulemap')
+  raise "Missing #{module_map_template}; ensure it is checked in" unless File.exist?(module_map_template)
+  desired_module_map = File.read(module_map_template)
 
-  MODULEMAP
   FileUtils.mkdir_p(File.dirname(module_map_disk))
   existing_module_map = File.exist?(module_map_disk) ? File.read(module_map_disk) : nil
   if existing_module_map != desired_module_map
     Pod::UI.puts "[Podfile] Writing #{module_map_disk}"
     File.write(module_map_disk, desired_module_map)
   end
+
+  pods_project_modified = false
+  installer.pods_project.targets.each do |target|
+    removed = remove_hermes_phase.call(target, 'pods')
+    if removed > 0
+      Pod::UI.puts "[Podfile] Removed #{removed} legacy Hermes phases from #{target.name}"
+      pods_project_modified = true
+    end
+  end
+
+  installer.pods_project.targets.each do |target|
+    next unless target.name == 'RCTDeprecation'
+
+    target.build_configurations.each do |config|
+      updated = false
+
+      header_paths = config.build_settings['HEADER_SEARCH_PATHS']
+      if header_paths.nil?
+        config.build_settings['HEADER_SEARCH_PATHS'] = ['$(inherited)', header_search_fix]
+        updated = true
+      elsif header_paths.is_a?(Array)
+        unless header_paths.include?(header_search_fix)
+          config.build_settings['HEADER_SEARCH_PATHS'] = header_paths + [header_search_fix]
+          updated = true
+        end
+      else
+        value = header_paths.to_s
+        unless value.include?(header_search_fix)
+          config.build_settings['HEADER_SEARCH_PATHS'] = "#{value} #{header_search_fix}"
+          updated = true
+        end
+      end
+
+      new_c_flags = append_flag(config.build_settings['OTHER_CFLAGS'], module_map_flag)
+      if new_c_flags != config.build_settings['OTHER_CFLAGS']
+        config.build_settings['OTHER_CFLAGS'] = new_c_flags
+        updated = true
+      end
+
+      new_cpp_flags = append_flag(config.build_settings['OTHER_CPLUSPLUSFLAGS'], module_map_flag)
+      if new_cpp_flags != config.build_settings['OTHER_CPLUSPLUSFLAGS']
+        config.build_settings['OTHER_CPLUSPLUSFLAGS'] = new_cpp_flags
+        updated = true
+      end
+
+      swift_flags = config.build_settings['OTHER_SWIFT_FLAGS']
+      swift_tokens =
+        case swift_flags
+        when nil
+          ['$(inherited)']
+        when Array
+          swift_flags.dup
+        else
+          swift_flags.to_s.split(/\s+/)
+        end
+      if !swift_tokens.include?('-Xcc') || !swift_tokens.include?(module_map_flag)
+        swift_tokens << '-Xcc' unless swift_tokens.include?('-Xcc')
+        swift_tokens << module_map_flag unless swift_tokens.include?(module_map_flag)
+        config.build_settings['OTHER_SWIFT_FLAGS'] = swift_tokens
+        updated = true
+      end
+
+      if config.build_settings['MODULEMAP_FILE'] != module_map_path
+        config.build_settings['MODULEMAP_FILE'] = module_map_path
+        updated = true
+      end
+
+      if config.build_settings['DEFINES_MODULE'] != 'YES'
+        config.build_settings['DEFINES_MODULE'] = 'YES'
+        updated = true
+      end
+
+      if updated
+        Pod::UI.puts "[Podfile] Updated build settings for #{target.name} (#{config.name})"
+        pods_project_modified = true
+      end
+    end
+  end
+
+  installer.pods_project.save if pods_project_modified
   installer.aggregate_targets.each do |aggregate_target|
     user_project = aggregate_target.user_project
     next unless user_project
