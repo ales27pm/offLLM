@@ -59,6 +59,16 @@ private actor ChatSessionActor {
     let waiter = waitQueue.remove(at: index)
     waiter.continuation.resume(throwing: CancellationError())
   }
+
+  func cancelPendingRequests() {
+    let pending = waitQueue
+    waitQueue.removeAll()
+    isResponding = false
+
+    for waiter in pending {
+      waiter.continuation.resume(throwing: CancellationError())
+    }
+  }
 }
 
 @MainActor
@@ -115,13 +125,24 @@ final class MLXModule: NSObject {
     return NSError(domain: "MLX", code: 1, userInfo: info)
   }
 
+  private func replaceSessionActor(with newActor: ChatSessionActor?) {
+    let previousActor = sessionActor
+    sessionActor = newActor
+
+    if let previousActor, previousActor !== newActor {
+      Task(priority: .userInitiated) {
+        await previousActor.cancelPendingRequests()
+      }
+    }
+  }
+
   private func setActive(container: ModelContainer) {
     self.container = container
-    self.sessionActor = ChatSessionActor(session: ChatSession(container))
+    replaceSessionActor(with: ChatSessionActor(session: ChatSession(container)))
   }
 
   private func clearActive() {
-    sessionActor = nil
+    replaceSessionActor(with: nil)
     container = nil
   }
 
@@ -216,7 +237,7 @@ final class MLXModule: NSObject {
   @objc(reset)
   func reset() {
     if let container {
-      sessionActor = ChatSessionActor(session: ChatSession(container))
+      replaceSessionActor(with: ChatSessionActor(session: ChatSession(container)))
     }
   }
 
