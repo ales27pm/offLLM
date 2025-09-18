@@ -349,101 +349,101 @@ jobs:
         if: ${{ always() }}
         run: |
           python3 <<'PY'
-from pathlib import Path
+          from pathlib import Path
 
-out_dir = Path("build/diagnostics")
-out_dir.mkdir(parents=True, exist_ok=True)
-log_path = Path("build-log.txt")
-summary_path = out_dir / "xcodebuild-errors.log"
+          out_dir = Path("build/diagnostics")
+          out_dir.mkdir(parents=True, exist_ok=True)
+          log_path = Path("build-log.txt")
+          summary_path = out_dir / "xcodebuild-errors.log"
 
-if not log_path.exists():
-    summary_path.write_text("build-log.txt not found\n", encoding="utf-8")
-else:
-    lines = log_path.read_text(encoding="utf-8", errors="ignore").splitlines()
-    errors: list[str] = []
-    warnings: list[str] = []
-    for line in lines:
-        stripped = line.strip()
-        if not stripped:
-            continue
-        lower = stripped.lower()
-        if (
-            "error:" in lower
-            or lower.startswith("error ")
-            or " fatal error" in lower
-            or " build failed" in lower
-            or lower.startswith("ld: fatal error")
-        ):
-            errors.append(stripped)
-        elif (
-            " warning:" in lower
-            or lower.startswith("warning:")
-            or lower.startswith("ld: warning")
-        ):
-            warnings.append(stripped)
-    tail = lines[-60:]
-    with summary_path.open("w", encoding="utf-8") as handle:
-        handle.write(f"Errors ({len(errors)}):\n")
-        for entry in errors[:50]:
-            handle.write(f"- {entry}\n")
-        if len(errors) > 50:
-            handle.write(f"… (+{len(errors) - 50} more)\n")
-        handle.write("\nWarnings ({}):\n".format(len(warnings)))
-        for entry in warnings[:50]:
-            handle.write(f"- {entry}\n")
-        if len(warnings) > 50:
-            handle.write(f"… (+{len(warnings) - 50} more)\n")
-        handle.write("\nLog tail:\n")
-        for entry in tail:
-            handle.write(entry + "\n")
+          if not log_path.exists():
+              summary_path.write_text("build-log.txt not found\n", encoding="utf-8")
+          else:
+              lines = log_path.read_text(encoding="utf-8", errors="ignore").splitlines()
+              errors: list[str] = []
+              warnings: list[str] = []
+              for line in lines:
+                  stripped = line.strip()
+                  if not stripped:
+                      continue
+                  lower = stripped.lower()
+                  if (
+                      "error:" in lower
+                      or lower.startswith("error ")
+                      or " fatal error" in lower
+                      or " build failed" in lower
+                      or lower.startswith("ld: fatal error")
+                  ):
+                      errors.append(stripped)
+                  elif (
+                      " warning:" in lower
+                      or lower.startswith("warning:")
+                      or lower.startswith("ld: warning")
+                  ):
+                      warnings.append(stripped)
+              tail = lines[-60:]
+              with summary_path.open("w", encoding="utf-8") as handle:
+                  handle.write(f"Errors ({len(errors)}):\n")
+                  for entry in errors[:50]:
+                      handle.write(f"- {entry}\n")
+                  if len(errors) > 50:
+                      handle.write(f"… (+{len(errors) - 50} more)\n")
+                  handle.write("\nWarnings ({}):\n".format(len(warnings)))
+                  for entry in warnings[:50]:
+                      handle.write(f"- {entry}\n")
+                  if len(warnings) > 50:
+                      handle.write(f"… (+{len(warnings) - 50} more)\n")
+                  handle.write("\nLog tail:\n")
+                  for entry in tail:
+                      handle.write(entry + "\n")
 PY
 
       - name: Catalog DerivedData logs
         if: ${{ always() }}
         run: |
           python3 <<'PY'
-import os
-import shutil
-import time
-from pathlib import Path
+          import os
+          import shutil
+          import time
+          from pathlib import Path
 
-out_dir = Path("build/diagnostics")
-out_dir.mkdir(parents=True, exist_ok=True)
-base = Path(os.environ.get("DERIVED_DATA", os.path.expanduser("~/Library/Developer/Xcode/DerivedData")))
-listing = out_dir / "derived-data.txt"
+          out_dir = Path("build/diagnostics")
+          out_dir.mkdir(parents=True, exist_ok=True)
+          base = Path(os.environ.get("DERIVED_DATA", os.path.expanduser("~/Library/Developer/Xcode/DerivedData")))
+          listing = out_dir / "derived-data.txt"
 
-if not base.exists():
-    listing.write_text(f"DerivedData directory not found: {base}\n", encoding="utf-8")
-else:
-    entries = sorted([p for p in base.iterdir() if p.is_dir()], key=lambda p: p.stat().st_mtime, reverse=True)
-    lines: list[str] = [f"DerivedData base: {base}"]
-    for entry in entries[:6]:
-        try:
-            mtime = time.strftime("%Y-%m-%d %H:%M:%SZ", time.gmtime(entry.stat().st_mtime))
-        except FileNotFoundError:
-            continue
-        lines.append(f"- {entry.name} (modified {mtime})")
-        logs_dir = entry / "Logs" / "Build"
-        if logs_dir.is_dir():
-            candidates = sorted(
-                [p for p in logs_dir.glob("*.xcactivitylog") if p.is_file()],
-                key=lambda p: p.stat().st_mtime,
-                reverse=True,
-            )
-            if candidates:
-                chosen = candidates[0]
-                size = chosen.stat().st_size
-                human_size = f"{size / (1024 * 1024):.1f} MiB"
-                if size <= 8 * 1024 * 1024:
-                    target = out_dir / f"{entry.name}_{chosen.name}"
-                    try:
-                        shutil.copy2(chosen, target)
-                        lines.append(f"  Copied log: {target.name} ({human_size})")
-                    except Exception as exc:
-                        lines.append(f"  Failed to copy {chosen.name}: {exc}")
-                else:
-                    lines.append(f"  Skipped log {chosen.name} ({human_size}) — larger than 8 MiB")
-    listing.write_text("\n".join(lines) + "\n", encoding="utf-8")
+          if not base.exists():
+              listing.write_text(f"DerivedData directory not found: {base}\n", encoding="utf-8")
+          else:
+              entries = sorted([p for p in base.iterdir() if p.is_dir()], key=lambda p: p.stat().st_mtime, reverse=True)
+              lines: list[str] = [f"DerivedData base: {base}"]
+              for entry in entries[:6]:
+                  try:
+                      mtime = time.strftime("%Y-%m-%d %H:%M:%SZ", time.gmtime(entry.stat().st_mtime))
+                  except FileNotFoundError:
+                      continue
+                  lines.append(f"- {entry.name} (modified {mtime})")
+                  logs_dir = entry / "Logs" / "Build"
+                  if logs_dir.is_dir():
+                      candidates = sorted(
+                          [p for p in logs_dir.glob("*.xcactivitylog") if p.is_file()],
+                          key=lambda p: p.stat().st_mtime,
+                          reverse=True,
+                      )
+                      if candidates:
+                          chosen = candidates[0]
+                          size = chosen.stat().st_size
+                          human_size = f"{size / (1024 * 1024):.1f} MiB"
+                          if size <= 8 * 1024 * 1024:
+                              target = out_dir / f"{entry.name}_{chosen.name}"
+                              try:
+                                  shutil.copy2(chosen, target)
+                                  lines.append(f"  Copied log: {target.name} ({human_size})")
+                              except Exception as exc:
+                                  lines.append(f"  Failed to copy {chosen.name}: {exc}")
+                          else:
+                              lines.append(f"  Skipped log {chosen.name} ({human_size}) — larger than 8 MiB")
+              listing.write_text("\n".join(lines) + "\n", encoding="utf-8")
 PY
 
       - name: Collect unified log (xcodebuild)
