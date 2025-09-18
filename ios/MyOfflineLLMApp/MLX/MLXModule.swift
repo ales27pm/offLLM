@@ -212,8 +212,8 @@ final class MLXModule: NSObject {
     let topK = (options?["topK"] as? NSNumber)?.intValue ?? 40
     let temperature = (options?["temperature"] as? NSNumber)?.floatValue ?? 0.7
 
-    // Use a non-detached Task to avoid unnecessary Sendable requirements and
-    // Swift 6 strict concurrency diagnostics.
+    // Non-detached Task reduces unnecessary Sendable requirements
+    // and avoids data-race diagnostics under Swift 6.
     Task { [weak self] in
       guard let self else { return }
       guard let actor = await self.actor else { p.fail("ENOSESSION", "No active session"); return }
