@@ -54,6 +54,11 @@ targets:
         SWIFT_VERSION: "6.0"
         IPHONEOS_DEPLOYMENT_TARGET: "18.0"
         SWIFT_OBJC_BRIDGING_HEADER: MyOfflineLLMApp/Bridging/monGARS-Bridging-Header.h
+        HEADER_SEARCH_PATHS:
+          - "$(inherited)"
+          - "$(SRCROOT)/../Pods/Headers/Public"
+          - "$(SRCROOT)/../Pods/Headers/Public/RCTDeprecation"
+        CLANG_ENABLE_MODULES: YES
 
         # Unsigned/device builds in CI
         CODE_SIGNING_ALLOWED: NO

@@ -86,6 +86,12 @@ ensure_workspace() {
 
 ensure_workspace
 
+# Step 3.5: Clean DerivedData/ModuleCache to avoid stale AST mismatches
+echo "🧽 Clearing Xcode derived data and module caches..."
+rm -rf ~/Library/Developer/Xcode/DerivedData/ModuleCache.noindex
+rm -rf ~/Library/Developer/Xcode/DerivedData
+rm -rf "$BUILD_DIR/DerivedData"
+
 # Step 4: Run the Xcode build (Simulator, unsigned)
 echo "📦 Building for iOS Simulator (unsigned)..."
 xcodebuild build \
