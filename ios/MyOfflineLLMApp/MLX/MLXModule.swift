@@ -21,10 +21,7 @@ private actor ChatSessionActor {
     self.container = container
   }
 
-  func reset(with container: ModelContainer? = nil) {
-    if let updated = container {
-      self.container = updated
-    }
+  func reset() {
     isResponding = false
     shouldStop = false
   }
@@ -155,10 +152,9 @@ final class MLXModule: NSObject {
   /// JS: MLXModule.reset(): void
   @objc(reset)
   func reset() {
-    guard let activeContainer = container else { return }
-    let activeActor = actor
+    guard let activeActor = actor else { return }
     Task {
-      await activeActor?.reset(with: activeContainer)
+      await activeActor.reset()
     }
   }
 
