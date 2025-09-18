@@ -47,7 +47,7 @@ private actor ChatSessionActor {
     return out
   }
 
-  func stream(prompt: String, topK: Int, temperature: Float, onToken: @escaping (String) -> Void) async throws {
+  func stream(prompt: String, topK: Int, temperature: Float, onToken: @escaping @Sendable (String) -> Void) async throws {
     guard !isResponding else { return }
     isResponding = true
     defer { isResponding = false; shouldStop = false }
@@ -212,7 +212,9 @@ final class MLXModule: NSObject {
     let topK = (options?["topK"] as? NSNumber)?.intValue ?? 40
     let temperature = (options?["temperature"] as? NSNumber)?.floatValue ?? 0.7
 
-    Task.detached { [weak self] in
+    // Use a non-detached Task to avoid unnecessary Sendable requirements and
+    // Swift 6 strict concurrency diagnostics.
+    Task { [weak self] in
       guard let self else { return }
       guard let actor = await self.actor else { p.fail("ENOSESSION", "No active session"); return }
       do {

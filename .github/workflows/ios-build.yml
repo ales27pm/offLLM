@@ -1,0 +1,202 @@
+name: iOS Build (Verify RN Versions)
+
+on:
+  push:
+    branches: [main, master]
+  pull_request:
+    branches: [main, master]
+
+jobs:
+  ios:
+    name: Build iOS (Xcode 16.4)
+    runs-on: macos-15
+
+    env:
+      CODE_SIGNING_ALLOWED: "NO"
+      CODE_SIGNING_REQUIRED: "NO"
+      USE_FLIPPER: "0"
+      WORKSPACE: monGARS.xcworkspace
+      SCHEME: monGARS
+      CONFIGURATION: Release
+      SDK: iphoneos
+
+    steps:
+      - name: Checkout
+        uses: actions/checkout@v4
+
+      - name: Select Xcode 16.4
+        run: |
+          sudo xcode-select -s "/Applications/Xcode_16.4.app/Contents/Developer"
+          xcodebuild -version
+
+      - name: Set up Node
+        uses: actions/setup-node@v4
+        with:
+          node-version: "20"
+          cache: "npm"
+
+      - name: Install JS deps
+        run: |
+          npm ci
+
+      - name: Set up Ruby (for CocoaPods)
+        uses: ruby/setup-ruby@v1
+        with:
+          ruby-version: "3.2"
+          bundler-cache: false
+
+      - name: Ensure CocoaPods present
+        run: |
+          gem install cocoapods -v ">= 1.15.0"
+          gem install xcpretty
+          pod --version
+
+      - name: Cache Pods
+        uses: actions/cache@v4
+        with:
+          path: |
+            ios/Pods
+            ~/Library/Caches/CocoaPods
+            ~/.cocoapods
+          key: ${{ runner.os }}-pods-${{ hashFiles('ios/Podfile.lock') }}
+          restore-keys: |
+            ${{ runner.os }}-pods-
+
+      - name: Pod install (fresh if lock changed)
+        working-directory: ios
+        run: |
+          pod repo update
+          pod install --repo-update
+
+      - name: Verify RN/Hermes versions match package.json
+        run: |
+          python3 scripts/verify-ios-rn-versions.py
+
+      - name: Clean DerivedData caches
+        run: |
+          rm -rf ~/Library/Developer/Xcode/DerivedData
+          rm -rf ~/Library/Caches/com.apple.dt.Xcode
+
+      - name: Build (unsigned, Release)
+        working-directory: ios
+        run: |
+          xcodebuild \
+            -workspace "$WORKSPACE" \
+            -scheme "$SCHEME" \
+            -configuration "$CONFIGURATION" \
+            -sdk "$SDK" \
+            -UseModernBuildSystem=YES \
+            CODE_SIGNING_ALLOWED=NO \
+            CODE_SIGNING_REQUIRED=NO \
+            clean build | xcpretty
+        shell: bash
+
+  ios-ipa:
+    name: Archive & Export Unsigned IPA
+    runs-on: macos-15
+    needs: ios
+    env:
+      CODE_SIGNING_ALLOWED: "NO"
+      CODE_SIGNING_REQUIRED: "NO"
+      USE_FLIPPER: "0"
+      WORKSPACE: monGARS.xcworkspace
+      SCHEME: monGARS
+      CONFIGURATION: Release
+      SDK: iphoneos
+      ARCHIVE_PATH: build/monGARS.xcarchive
+      APP_NAME: monGARS
+
+    steps:
+      - name: Checkout
+        uses: actions/checkout@v4
+
+      - name: Select Xcode 16.4
+        run: |
+          sudo xcode-select -s "/Applications/Xcode_16.4.app/Contents/Developer"
+          xcodebuild -version
+
+      - name: Set up Node
+        uses: actions/setup-node@v4
+        with:
+          node-version: "20"
+          cache: "npm"
+
+      - name: Install JS deps
+        run: npm ci
+
+      - name: Set up Ruby (for CocoaPods)
+        uses: ruby/setup-ruby@v1
+        with:
+          ruby-version: "3.2"
+          bundler-cache: false
+
+      - name: Ensure CocoaPods present
+        run: |
+          gem install cocoapods -v ">= 1.15.0"
+          gem install xcpretty
+          pod --version
+
+      - name: Cache Pods
+        uses: actions/cache@v4
+        with:
+          path: |
+            ios/Pods
+            ~/Library/Caches/CocoaPods
+            ~/.cocoapods
+          key: ${{ runner.os }}-pods-${{ hashFiles('ios/Podfile.lock') }}
+          restore-keys: |
+            ${{ runner.os }}-pods-
+
+      - name: Pod install (fresh if lock changed)
+        working-directory: ios
+        run: |
+          pod repo update
+          pod install --repo-update
+
+      - name: Verify RN/Hermes versions match package.json
+        run: |
+          python3 scripts/verify-ios-rn-versions.py
+
+      - name: Clean DerivedData caches
+        run: |
+          rm -rf ~/Library/Developer/Xcode/DerivedData
+          rm -rf ~/Library/Caches/com.apple.dt.Xcode
+
+      - name: Archive (unsigned)
+        working-directory: ios
+        run: |
+          set -euo pipefail
+          xcodebuild \
+            -workspace "$WORKSPACE" \
+            -scheme "$SCHEME" \
+            -configuration "$CONFIGURATION" \
+            -sdk "$SDK" \
+            -UseModernBuildSystem=YES \
+            CODE_SIGNING_ALLOWED=NO \
+            CODE_SIGNING_REQUIRED=NO \
+            archive -archivePath "$ARCHIVE_PATH" | xcpretty
+
+      - name: Create unsigned IPA
+        working-directory: ios
+        run: |
+          set -euo pipefail
+          APP_DIR="$ARCHIVE_PATH/Products/Applications/${APP_NAME}.app"
+          if [ ! -d "$APP_DIR" ]; then
+            echo "App not found at $APP_DIR"
+            ls -la "$ARCHIVE_PATH/Products/Applications" || true
+            exit 2
+          fi
+          mkdir -p build/Payload
+          rm -rf build/Payload/*
+          cp -R "$APP_DIR" build/Payload/
+          (cd build && zip -r "${APP_NAME}-unsigned.ipa" Payload >/dev/null)
+          echo "IPA created: ios/build/${APP_NAME}-unsigned.ipa"
+
+      - name: Upload IPA & Archive artifacts
+        uses: actions/upload-artifact@v4
+        with:
+          name: ios-${{ env.APP_NAME }}-artifacts
+          path: |
+            ios/build/${{ env.APP_NAME }}-unsigned.ipa
+            ios/build/${{ env.APP_NAME }}.xcarchive
+          if-no-files-found: error

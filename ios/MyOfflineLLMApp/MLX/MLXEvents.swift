@@ -15,10 +15,11 @@ final class MLXEvents: RCTEventEmitter {
   // RN requires this for Swift modules
   @objc override static func requiresMainQueueSetup() -> Bool { false }
 
-  // Single shared instance for convenience
-  private static weak var sharedStorage: MLXEvents?
-
-  static var shared: MLXEvents? { sharedStorage }
+  // Single shared instance for convenience. Marked nonisolated to keep Swift 6
+  // strict concurrency checks satisfied while still constraining usage to the
+  // @MainActor through instance APIs.
+  nonisolated(unsafe) private static weak var sharedStorage: MLXEvents?
+  nonisolated(unsafe) static var shared: MLXEvents? { sharedStorage }
 
   override init() {
     super.init()
