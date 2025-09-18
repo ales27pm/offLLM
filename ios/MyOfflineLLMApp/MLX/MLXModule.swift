@@ -13,20 +13,21 @@ import React
 
 // MARK: - Actor that owns ChatSession (off-main, concurrency-safe)
 private actor ChatSessionActor {
+  private var container: ModelContainer
   private var session: ChatSession
   private var isResponding = false
   private var shouldStop = false
 
   init(container: ModelContainer) {
+    self.container = container
     self.session = ChatSession(container)
   }
 
   func reset(with container: ModelContainer? = nil) {
     if let c = container {
-      self.session = ChatSession(c)
-    } else {
-      self.session = ChatSession(self.session.container)
+      self.container = c
     }
+    self.session = ChatSession(self.container)
     isResponding = false
     shouldStop = false
   }
@@ -36,13 +37,14 @@ private actor ChatSessionActor {
   }
 
   func generateOnce(prompt: String, topK: Int, temperature: Float) async throws -> String {
+    _ = topK
+    _ = temperature
     guard !isResponding else { return "" }
     isResponding = true
     defer { isResponding = false; shouldStop = false }
 
     var out = ""
-    let req = makeRequest(prompt: prompt, topK: topK, temperature: temperature)
-    for try await token in try session.generate(request: req) {
+    for try await token in session.streamResponse(to: prompt) {
       if shouldStop { break }
       out.append(token)
     }
@@ -50,20 +52,16 @@ private actor ChatSessionActor {
   }
 
   func stream(prompt: String, topK: Int, temperature: Float, onToken: @escaping (String) -> Void) async throws {
+    _ = topK
+    _ = temperature
     guard !isResponding else { return }
     isResponding = true
     defer { isResponding = false; shouldStop = false }
 
-    let req = makeRequest(prompt: prompt, topK: topK, temperature: temperature)
-    for try await token in try session.generate(request: req) {
+    for try await token in session.streamResponse(to: prompt) {
       if shouldStop { break }
       onToken(token)
     }
-  }
-
-  private func makeRequest(prompt: String, topK: Int, temperature: Float) -> GenerateRequest {
-    let params = GenerateRequest.Parameters(topK: topK, temperature: temperature)
-    return GenerateRequest(text: prompt, parameters: params)
   }
 }
 
@@ -164,7 +162,9 @@ final class MLXModule: NSObject {
   func stop() {
     Task { [weak self] in
       await self?.actor?.stop()
-      await MLXEvents.shared?.emitStopped()
+      await MainActor.run {
+        MLXEvents.shared?.emitStopped()
+      }
     }
   }
 
