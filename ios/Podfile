@@ -1,5 +1,8 @@
 require 'open3'
 
+post_install_hook = File.expand_path('scripts/post_install_hardening_hook.rb', __dir__)
+require post_install_hook if File.exist?(post_install_hook)
+
 platform :ios, '18.0'
 
 def env_flag_enabled?(name, default:)
@@ -11,6 +14,61 @@ def env_flag_enabled?(name, default:)
   return false if %w[0 false no off].include?(normalized)
 
   default
+end
+
+def append_build_flag!(config, key, flag)
+  current = config.build_settings[key]
+  changed = false
+
+  case current
+  when nil
+    config.build_settings[key] = ['$(inherited)', flag]
+    changed = true
+  when Array
+    unless current.include?(flag)
+      current << flag
+      config.build_settings[key] = current
+      changed = true
+    end
+  else
+    tokens = current.to_s.split(/\s+/)
+    unless tokens.include?(flag)
+      tokens << flag
+      config.build_settings[key] = tokens.join(' ')
+      changed = true
+    end
+  end
+
+  changed
+end
+
+def append_swift_module_flag!(config, module_map_flag)
+  pair = ['-Xcc', module_map_flag]
+  current = config.build_settings['OTHER_SWIFT_FLAGS']
+  changed = false
+
+  case current
+  when nil
+    config.build_settings['OTHER_SWIFT_FLAGS'] = ['$(inherited)'] + pair
+    changed = true
+  when Array
+    pair.each do |component|
+      next if current.include?(component)
+      current << component
+      changed = true
+    end
+    config.build_settings['OTHER_SWIFT_FLAGS'] = current
+  else
+    tokens = current.to_s.split(/\s+/)
+    pair.each do |component|
+      next if tokens.include?(component)
+      tokens << component
+      changed = true
+    end
+    config.build_settings['OTHER_SWIFT_FLAGS'] = tokens.join(' ')
+  end
+
+  changed
 end
 
 install! 'cocoapods', :disable_input_output_paths => true
@@ -100,6 +158,10 @@ end
 post_install do |installer|
   react_native_post_install(installer)
 
+  if defined?(PostInstallHardeningHook)
+    PostInstallHardeningHook.apply(installer)
+  end
+
   # Unconditionally disable I/O path analysis to avoid flaky .xcfilelist issues
   installer.pods_project.targets.each do |t|
     t.build_configurations.each do |c|
@@ -132,6 +194,8 @@ post_install do |installer|
   end
 
   header_search_fix = '$(PODS_ROOT)/Headers/Public/RCTDeprecation'
+  module_map_path = '$(PODS_ROOT)/Headers/Public/RCTDeprecation/RCTDeprecation.modulemap'
+  module_map_flag = "-fmodule-map-file=#{module_map_path}"
   installer.aggregate_targets.each do |aggregate_target|
     user_project = aggregate_target.user_project
     next unless user_project
@@ -163,6 +227,10 @@ post_install do |installer|
             project_modified = true
           end
         end
+
+        project_modified = append_build_flag!(config, 'OTHER_CFLAGS', module_map_flag) || project_modified
+        project_modified = append_build_flag!(config, 'OTHER_CPLUSPLUSFLAGS', module_map_flag) || project_modified
+        project_modified = append_swift_module_flag!(config, module_map_flag) || project_modified
       end
     end
 

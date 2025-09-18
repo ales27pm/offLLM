@@ -13,19 +13,17 @@ import React
 
 // MARK: - Actor that owns ChatSession (off-main, concurrency-safe)
 private actor ChatSessionActor {
-  private var session: ChatSession
+  private var container: ModelContainer
   private var isResponding = false
   private var shouldStop = false
 
   init(container: ModelContainer) {
-    self.session = ChatSession(container)
+    self.container = container
   }
 
   func reset(with container: ModelContainer? = nil) {
     if let c = container {
-      self.session = ChatSession(c)
-    } else {
-      self.session = ChatSession(self.session.container)
+      self.container = c
     }
     isResponding = false
     shouldStop = false
@@ -41,8 +39,8 @@ private actor ChatSessionActor {
     defer { isResponding = false; shouldStop = false }
 
     var out = ""
-    let req = makeRequest(prompt: prompt, topK: topK, temperature: temperature)
-    for try await token in try session.generate(request: req) {
+    let session = makeSession(topK: topK, temperature: temperature)
+    for try await token in session.streamResponse(to: prompt) {
       if shouldStop { break }
       out.append(token)
     }
@@ -54,16 +52,43 @@ private actor ChatSessionActor {
     isResponding = true
     defer { isResponding = false; shouldStop = false }
 
-    let req = makeRequest(prompt: prompt, topK: topK, temperature: temperature)
-    for try await token in try session.generate(request: req) {
+    let session = makeSession(topK: topK, temperature: temperature)
+    for try await token in session.streamResponse(to: prompt) {
       if shouldStop { break }
       onToken(token)
     }
   }
 
-  private func makeRequest(prompt: String, topK: Int, temperature: Float) -> GenerateRequest {
-    let params = GenerateRequest.Parameters(topK: topK, temperature: temperature)
-    return GenerateRequest(text: prompt, parameters: params)
+  private func makeSession(topK: Int, temperature: Float) -> ChatSession {
+    #if canImport(MLXLLM)
+      if #available(iOS 18, *) {
+        if let configured = try? ChatSession(
+          container,
+          configuration: .init(parameters: configuredParameters(topK: topK, temperature: temperature))
+        ) {
+          return configured
+        }
+      }
+    #endif
+    return ChatSession(container)
+  }
+
+  private func configuredParameters(topK: Int, temperature: Float) -> ChatSession.Parameters {
+    var parameters = ChatSession.Parameters()
+    parameters.temperature = temperature
+    parameters.topP = topPValue(for: topK)
+    return parameters
+  }
+
+  private func topPValue(for topK: Int) -> Float {
+    guard topK > 0 else { return 0.99 }
+    let baseline: Float = 40
+    let clamped = min(max(Float(topK), 1), 400)
+    let ratio = clamped / baseline
+    // MLX 0.25 switched to nucleus sampling (top-p). Map our legacy topK inputs into
+    // a conservative topP value so callers still control how much of the distribution
+    // is considered without requiring JavaScript changes.
+    return max(0.1, min(ratio, 0.99))
   }
 }
 
@@ -122,13 +147,13 @@ final class MLXModule: NSObject {
   @objc(load:resolver:rejecter:)
   func load(modelID: NSString?, resolve: @escaping RCTPromiseResolveBlock, reject: @escaping RCTPromiseRejectBlock) {
     let p = MLXPromise(resolve, reject)
-    Task.detached { [weak self] in
+    Task { @MainActor [weak self] in
       guard let self else { return }
       do {
         for id in self.idsToTry(from: modelID as String?) {
           do {
             let c = try await Self.loadContainer(modelID: id)
-            await MainActor.run { self.setActive(container: c) }
+            self.setActive(container: c)
             p.ok(["id": id])
             return
           } catch {
@@ -146,8 +171,9 @@ final class MLXModule: NSObject {
   @objc(reset)
   func reset() {
     if let c = container {
-      Task { [weak self] in
-        await self?.actor?.reset(with: c)
+      Task { @MainActor [weak self] in
+        guard let actor = self?.actor else { return }
+        await actor.reset(with: c)
       }
     }
   }
@@ -162,9 +188,10 @@ final class MLXModule: NSObject {
   /// JS: MLXModule.stop(): void
   @objc(stop)
   func stop() {
-    Task { [weak self] in
-      await self?.actor?.stop()
-      await MLXEvents.shared?.emitStopped()
+    Task { @MainActor [weak self] in
+      guard let actor = self?.actor else { return }
+      await actor.stop()
+      MLXEvents.shared?.emitStopped()
     }
   }
 
@@ -178,9 +205,9 @@ final class MLXModule: NSObject {
     let topK = (options?["topK"] as? NSNumber)?.intValue ?? 40
     let temperature = (options?["temperature"] as? NSNumber)?.floatValue ?? 0.7
 
-    Task.detached { [weak self] in
+    Task { @MainActor [weak self] in
       guard let self else { return }
-      guard let actor = await self.actor else {
+      guard let actor = self.actor else {
         p.fail("ENOSESSION", "No active session")
         return
       }
@@ -203,9 +230,9 @@ final class MLXModule: NSObject {
     let topK = (options?["topK"] as? NSNumber)?.intValue ?? 40
     let temperature = (options?["temperature"] as? NSNumber)?.floatValue ?? 0.7
 
-    Task.detached { [weak self] in
+    Task { @MainActor [weak self] in
       guard let self else { return }
-      guard let actor = await self.actor else { p.fail("ENOSESSION", "No active session"); return }
+      guard let actor = self.actor else { p.fail("ENOSESSION", "No active session"); return }
       do {
         try await actor.stream(prompt: prompt as String, topK: topK, temperature: temperature) { token in
           Task { @MainActor in MLXEvents.shared?.emitToken(token) }
