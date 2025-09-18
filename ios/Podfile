@@ -103,6 +103,10 @@ end
 post_install do |installer|
   react_native_post_install(installer)
 
+  if defined?(PostInstallHardeningHook)
+    PostInstallHardeningHook.apply(installer)
+  end
+
   # Unconditionally disable I/O path analysis to avoid flaky .xcfilelist issues
   installer.pods_project.targets.each do |t|
     t.build_configurations.each do |c|
