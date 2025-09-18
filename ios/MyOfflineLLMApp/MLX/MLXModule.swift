@@ -14,20 +14,17 @@ import React
 // MARK: - Actor that owns ChatSession (off-main, concurrency-safe)
 private actor ChatSessionActor {
   private var container: ModelContainer
-  private var session: ChatSession
   private var isResponding = false
   private var shouldStop = false
 
   init(container: ModelContainer) {
     self.container = container
-    self.session = ChatSession(container)
   }
 
   func reset(with container: ModelContainer? = nil) {
     if let c = container {
       self.container = c
     }
-    self.session = ChatSession(self.container)
     isResponding = false
     shouldStop = false
   }
@@ -37,13 +34,12 @@ private actor ChatSessionActor {
   }
 
   func generateOnce(prompt: String, topK: Int, temperature: Float) async throws -> String {
-    _ = topK
-    _ = temperature
     guard !isResponding else { return "" }
     isResponding = true
     defer { isResponding = false; shouldStop = false }
 
     var out = ""
+    let session = session(topK: topK, temperature: temperature)
     for try await token in session.streamResponse(to: prompt) {
       if shouldStop { break }
       out.append(token)
@@ -52,16 +48,37 @@ private actor ChatSessionActor {
   }
 
   func stream(prompt: String, topK: Int, temperature: Float, onToken: @escaping (String) -> Void) async throws {
-    _ = topK
-    _ = temperature
     guard !isResponding else { return }
     isResponding = true
     defer { isResponding = false; shouldStop = false }
 
+    let session = session(topK: topK, temperature: temperature)
     for try await token in session.streamResponse(to: prompt) {
       if shouldStop { break }
       onToken(token)
     }
+  }
+
+  private func session(topK: Int, temperature: Float) -> ChatSession {
+    ChatSession(container, generateParameters: Self.parameters(topK: topK, temperature: temperature))
+  }
+
+  private static func parameters(topK: Int, temperature: Float) -> GenerateParameters {
+    var parameters = GenerateParameters()
+    parameters.temperature = temperature
+    parameters.topP = topPValue(for: topK)
+    return parameters
+  }
+
+  private static func topPValue(for topK: Int) -> Float {
+    guard topK > 0 else { return 0.99 }
+    let baseline: Float = 40
+    let clamped = min(max(Float(topK), 1), 400)
+    let ratio = clamped / baseline
+    // MLX 0.25 switched to nucleus sampling (top-p). Map our legacy topK inputs into
+    // a conservative topP value so callers still control how much of the distribution
+    // is considered without requiring JavaScript changes.
+    return max(0.1, min(ratio, 0.99))
   }
 }
 

@@ -32,9 +32,9 @@ module PostInstallHardeningHook
 
       ensure_definition(definitions, '$(inherited)')
       ensure_definition(definitions, 'RCT_NEW_ARCH_ENABLED=1')
-      ensure_definition(definitions, 'DISABLE_INPUT_OUTPUT_PATHS=YES')
 
       config.build_settings['GCC_PREPROCESSOR_DEFINITIONS'] = definitions
+      config.build_settings['DISABLE_INPUT_OUTPUT_PATHS'] = 'YES'
     end
   end
 

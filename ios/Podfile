@@ -228,9 +228,9 @@ post_install do |installer|
           end
         end
 
-        project_modified ||= append_build_flag!(config, 'OTHER_CFLAGS', module_map_flag)
-        project_modified ||= append_build_flag!(config, 'OTHER_CPLUSPLUSFLAGS', module_map_flag)
-        project_modified ||= append_swift_module_flag!(config, module_map_flag)
+        project_modified = append_build_flag!(config, 'OTHER_CFLAGS', module_map_flag) || project_modified
+        project_modified = append_build_flag!(config, 'OTHER_CPLUSPLUSFLAGS', module_map_flag) || project_modified
+        project_modified = append_swift_module_flag!(config, module_map_flag) || project_modified
       end
     end
 
