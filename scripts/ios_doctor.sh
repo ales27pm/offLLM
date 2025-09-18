@@ -75,6 +75,26 @@ clean_codegen_duplicates() {
   fi
 }
 
+purge_xcode_caches() {
+  if [[ "$(uname -s)" != "Darwin" ]]; then
+    echo "Skipping DerivedData purge (non-macOS environment)."
+    return
+  fi
+
+  local derived_dir="$HOME/Library/Developer/Xcode/DerivedData"
+  local module_cache="$HOME/Library/Developer/Xcode/DerivedData/ModuleCache.noindex"
+
+  if [[ -d "$derived_dir" ]]; then
+    echo "Removing DerivedData at $derived_dir..."
+    rm -rf "$derived_dir"
+  fi
+
+  if [[ -d "$module_cache" ]]; then
+    echo "Removing ModuleCache at $module_cache..."
+    rm -rf "$module_cache"
+  fi
+}
+
 dry_run_archive() {
   echo "Dry-run archive..."
   if ! (
@@ -101,6 +121,7 @@ main() {
   run_js_checks
   sync_ios_dependencies
   clean_codegen_duplicates
+  purge_xcode_caches
   dry_run_archive
 
   echo "✅ Doctor passed. Ready for full build."

@@ -9,32 +9,22 @@ import Foundation
 import React
 
 @objc(MLXEvents)
+@MainActor
 final class MLXEvents: RCTEventEmitter {
 
   // RN requires this for Swift modules
   @objc override static func requiresMainQueueSetup() -> Bool { false }
 
   // Single shared instance for convenience
-  @MainActor private static weak var sharedStorage: MLXEvents?
-
-  @MainActor static var shared: MLXEvents? {
-    get { sharedStorage }
-    set { sharedStorage = newValue }
-  }
+  static weak var shared: MLXEvents?
 
   override init() {
     super.init()
-    Task { [weak self] @MainActor in
-      guard let self else { return }
-      MLXEvents.shared = self
-    }
+    MLXEvents.shared = self
   }
 
   deinit {
-    Task { [weak self] @MainActor in
-      guard let self else { return }
-      if MLXEvents.shared === self { MLXEvents.shared = nil }
-    }
+    if MLXEvents.shared === self { MLXEvents.shared = nil }
   }
 
   override func supportedEvents() -> [String]! {
@@ -42,19 +32,19 @@ final class MLXEvents: RCTEventEmitter {
   }
 
   // Convenience senders
-  @MainActor func emitToken(_ text: String) {
+  func emitToken(_ text: String) {
     sendEvent(withName: "mlxToken", body: ["text": text])
   }
 
-  @MainActor func emitCompleted() {
+  func emitCompleted() {
     sendEvent(withName: "mlxCompleted", body: nil)
   }
 
-  @MainActor func emitError(_ code: String, message: String) {
+  func emitError(_ code: String, message: String) {
     sendEvent(withName: "mlxError", body: ["code": code, "message": message])
   }
 
-  @MainActor func emitStopped() {
+  func emitStopped() {
     sendEvent(withName: "mlxStopped", body: nil)
   }
 }

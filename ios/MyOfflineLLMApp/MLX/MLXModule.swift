@@ -150,7 +150,8 @@ final class MLXModule: NSObject {
     Task { @MainActor [weak self] in
       guard let self else { return }
       do {
-        for id in self.idsToTry(from: modelID as String?) {
+        let candidateIDs = await self.idsToTry(from: modelID as String?)
+        for id in candidateIDs {
           do {
             let c = try await Self.loadContainer(modelID: id)
             self.setActive(container: c)
