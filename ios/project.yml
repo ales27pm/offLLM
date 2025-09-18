@@ -8,10 +8,10 @@ options:
 packages:
   mlx-swift:
     url: https://github.com/ml-explore/mlx-swift
-    branch: main
+    exactVersion: 0.25.6
   mlx-swift-examples:
     url: https://github.com/ml-explore/mlx-swift-examples
-    branch: main
+    exactVersion: 2.25.6
 
 targets:
   monGARS:

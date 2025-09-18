@@ -14,20 +14,17 @@ import React
 // MARK: - Actor that owns ChatSession (off-main, concurrency-safe)
 private actor ChatSessionActor {
   private var container: ModelContainer
-  private var session: ChatSession
   private var isResponding = false
   private var shouldStop = false
 
   init(container: ModelContainer) {
     self.container = container
-    self.session = ChatSession(container)
   }
 
   func reset(with container: ModelContainer? = nil) {
-    if let c = container {
-      self.container = c
+    if let updated = container {
+      self.container = updated
     }
-    self.session = ChatSession(self.container)
     isResponding = false
     shouldStop = false
   }
@@ -37,13 +34,12 @@ private actor ChatSessionActor {
   }
 
   func generateOnce(prompt: String, topK: Int, temperature: Float) async throws -> String {
-    _ = topK
-    _ = temperature
     guard !isResponding else { return "" }
     isResponding = true
     defer { isResponding = false; shouldStop = false }
 
     var out = ""
+    let session = ChatSession(container, generateParameters: makeParameters(topK: topK, temperature: temperature))
     for try await token in session.streamResponse(to: prompt) {
       if shouldStop { break }
       out.append(token)
@@ -52,16 +48,30 @@ private actor ChatSessionActor {
   }
 
   func stream(prompt: String, topK: Int, temperature: Float, onToken: @escaping (String) -> Void) async throws {
-    _ = topK
-    _ = temperature
     guard !isResponding else { return }
     isResponding = true
     defer { isResponding = false; shouldStop = false }
 
+    let session = ChatSession(container, generateParameters: makeParameters(topK: topK, temperature: temperature))
     for try await token in session.streamResponse(to: prompt) {
       if shouldStop { break }
       onToken(token)
     }
+  }
+
+  private func makeParameters(topK: Int, temperature: Float) -> GenerateParameters {
+    var parameters = GenerateParameters()
+    parameters.temperature = temperature
+    parameters.topP = topPValue(for: topK)
+    return parameters
+  }
+
+  private func topPValue(for topK: Int) -> Float {
+    guard topK > 0 else { return 0.99 }
+    let normalized = min(max(Float(topK), 1), 400)
+    let baseline: Float = 40
+    let mapped = normalized / baseline
+    return max(0.1, min(mapped, 0.99))
   }
 }
 
@@ -123,7 +133,8 @@ final class MLXModule: NSObject {
     Task.detached { [weak self] in
       guard let self else { return }
       do {
-        for id in self.idsToTry(from: modelID as String?) {
+        let candidateIDs = await MainActor.run { self.idsToTry(from: modelID as String?) }
+        for id in candidateIDs {
           do {
             let c = try await Self.loadContainer(modelID: id)
             await MainActor.run { self.setActive(container: c) }
@@ -162,9 +173,7 @@ final class MLXModule: NSObject {
   func stop() {
     Task { [weak self] in
       await self?.actor?.stop()
-      await MainActor.run {
-        MLXEvents.shared?.emitStopped()
-      }
+      await MLXEvents.shared?.emitStopped()
     }
   }
 
