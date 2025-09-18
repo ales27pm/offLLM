@@ -13,19 +13,17 @@ import React
 
 // MARK: - Actor that owns ChatSession (off-main, concurrency-safe)
 private actor ChatSessionActor {
-  private var session: ChatSession
+  private var container: ModelContainer
   private var isResponding = false
   private var shouldStop = false
 
   init(container: ModelContainer) {
-    self.session = ChatSession(container)
+    self.container = container
   }
 
   func reset(with container: ModelContainer? = nil) {
-    if let c = container {
-      self.session = ChatSession(c)
-    } else {
-      self.session = ChatSession(self.session.container)
+    if let updated = container {
+      self.container = updated
     }
     isResponding = false
     shouldStop = false
@@ -41,8 +39,8 @@ private actor ChatSessionActor {
     defer { isResponding = false; shouldStop = false }
 
     var out = ""
-    let req = makeRequest(prompt: prompt, topK: topK, temperature: temperature)
-    for try await token in try session.generate(request: req) {
+    let session = ChatSession(container, generateParameters: makeParameters(topK: topK, temperature: temperature))
+    for try await token in session.streamResponse(to: prompt) {
       if shouldStop { break }
       out.append(token)
     }
@@ -54,16 +52,26 @@ private actor ChatSessionActor {
     isResponding = true
     defer { isResponding = false; shouldStop = false }
 
-    let req = makeRequest(prompt: prompt, topK: topK, temperature: temperature)
-    for try await token in try session.generate(request: req) {
+    let session = ChatSession(container, generateParameters: makeParameters(topK: topK, temperature: temperature))
+    for try await token in session.streamResponse(to: prompt) {
       if shouldStop { break }
       onToken(token)
     }
   }
 
-  private func makeRequest(prompt: String, topK: Int, temperature: Float) -> GenerateRequest {
-    let params = GenerateRequest.Parameters(topK: topK, temperature: temperature)
-    return GenerateRequest(text: prompt, parameters: params)
+  private func makeParameters(topK: Int, temperature: Float) -> GenerateParameters {
+    var parameters = GenerateParameters()
+    parameters.temperature = temperature
+    parameters.topP = topPValue(for: topK)
+    return parameters
+  }
+
+  private func topPValue(for topK: Int) -> Float {
+    guard topK > 0 else { return 0.99 }
+    let normalized = min(max(Float(topK), 1), 400)
+    let baseline: Float = 40
+    let mapped = normalized / baseline
+    return max(0.1, min(mapped, 0.99))
   }
 }
 
