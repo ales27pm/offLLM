@@ -2,6 +2,10 @@ require 'open3'
 
 platform :ios, '18.0'
 
+# Default to Fabric/New Architecture unless the caller opts out.
+ENV['RCT_NEW_ARCH_ENABLED'] = ENV.fetch('RCT_NEW_ARCH_ENABLED', '1')
+ENV['RCT_FABRIC_ENABLED'] = ENV.fetch('RCT_FABRIC_ENABLED', '1')
+
 install! 'cocoapods', :disable_input_output_paths => true
 
 # --- Auto-detect the .xcodeproj near this Podfile ---
@@ -50,7 +54,10 @@ end
 target 'monGARS' do
   config = use_native_modules!
 
-  flags = get_default_flags()
+  flags = get_default_flags({
+    :fabric_enabled => ENV['RCT_FABRIC_ENABLED'] == '1',
+    :new_arch_enabled => ENV['RCT_NEW_ARCH_ENABLED'] == '1'
+  })
 
   use_react_native!(
     :path => config[:reactNativePath],

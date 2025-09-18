@@ -1,12 +1,9 @@
 import Foundation
 import React
 
-import MLXLLM
-import MLXLMCommon
+@preconcurrency import MLXLLM
+@preconcurrency import MLXLMCommon
 
-extension ChatSession: @unchecked Sendable {}
-
-@MainActor
 private actor ChatSessionActor {
   private struct Waiter {
     let id: UUID
