@@ -40,7 +40,7 @@
     "crypto-js": "4.2.0",
     "langchain": "^0.3.33",
     "react": "19.1.1",
-    "react-native": "0.81.1",
+    "react-native": "0.81.4",
     "react-native-config": "^1.5.9",
     "react-native-contacts": "^8.0.7",
     "react-native-device-info": "^14.0.4",
