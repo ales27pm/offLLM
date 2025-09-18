@@ -15,15 +15,26 @@ final class MLXEvents: RCTEventEmitter {
   @objc override static func requiresMainQueueSetup() -> Bool { false }
 
   // Single shared instance for convenience
-  static var shared: MLXEvents?
+  @MainActor private static weak var sharedStorage: MLXEvents?
+
+  @MainActor static var shared: MLXEvents? {
+    get { sharedStorage }
+    set { sharedStorage = newValue }
+  }
 
   override init() {
     super.init()
-    MLXEvents.shared = self
+    Task { [weak self] @MainActor in
+      guard let self else { return }
+      MLXEvents.shared = self
+    }
   }
 
   deinit {
-    if MLXEvents.shared === self { MLXEvents.shared = nil }
+    Task { [weak self] @MainActor in
+      guard let self else { return }
+      if MLXEvents.shared === self { MLXEvents.shared = nil }
+    }
   }
 
   override func supportedEvents() -> [String]! {
