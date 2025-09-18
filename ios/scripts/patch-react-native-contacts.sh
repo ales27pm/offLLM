@@ -22,6 +22,7 @@ if ! python3 - <<'PY' >/dev/null 2>&1; then
 import sys
 sys.exit(0 if sys.version_info >= (3, 7) else 1)
 PY
+then
   PY_VERSION="$(python3 --version 2>/dev/null || echo 'python3 unavailable')"
   echo "❌ python3 3.7 or newer is required to patch react-native-contacts (detected: $PY_VERSION)."
   exit 1

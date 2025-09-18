@@ -91,14 +91,6 @@ jobs:
           COCOAPODS_DISABLE_STATS: "true"
         run: bundle exec pod install
 
-      - name: Clean Codegen Duplicates
-        run: |
-          find ios/build/generated/ios -name "*JSI-generated*" -delete || true
-          find ios/build/generated/ios -name "*Spec-generated*" -delete || true
-          npm run codegen  # Re-gen fresh
-        env:
-          RCT_NEW_ARCH_ENABLED: "1"
-
       - name: Capture iOS environment diagnostics
         run: |
           #!/usr/bin/env bash
