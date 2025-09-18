@@ -15,14 +15,14 @@ final class MLXEvents: RCTEventEmitter {
   @objc override static func requiresMainQueueSetup() -> Bool { false }
 
   // Single shared instance for convenience
-  static var shared: MLXEvents?
+  @MainActor static var shared: MLXEvents?
 
-  override init() {
+  @MainActor override init() {
     super.init()
     MLXEvents.shared = self
   }
 
-  deinit {
+  @MainActor deinit {
     if MLXEvents.shared === self { MLXEvents.shared = nil }
   }
 

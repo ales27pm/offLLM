@@ -41,7 +41,7 @@ private actor ChatSessionActor {
     defer { isResponding = false; shouldStop = false }
 
     var out = ""
-    let req = GenerateRequest(text: prompt, parameters: .init(topK: topK, temperature: temperature))
+    let req = makeRequest(prompt: prompt, topK: topK, temperature: temperature)
     for try await token in try session.generate(request: req) {
       if shouldStop { break }
       out.append(token)
@@ -54,11 +54,16 @@ private actor ChatSessionActor {
     isResponding = true
     defer { isResponding = false; shouldStop = false }
 
-    let req = GenerateRequest(text: prompt, parameters: .init(topK: topK, temperature: temperature))
+    let req = makeRequest(prompt: prompt, topK: topK, temperature: temperature)
     for try await token in try session.generate(request: req) {
       if shouldStop { break }
       onToken(token)
     }
+  }
+
+  private func makeRequest(prompt: String, topK: Int, temperature: Float) -> GenerateRequest {
+    let params = GenerateRequest.Parameters(topK: topK, temperature: temperature)
+    return GenerateRequest(text: prompt, parameters: params)
   }
 }
 
