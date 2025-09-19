@@ -6,16 +6,26 @@ const getArgKeys = (args) =>
 export default class ToolHandler {
   constructor(toolRegistry) {
     this.toolRegistry = toolRegistry;
-    this.callRegex = /TOOL_CALL:\s*(\w+)\s*\(([\s\S]*?)\)/g;
+    this.callRegex = /TOOL_CALL:\s*(\w+)\s*\(/g;
   }
 
   parse(response) {
+    const results = [];
     this.callRegex.lastIndex = 0;
-    const matches = [...response.matchAll(this.callRegex)];
-    return matches.map(([, name, args]) => ({
-      name,
-      args: this._parseArgs(args),
-    }));
+    let match;
+    while ((match = this.callRegex.exec(response)) !== null) {
+      const name = match[1];
+      const { args, endIndex } = this._extractArgsSegment(
+        response,
+        this.callRegex.lastIndex,
+      );
+      results.push({
+        name,
+        args: this._parseArgs(args),
+      });
+      this.callRegex.lastIndex = endIndex;
+    }
+    return results;
   }
 
   _parseArgs(argString) {
@@ -45,6 +55,58 @@ export default class ToolHandler {
       throw new Error("Malformed argument string: " + argString);
     }
     return args;
+  }
+
+  _extractArgsSegment(source, startIndex) {
+    let depth = 1;
+    let inSingle = false;
+    let inDouble = false;
+    let escaped = false;
+    for (let i = startIndex; i < source.length; i += 1) {
+      const char = source[i];
+      if (escaped) {
+        escaped = false;
+        continue;
+      }
+      if (char === "\\") {
+        escaped = true;
+        continue;
+      }
+      if (inSingle) {
+        if (char === "'") {
+          inSingle = false;
+        }
+        continue;
+      }
+      if (inDouble) {
+        if (char === '"') {
+          inDouble = false;
+        }
+        continue;
+      }
+      if (char === "'") {
+        inSingle = true;
+        continue;
+      }
+      if (char === '"') {
+        inDouble = true;
+        continue;
+      }
+      if (char === "(") {
+        depth += 1;
+        continue;
+      }
+      if (char === ")") {
+        depth -= 1;
+        if (depth === 0) {
+          return {
+            args: source.slice(startIndex, i),
+            endIndex: i + 1,
+          };
+        }
+      }
+    }
+    throw new Error("Unterminated tool call arguments");
   }
 
   async execute(calls, options = {}) {

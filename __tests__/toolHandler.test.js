@@ -49,6 +49,32 @@ test("ToolHandler parses argument lists with extra whitespace", () => {
   expect(parsed3).toEqual([{ name: "ping", args: {} }]);
 });
 
+test("ToolHandler parses arguments containing parentheses", () => {
+  const parsed = handler.parse('TOOL_CALL: find(query="a(b)c")');
+  expect(parsed).toEqual([
+    {
+      name: "find",
+      args: { query: "a(b)c" },
+    },
+  ]);
+});
+
+test("ToolHandler parses sequential tool calls", () => {
+  const parsed = handler.parse(
+    "TOOL_CALL: first(value=\"(1+2)\")\nTOOL_CALL: second(flag='done')",
+  );
+  expect(parsed).toEqual([
+    {
+      name: "first",
+      args: { value: "(1+2)" },
+    },
+    {
+      name: "second",
+      args: { flag: "done" },
+    },
+  ]);
+});
+
 test("ToolHandler executes zero-argument tools", async () => {
   const execute = jest.fn().mockResolvedValue({ ok: true });
   const registry = {
