@@ -10,6 +10,7 @@ export default class ToolHandler {
   }
 
   parse(response) {
+    this.callRegex.lastIndex = 0;
     const matches = [...response.matchAll(this.callRegex)];
     return matches.map(([, name, args]) => ({
       name,

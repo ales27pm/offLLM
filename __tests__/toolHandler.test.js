@@ -38,6 +38,17 @@ test("ToolHandler parses empty argument lists", () => {
   expect(parsed).toEqual([{ name: "ping", args: {} }]);
 });
 
+test("ToolHandler parses argument lists with extra whitespace", () => {
+  const parsed1 = handler.parse("TOOL_CALL: ping(   )");
+  expect(parsed1).toEqual([{ name: "ping", args: {} }]);
+
+  const parsed2 = handler.parse("TOOL_CALL:   ping (   )");
+  expect(parsed2).toEqual([{ name: "ping", args: {} }]);
+
+  const parsed3 = handler.parse("TOOL_CALL: ping(\n\t )");
+  expect(parsed3).toEqual([{ name: "ping", args: {} }]);
+});
+
 test("ToolHandler executes zero-argument tools", async () => {
   const execute = jest.fn().mockResolvedValue({ ok: true });
   const registry = {

@@ -4,6 +4,14 @@ import { cosineSimilarity } from "../utils/vectorUtils";
 import { applySparseAttention } from "../utils/sparseAttention";
 import { encoding_for_model } from "tiktoken";
 
+/**
+ * @typedef {Object} VectorStore
+ * @property {(embedding: number[], limit: number) => Promise<any[]>} searchVectors
+ * @property {(embedding: number[], limit: number, opts: { useHierarchical: boolean; numClusters: number }) => Promise<any[]>} [searchVectorsSparse]
+ */
+
+const SPARSE_SEARCH_OPTIONS = { useHierarchical: true, numClusters: 3 };
+
 export class ContextEvaluator {
   constructor({
     llmService = LLMService,
@@ -178,10 +186,13 @@ export class ContextEngineer {
     vectorStore,
     sparseAttention = applySparseAttention,
   } = {}) {
-    const globalStore =
-      typeof globalThis !== "undefined" ? globalThis.vectorStore : undefined;
+    if (!vectorStore || typeof vectorStore.searchVectors !== "function") {
+      throw new Error(
+        "ContextEngineer requires a vectorStore with a searchVectors function",
+      );
+    }
     this.llmService = llmService;
-    this.vectorStore = vectorStore ?? globalStore ?? null;
+    this.vectorStore = vectorStore;
     this.contextEvaluator =
       contextEvaluator ||
       new ContextEvaluator({
@@ -295,34 +306,29 @@ export class ContextEngineer {
     };
   }
 
-  async _retrieveRelevantChunksSparse(queryEmbedding, limit) {
-    const store = this.vectorStore;
-    if (!store) {
-      return [];
-    }
-
-    if (typeof store.searchVectorsSparse !== "function") {
-      if (typeof store.searchVectors === "function") {
-        return await store.searchVectors(queryEmbedding, limit);
+  async _searchChunks(queryEmbedding, limit, options) {
+    if (typeof this.vectorStore.searchVectorsSparse === "function") {
+      try {
+        return await this.vectorStore.searchVectorsSparse(
+          queryEmbedding,
+          limit,
+          options,
+        );
+      } catch (error) {
+        console.warn("Sparse retrieval failed, falling back:", error);
       }
-      return [];
     }
 
     try {
-      return await store.searchVectorsSparse(queryEmbedding, limit, {
-        useHierarchical: true,
-        numClusters: 3,
-      });
+      return await this.vectorStore.searchVectors(queryEmbedding, limit);
     } catch (error) {
-      console.error(
-        "Sparse retrieval failed, falling back to standard:",
-        error,
-      );
-      if (typeof store.searchVectors === "function") {
-        return await store.searchVectors(queryEmbedding, limit);
-      }
+      console.error("Vector search failed:", error);
       return [];
     }
+  }
+
+  async _retrieveRelevantChunksSparse(queryEmbedding, limit) {
+    return this._searchChunks(queryEmbedding, limit, SPARSE_SEARCH_OPTIONS);
   }
 
   async _summarizeConversationHierarchically(conversationHistory, maxTokens) {

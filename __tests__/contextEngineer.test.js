@@ -16,9 +16,10 @@ describe("ContextEngineer sparse retrieval", () => {
 
   test("uses sparse retrieval when available", async () => {
     const sparse = jest.fn().mockResolvedValue([{ id: "a" }]);
+    const dense = jest.fn().mockResolvedValue([]);
     const store = {
       searchVectorsSparse: sparse,
-      searchVectors: jest.fn(),
+      searchVectors: dense,
     };
     const engineer = createEngineer({ vectorStore: store });
 
@@ -29,7 +30,7 @@ describe("ContextEngineer sparse retrieval", () => {
       numClusters: 3,
     });
     expect(result).toEqual([{ id: "a" }]);
-    expect(store.searchVectors).not.toHaveBeenCalled();
+    expect(dense).not.toHaveBeenCalled();
   });
 
   test("falls back to dense search when sparse retrieval fails", async () => {
@@ -40,8 +41,8 @@ describe("ContextEngineer sparse retrieval", () => {
       searchVectors: dense,
     };
     const engineer = createEngineer({ vectorStore: store });
-    const consoleError = jest
-      .spyOn(console, "error")
+    const consoleWarn = jest
+      .spyOn(console, "warn")
       .mockImplementation(() => {});
 
     const result = await engineer._retrieveRelevantChunksSparse([0.4], 2);
@@ -49,14 +50,46 @@ describe("ContextEngineer sparse retrieval", () => {
     expect(dense).toHaveBeenCalledWith([0.4], 2);
     expect(result).toEqual([{ id: "fallback" }]);
 
+    consoleWarn.mockRestore();
+  });
+
+  test("falls back to dense search when sparse retrieval is unavailable", async () => {
+    const dense = jest.fn().mockResolvedValue([{ id: "dense" }]);
+    const store = {
+      searchVectors: dense,
+    };
+    const engineer = createEngineer({ vectorStore: store });
+
+    const result = await engineer._retrieveRelevantChunksSparse([0.2], 2);
+
+    expect(dense).toHaveBeenCalledWith([0.2], 2);
+    expect(result).toEqual([{ id: "dense" }]);
+  });
+
+  test("returns empty array when dense search fails", async () => {
+    const error = new Error("boom");
+    const store = {
+      searchVectors: jest.fn().mockRejectedValue(error),
+    };
+    const consoleError = jest
+      .spyOn(console, "error")
+      .mockImplementation(() => {});
+
+    const engineer = createEngineer({ vectorStore: store });
+
+    await expect(
+      engineer._retrieveRelevantChunksSparse([0.3], 1),
+    ).resolves.toEqual([]);
+
+    expect(store.searchVectors).toHaveBeenCalledWith([0.3], 1);
     consoleError.mockRestore();
   });
 
-  test("returns empty results when no vector store is configured", async () => {
-    const engineer = createEngineer({ vectorStore: null });
-
-    await expect(
-      engineer._retrieveRelevantChunksSparse([0.5], 1),
-    ).resolves.toEqual([]);
+  test("throws when vector store is missing", () => {
+    expect(() =>
+      createEngineer({
+        vectorStore: null,
+      }),
+    ).toThrow("ContextEngineer requires a vectorStore");
   });
 });
