@@ -1,10 +1,18 @@
 # Persistent Memory Guide
 
-The `src/memory` directory implements encrypted, on-disk vector memory and migrations for long-term recall outside the in-process `MemoryManager`. Treat it as a persistence layer with strict size and security guarantees.
+## Responsibilities
+- `VectorMemory` encrypts every payload with AES-256-GCM, enforces storage quotas via `_enforceLimits`, and runs schema migrations on load. Keep those guarantees intact before persisting new data formats.【F:src/memory/VectorMemory.ts†L45-L136】【F:src/memory/migrations/index.ts†L1-L8】
+- Memory APIs (`remember`, `recall`, `wipe`, `export`, `import`) operate on plain JavaScript objects so the agent loop and diagnostics can serialise state without special handling—maintain that contract when evolving the schema.【F:src/memory/VectorMemory.ts†L63-L135】
+- Migrations are forward-only; bump `CURRENT_VERSION` and add a new file under `migrations/` when evolving the schema, ensuring existing data upgrades automatically.【F:src/memory/migrations/index.ts†L1-L8】
 
-- `VectorMemory` must keep data encrypted at rest via `EncryptionService` and enforce storage limits through `_enforceLimits`; never write plaintext vectors to disk.【F:src/memory/VectorMemory.ts†L1-L108】【F:src/memory/VectorMemory.ts†L141-L168】
-- Always run `runMigrations` after loading stored data so new schemas can evolve without wiping history.【F:src/memory/VectorMemory.ts†L1-L64】
-- Expose APIs that return plain JavaScript/TypeScript objects—avoid leaking buffers so the agent loop can serialize state safely.
-- When adding migrations, include forward-only transforms under `src/memory/migrations` and update `CURRENT_VERSION` accordingly.
+## Integration points
+- The in-process `MemoryManager` depends on this layer for persistent recall—coordinate API changes with the in-memory services to avoid drift between runtime retrieval and disk storage.【F:src/core/memory/MemoryManager.js†L8-L34】
+- Encryption keys default to an ephemeral value in development. Configure `MEMORY_ENCRYPTION_KEY` (32 chars) in production so stored vectors remain decryptable across restarts.【F:src/memory/VectorMemory.ts†L23-L37】
 
-Tests touching this layer should mock filesystem paths and provide deterministic keys; run `npm test` before committing changes here.
+## Dynamic feedback loop
+- Log migration outcomes or storage pressure in the generated reports whenever limits are hit; capture the root cause and mitigation in the living history so storage heuristics can be tuned iteratively.【F:REPORT.md†L1-L13】
+- Update documentation and tests when retrieval strategies, quota enforcement, or encryption policies change so consumers know how to adapt.【F:docs/agent-architecture.md†L9-L58】【F:__tests__/vectorMemory.test.js†L8-L43】
+
+### Living history
+- 2025-02 – Development builds previously lost persisted data when the encryption key rotated; setting `MEMORY_ENCRYPTION_KEY` resolved the issue—do not rely on the ephemeral fallback outside local testing.【F:src/memory/VectorMemory.ts†L23-L37】
+- 2025-02 – Tightening `_enforceLimits` to trim the oldest entries kept encrypted blobs under quota without data corruption; retain that LRU-style loop when adjusting limits.【F:src/memory/VectorMemory.ts†L120-L135】

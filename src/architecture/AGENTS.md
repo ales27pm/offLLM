@@ -1,24 +1,22 @@
 # Architecture & Plugins Guide
 
-This folder contains the dynamic runtime scaffolding that lets the agent adapt model behavior at runtime—plugin management, dependency injection, and the advanced tool registry. Keep changes composable and guard every platform-specific capability.
-
-## Plugin manager
-
-- `PluginManager` is the canonical way to register, enable, and disable plugins. Preserve its lifecycle: `registerPlugin` stores metadata and hooks, `enablePlugin` runs `initialize`, applies `replace`/`extend` patches, and toggles `enabled`, while `disablePlugin` unwinds those patches.【F:src/architecture/pluginManager.js†L1-L104】【F:src/architecture/pluginManager.js†L134-L201】
-- Only patch global modules through `_replaceModuleFunction` when the target string contains a dot (`Module.function`); this prevents accidental overrides of service instance methods.【F:src/architecture/pluginManager.js†L31-L86】
-- Any new hook must be invoked through `executeHook` so plugin ordering remains deterministic; do not call hook arrays directly.【F:src/architecture/pluginManager.js†L87-L133】
+## Plugin lifecycle
+- `PluginManager` owns registration, hook execution, and module patch bookkeeping. Route overrides through `registerPlugin`/`enablePlugin` so `_replaceModuleFunction` can capture originals and restore them cleanly; global patches only fire when the target path includes a dot to avoid clobbering instances.【F:src/architecture/pluginManager.js†L10-L204】
+- Register hook handlers with `registerHook`/`executeHook` instead of iterating arrays manually so execution order and error isolation remain deterministic.【F:src/architecture/pluginManager.js†L95-L118】
+- `execute` checks for overrides before delegating to the base context method, and records module patches so `disablePlugin` can restore the original behaviour—preserve this guardrail when adding new plugin capabilities.【F:src/architecture/pluginManager.js†L118-L204】
 
 ## Dependency injection & setup
+- Dependency wiring flows through `DependencyInjector` and `setupLLMDI`; register shared state there instead of importing singletons so plugins can access the same instances.【F:src/architecture/dependencyInjector.js†L1-L24】【F:src/architecture/diSetup.js†L1-L5】
+- Bundle built-in plugins via `registerLLMPlugins` so the runtime enables them immediately after the model loads; mirror that pattern when shipping new plugins (e.g., hardware-aware ones).【F:src/architecture/pluginSetup.js†L1-L28】【F:src/services/llmService.js†L14-L187】
 
-- Use `DependencyInjector` for shared runtime state. Register values during initialization (`setupLLMDI`) and resolve them inside services or plugins via `inject`. Throw descriptive errors when dependencies are missing.【F:src/architecture/dependencyInjector.js†L1-L24】【F:src/architecture/diSetup.js†L1-L5】
-- `registerLLMPlugins` is the single entry point for bundling built-in plugins. When adding a plugin, register it here and ensure it respects the context object (web vs. native) handed in by `LLMService`.【F:src/architecture/pluginSetup.js†L1-L28】
+## Advanced tool system
+- `src/architecture/toolSystem.js` exposes a richer `ToolRegistry` with categories, validation, usage analytics, and a `MCPClient` capable of queueing requests until a WebSocket connection is live. Keep statistics (`usageCount`, `executionHistory`) and parameter validation in sync when you add new execution paths or retries.【F:src/architecture/toolSystem.js†L1-L200】
+- The `MCPClient` auto-reconnects with backoff, tracks pending requests, and flushes queued messages once the socket opens; maintain those safeguards when extending transport features to avoid dropping tool calls.【F:src/architecture/toolSystem.js†L200-L392】
 
-## Tool system
+## Dynamic feedback loop
+- When plugin overrides or MCP integrations misbehave, capture the reproduction plus mitigation in the generated reports and echo the distilled lesson in this guide so future debugging starts with context.【F:REPORT.md†L1-L13】【F:report_agent.md†L6-L10】
+- Update `docs/agent-architecture.md` and relevant tests after altering plugin activation order, dependency wiring, or tool analytics so external documentation reflects the new behaviour.【F:docs/agent-architecture.md†L21-L78】【F:__tests__/AGENTS.md†L1-L37】
 
-- The advanced `ToolRegistry` in this folder tracks categories, usage analytics, and MCP connectivity. When registering tools ensure you populate `category`, `parameters`, and any validation functions so `executeTool` can guard inputs.【F:src/architecture/toolSystem.js†L1-L74】
-- Use `executeTool` to wrap tool calls; it validates parameters, records execution history, and updates usage metrics. Returning raw results bypasses analytics and is discouraged.【F:src/architecture/toolSystem.js†L20-L63】
-- Keep MCP client changes resilient to reconnects and JSON parsing errors; always queue outbound messages until `connect` resolves to avoid dropping calls.【F:src/architecture/toolSystem.js†L75-L170】
-
-## Testing
-
-- When altering plugin wiring or the tool system, add integration coverage (or mocks) under `__tests__/` and run `npm test` plus `npm run lint` to confirm contracts stay intact.
+### Living history
+- 2025-02 – Guarding `_replaceModuleFunction` with dotted module paths prevented accidental overrides of service instances; keep that restriction as you add new patch targets.【F:src/architecture/pluginManager.js†L35-L104】
+- 2025-02 – Tool usage analytics surfaced prompt regressions—continue recording executions in `executionHistory` so adaptive tooling has reliable telemetry.【F:src/architecture/toolSystem.js†L8-L83】

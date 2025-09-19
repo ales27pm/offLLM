@@ -1,57 +1,38 @@
 # OffLLM Contributor Guide
 
-This repository ships a ReAct-style agent runtime with plugins, tools, and adaptive memory. Start every change by scanning `docs/agent-architecture.md`; any edits to the orchestrator, memory pipeline, plugins, or services must keep that document accurate.
+## Current architecture snapshot (keep this accurate)
+- `AgentOrchestrator.run` drives the end-to-end loop: it retrieves long- and short-term context, builds an initial prompt, calls the LLM, parses any `TOOL_CALL` markers, optionally executes tools, and persists the final exchange with workflow tracing so every run is auditable.【F:src/core/AgentOrchestrator.js†L27-L189】
+- `PromptBuilder` enumerates the currently registered tools and weaves their metadata plus retrieved context into the model prompt; keep its output deterministic so caching and tests stay stable.【F:src/core/prompt/PromptBuilder.js†L1-L27】
+- `ToolHandler` validates structured arguments, executes registered tools with tracer hooks, and records structured `{ role: "tool" }` payloads so follow-up prompts can inject results safely.【F:src/core/tools/ToolHandler.js†L6-L158】
+- Memory orchestration combines the in-process `MemoryManager` (vector indexer, retriever, history) with the encrypted `VectorMemory` persistence layer and forward-only migrations—changes to one side must stay in lockstep with the other.【F:src/core/memory/MemoryManager.js†L8-L33】【F:src/memory/VectorMemory.ts†L45-L136】【F:src/memory/migrations/index.ts†L1-L8】
+- `LLMService` owns model download/bridging, plugin enablement, KV-cache limits, embeddings, and adaptive quantization scheduling; it routes generation through the plugin manager when overrides are active.【F:src/services/llmService.js†L14-L350】
+- Higher-level planning lives in `ContextEngineer`, which enforces vector-store contracts, sparse-attention fallbacks, and device-aware token budgeting before prompts are built.【F:src/services/contextEngineer.js†L182-L444】
+- Advanced plugins and analytics are surfaced through `src/architecture`, whose tool registry tracks usage statistics and exposes the MCP client for remote tool execution.【F:src/architecture/toolSystem.js†L1-L392】
+- `WorkflowTracer` instruments every step with consistent logging so regressions can be replayed without guessing at the control flow.【F:src/core/workflows/WorkflowTracer.js†L24-L116】
 
-## Workflow Expectations
+## Working agreements
+- Install dependencies with `npm ci` (or `npm install` for quick spikes) before running the scripts defined in `package.json` so the native bridges and tooling stay in sync.【F:package.json†L6-L29】
+- Always finish a change by running `npm test`, `npm run lint`, and `npm run format:check`; add the native build helpers (`npm run build:ios`, `npm run build:android`) whenever you touch platform code or Xcode projects.【F:package.json†L10-L18】
+- Reproduce native flows with the doctor script: `npm run doctor:ios` wraps `scripts/dev/doctor.sh`, mirrors CI heuristics, and drops reports under `ci-reports/<timestamp>` for auditing.【F:package.json†L25-L27】【F:scripts/dev/doctor.sh†L1-L318】 Document any deviations from the baseline Steps playbook inside your PR so the deterministic recovery path in `Steps.md` stays trustworthy.【F:Steps.md†L1-L108】
+- Keep commits conventional (`docs:`, `feat:`, `fix:`…) and leave the tree clean after each change set; `scripts/dev/commit-reports.sh` will refuse to publish diagnostics if the worktree is dirty unless you explicitly override it.【F:scripts/dev/commit-reports.sh†L22-L77】
 
-- Keep commits focused and use [Conventional Commit](https://www.conventionalcommits.org/) messages.
-- Leave the working tree clean. Run formatting and tests locally before committing.
-- When platform tooling is required (iOS/Android), document the exact steps taken in the PR description.
+## Adaptive workflow (make the guide learn)
+- Before starting new work, skim the latest `CI-REPORT.md`, `REPORT.md`, and `report_agent.md` so you inherit the most recent CI signals, heuristics, and remediation notes.【F:CI-REPORT.md†L1-L12】【F:REPORT.md†L1-L13】【F:report_agent.md†L1-L10】 If the investigation touches Swift, React Native, or Hermes upgrades, cross-check the validated instructions in `Steps.md`.
+- When you discover a new failure mode or a repeatable fix, add a dated entry (`YYYY-MM-DD – summary …`) to the living history below and cite the log, script, or doc that proved the resolution. Update the scoped AGENT in the affected directory at the same time so guidance stays coherent across the repo.
+- After refreshing generated diagnostics, run `npm run reports:commit` (or call `scripts/dev/commit-reports.sh` directly) to publish `CI-REPORT.md` and `report_agent.md`, archiving the timestamped folder if the change is historically significant.【F:package.json†L25-L29】【F:scripts/dev/commit-reports.sh†L52-L77】
 
-### Required Checks
+## Directory handoff
+- `docs/` hosts the canonical architecture narrative—update it alongside runtime changes and keep citations pointing to concrete code.【F:docs/agent-architecture.md†L3-L105】
+- `__tests__/` houses Jest coverage for orchestration, tools, memory, telemetry, and services; extend or add suites when you change their contracts.【F:__tests__/toolHandler.test.js†L5-L90】【F:__tests__/vectorMemory.test.js†L8-L43】【F:__tests__/workflowTracer.test.js†L24-L56】【F:__tests__/llmService.test.js†L6-L48】
+- `scripts/` contains automation for reproducing CI, parsing xcresult bundles, toggling MLX flags, and publishing diagnostics—prefer extending the existing helpers over cloning logic.【F:scripts/dev/doctor.sh†L1-L318】【F:scripts/detect_mlx_symbols.sh†L1-L47】【F:scripts/ci/build_report.py†L1-L246】【F:scripts/dev/commit-reports.sh†L22-L77】
+- `tools/` provides reusable Node utilities such as the xcresult parser and shell wrapper that the scripts consume.【F:tools/xcresult-parser.js†L1-L175】【F:tools/util.mjs†L1-L27】
+- `reports/` stores machine-generated diagnostics; treat them as read-only snapshots unless you regenerate them via the doctor workflow.【F:REPORT.md†L1-L13】【F:report_agent.md†L1-L10】
+- `src/core/`, `src/architecture/`, `src/services/`, `src/memory/`, and `src/tools/` host the runtime, plugin system, services, persistent storage, and tool exports respectively—touching any of them usually means updating the paired docs and tests referenced above.【F:src/core/AgentOrchestrator.js†L27-L189】【F:src/architecture/pluginManager.js†L1-L227】【F:src/services/llmService.js†L14-L350】【F:src/memory/VectorMemory.ts†L45-L136】【F:src/tools/iosTools.js†L1-L200】
 
-Run the JavaScript/TypeScript checks on every change:
+## Quality gates & evidence
+- Commit only after the baseline checks pass locally (`npm test`, `npm run lint`, `npm run format:check`).【F:package.json†L10-L14】 Capture additional artefacts (doctor reports, workflow traces) when debugging so the next iteration starts from evidence instead of guesswork.【F:scripts/dev/doctor.sh†L277-L339】【F:src/core/workflows/WorkflowTracer.js†L24-L115】
 
-```bash
-npm test
-npm run lint
-npm run format:check
-```
-
-Run targeted native builds only when touching platform code:
-
-```bash
-# iOS
-npm ci
-(cd ios && xcodegen generate && bundle install && bundle exec pod install --repo-update)
-./scripts/ios_doctor.sh
-npx react-native run-ios --scheme monGARS
-
-# Android
-npm ci
-./android/gradlew :app:assembleDebug
-```
-
-## Directory Guide
-
-- `docs/`: `agent-architecture.md` is the canonical architecture reference. Update the relevant sections whenever you change orchestration, memory, plugin wiring, or tool exposure. Other documents should cross-link to this guide instead of duplicating logic.
-- `src/core/`: Contains the runtime loop (`AgentOrchestrator`), prompt builder, tool parser/executor, and in-process memory components. Keep tool contracts synchronized between `PromptBuilder`, `ToolHandler`, and `toolRegistry`. If you add a new tool signature, update all three.
-- `src/architecture/`: Hosts the pluggable LLM runtime (`pluginManager`, `pluginSetup`, dependency injection, and the advanced `toolSystem`). Plugin modules must register through the manager and guard platform capabilities before overriding `LLMService` methods.
-- `src/services/`: Shared services exposed as agent tools or background helpers. Key modules include `llmService` (model runtime), `contextEngineer` (context planning), `readabilityService`, `webSearchService`, and `treeOfThought`. Keep APIs promise-based and side-effect free except for clearly documented caching or storage calls.
-- `src/tools/`: Lightweight tool wrappers (`webSearchTool`, `iosTools`, `androidTools`). Surface only serializable inputs/outputs so the orchestrator can record tool traces in memory.
-- `src/memory/`: Persistence layer (vector storage and migrations). Coordinate schema updates with `src/core/memory` so retrieval stays compatible.
-- `reports/`, `ci-reports/`, `REPORT.md`, `report_agent.md`: Generated artifacts. Never edit manually—regenerate via the appropriate npm or CI scripts.
-- `ios/` and `android/`: Native shells. Commit source changes only; keep derived data, build outputs, and Pods caches out of version control.
-- `tools/` and `scripts/`: Developer utilities (e.g., `ios_doctor.sh`, `xcresult-parser.js`). Keep them idempotent and document new commands inline.
-
-## Codegen & TurboModules
-
-- Specs live in `src/specs/`. After modifying them run `npm run codegen` followed by `bundle exec pod install --repo-update` to refresh native bindings.
-- Implement TurboModules Swift-first (TypeScript spec → Swift class → Objective-C++ bridge). JavaScript callers should request them via `TurboModuleRegistry.getOptional('Name')` with graceful fallbacks for legacy modules.
-
-## Logging & Diagnostics
-
-- Enable verbose logging with `DEBUG_LOGGING=1` (via `react-native-config`); logs are written to `logs/app.log`.
-- Set `DEBUG_PANEL=1` to open the in-app debug console for inspecting or clearing logs.
-
-Adhering to these guidelines keeps the OffLLM agent stack consistent with the documented architecture while ensuring reproducible builds across JavaScript and native surfaces.
+## Living history (append new entries with citations)
+- 2025-02 – Swift 6 strict-concurrency failures were neutralised by the annotated patches captured in the native recovery playbook; reuse those edits before chasing new build ghosts.【F:Steps.md†L12-L28】
+- 2025-02 – CI runs stalled on leftover Hermes "Replace Hermes" phases and sandboxed `[CP]` scripts; the doctor workflow now strips those phases and flags deployment-target drift automatically, so keep the heuristics intact when updating build automation.【F:report_agent.md†L6-L10】【F:scripts/dev/doctor.sh†L233-L318】
+- 2025-02 – `commit-reports.sh` enforces clean worktrees and can archive full report folders, preventing teams from losing diagnostics during joint investigations—do not remove those guards when extending the helper.【F:scripts/dev/commit-reports.sh†L22-L77】

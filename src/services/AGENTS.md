@@ -1,24 +1,25 @@
 # Services & Tools Guide
 
-Modules under `src/services` wrap platform capabilities or long-running logic so the orchestrator can call them as tools. Keep each service promise-based, side-effect aware, and friendly to plugin instrumentation.
+## LLM runtime
+- `llmService` handles model download, native bridge selection, plugin enablement, KV-cache maintenance, embeddings, and adaptive quantisation scheduling. Keep the `loadModel → clearKVCache → generate` flow intact so plugins and cache sizing stay coherent across platforms.【F:src/services/llmService.js†L14-L350】
+- Generation routes through `PluginManager.execute` when sparse attention is active; ensure new options are plumbed into both native and web code paths so overrides remain consistent.【F:src/services/llmService.js†L116-L187】
+- Embedding requires a loaded model on device—guard new entry points with informative errors instead of silent fallbacks.【F:src/services/llmService.js†L236-L250】
 
-## LLM service
-
-- `llmService` owns model lifecycle, plugin registration, and KV-cache bookkeeping. Preserve the lazy `loadConfiguredModel → loadModel → generate` flow and leave plugin toggles inside `loadModel` so sparse attention and adaptive quantization stay in sync.【F:src/services/llmService.js†L1-L117】
-- `generate` must route through the plugin manager when `sparseAttention` is enabled and always normalize responses to `{ text, … }` objects before tracking inference metrics and cache usage.【F:src/services/llmService.js†L118-L205】
-- When adjusting performance heuristics, update `adjustQuantization`, `adjustPerformanceMode`, and KV-cache helpers together so metrics remain coherent.【F:src/services/llmService.js†L205-L324】
-
-## Context planning & retrieval
-
-- `contextEngineer` should remain deterministic: keep token budgeting, hierarchical attention, and quality scoring pure functions that log errors but fall back gracefully.【F:src/services/contextEngineer.js†L1-L116】
-- Avoid synchronous tokenization on the hot path; reuse the cached tokenizer and guard against failures when `encoding_for_model` is unavailable.【F:src/services/contextEngineer.js†L9-L36】
+## Context planning
+- `ContextEngineer` provides hierarchical attention, similarity/quality scoring, sparse retrieval fallbacks, and device-aware token budgeting; changes must respect its vector-store contract and deterministic behaviour because orchestration depends on the returned prompt budget.【F:src/services/contextEngineer.js†L182-L444】
+- The accompanying `ContextEvaluator` clusters context, adjusts quality scores based on metadata, and can fall back gracefully when hierarchical attention fails—keep those heuristics in sync with device detection logic.【F:src/services/contextEngineer.js†L15-L180】
 
 ## Content & search utilities
+- `ReadabilityService` caches `(html, url)` pairs, strips unsafe nodes, normalises metadata (title, byline, published time), and exposes helpers for published date parsing; maintain cache invalidation and error messages so callers receive actionable responses.【F:src/services/readabilityService.js†L3-L159】
+- `SearchService` wraps multiple providers, validates API keys, rate-limits calls, and enriches results via `extractFromUrl`; the exported `webSearchTool` mirrors those semantics and returns structured success/error payloads. Keep provider names and parameter metadata aligned across both layers.【F:src/services/webSearchService.js†L1-L65】【F:src/tools/webSearchTool.js†L4-L85】
 
-- `readabilityService` must cache by `(html, url)` signature, strip unsafe nodes, and return `{ text, metadata }` payloads ready for prompts. Preserve error wrapping so the orchestrator receives actionable failures.【F:src/services/readabilityService.js†L1-L78】
-- `webSearchService` and any derived tools should validate API keys before network calls and respect the `performSearchWithContentExtraction` contract (returns provider-tagged result arrays).【F:src/tools/webSearchTool.js†L1-L63】
-- Keep `treeOfThought` exports pure and deterministic—no hidden globals or timers—so they can run inside the agent loop repeatedly without leaks.【F:src/services/treeOfThought.js†L1-L191】
+## Reasoning utilities
+- `TreeOfThoughtReasoner` implements multi-branch reasoning with candidate generation, scoring, and path selection, delegating all generation/evaluation to `llmService.generate`. Update both sides when you change return signatures or heuristics.【F:src/services/treeOfThought.js†L1-L191】【F:src/services/llmService.js†L116-L208】
 
-## Testing
+## Dynamic feedback loop
+- Capture performance heuristics (KV cache pressure, inference time, quantisation switches) in the generated reports when they inform service-level changes, and mirror key takeaways in the living history below.【F:report_agent.md†L1-L10】
+- After introducing a new provider, plugin-aware service, or reasoning primitive, refresh `docs/agent-architecture.md` and extend the relevant tests so the behaviour stays discoverable.【F:docs/agent-architecture.md†L26-L78】【F:__tests__/AGENTS.md†L1-L37】
 
-- Mock network and native modules in unit tests; services that touch the filesystem or network must ship Jest mocks under `__mocks__/` or inline fakes. Always run `npm test` and `npm run lint` when modifying this directory.
+### Living history
+- 2025-02 – Switching `performSearchWithContentExtraction` to `extractFromUrl` fixed downstream crashes when the deprecated `extract` API was missing—do not regress that call path.【F:src/services/webSearchService.js†L21-L64】
+- 2025-02 – Adaptive quantisation relies on averaged inference time and memory metrics; keep those counters accurate or you lose the self-tuning benefits.【F:src/services/llmService.js†L153-L350】

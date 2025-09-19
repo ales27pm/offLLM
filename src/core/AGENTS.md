@@ -1,24 +1,23 @@
 # Core Runtime Guide
 
-The `src/core` tree houses the orchestrator loop, prompt scaffolding, plugin glue, and the in-process memory helpers that sit between services and the UI. Any change here must preserve the control flow documented in `docs/agent-architecture.md`.
+## Runtime pillars
+- `AgentOrchestrator.run` orchestrates the full loop: retrieve vector and conversational context, build initial and final prompts, call the LLM, parse tool directives, execute registered tools, and persist interactions with `WorkflowTracer` instrumentation. Preserve this single-pass flow so tracing and memory stay coherent.【F:src/core/AgentOrchestrator.js†L27-L189】【F:src/core/workflows/WorkflowTracer.js†L24-L115】
+- `PromptBuilder` enumerates every registered tool (name, description, parameter schema) and stitches context into the prompt. Keep output deterministic so identical inputs produce identical strings for caching and tests.【F:src/core/prompt/PromptBuilder.js†L1-L27】
+- `ToolHandler` parses `TOOL_CALL:` directives, validates arguments, executes tools with tracer hooks, and records structured `{ role: "tool" }` payloads. Extend `_parseArgs` rather than bypassing it so malformed payloads are rejected instead of silently ignored.【F:src/core/tools/ToolHandler.js†L6-L158】
+- The runtime auto-registers platform tools via `toolRegistry.autoRegister`, selecting iOS or Android exports at startup; keep tool objects exposing `{ name, execute }` so discovery remains automatic.【F:src/core/tools/ToolRegistry.js†L5-L39】
 
-## Orchestrator & prompt rules
+## Memory & retrieval
+- `MemoryManager` wires together the vector indexer, retriever (with sparse-attention reranking), and conversation history buffer. Constructor overrides make it easy to inject fakes during testing—keep those optional parameters intact.【F:src/core/memory/MemoryManager.js†L8-L34】
+- Long-term persistence relies on the encrypted `VectorMemory` layer and forward-only migrations. Schema changes must stay aligned with the in-process APIs to avoid drift between runtime retrieval and disk storage.【F:src/memory/VectorMemory.ts†L45-L136】【F:src/memory/migrations/index.ts†L1-L8】
 
-- Keep `AgentOrchestrator.run` in a single async pass that (1) retrieves vector and history context, (2) builds a prompt, (3) executes tool calls returned by the first model pass, and (4) persists the final exchange back to memory before returning.【F:src/core/AgentOrchestrator.js†L1-L42】
-- `PromptBuilder` should describe every registered tool with name, description, and JSON-serializable parameter schema; avoid inlining business logic inside templates.【F:src/core/prompt/PromptBuilder.js†L1-L26】
-- When expanding the prompt format, keep it deterministic and ensure the same context array yields the same string (ordering and separators matter for caching).
+## Execution hygiene
+- Any change to orchestration, tool semantics, or memory must ship with test coverage in `__tests__/` and documentation updates in `docs/agent-architecture.md` so expectations remain explicit.【F:__tests__/AGENTS.md†L1-L37】【F:docs/agent-architecture.md†L3-L105】
+- Finish each change by running the baseline quality gates (`npm test`, `npm run lint`, `npm run format:check`) and any targeted builds for native changes.【F:package.json†L10-L18】 Use `WorkflowTracer` output when diagnosing regressions and keep the key insights in the living history below.【F:src/core/workflows/WorkflowTracer.js†L24-L115】
 
-## Tool handling
+## Dynamic feedback loop
+- Record new tool parsing bugs, orchestration regressions, or memory anomalies in `report_agent.md`/`REPORT.md` and echo the distilled lesson in this guide so future contributors start with context.【F:report_agent.md†L1-L10】【F:REPORT.md†L1-L13】
+- When you add or rename tools, update both the runtime registry and the platform-specific exports, then mirror the change in the documentation and tests to avoid drift.【F:src/core/tools/ToolRegistry.js†L5-L39】【F:src/tools/iosTools.js†L1-L200】【F:src/tools/androidTools.js†L1-L15】
 
-- Treat `ToolRegistry` as the source of truth for callable tools; every entry must expose `{ name, description, parameters, execute }` and be auto-registered for the active platform.【F:src/core/tools/ToolRegistry.js†L1-L39】
-- `ToolHandler` must continue to parse `TOOL_CALL:` directives, validate arguments, and surface structured `{ role: "tool", name, content }` records. Extend `_parseArgs` rather than bypassing its validation logic.【F:src/core/tools/ToolHandler.js†L1-L53】
-- When adding new tool output types, ensure they serialize to JSON strings so memory and prompt builders can ingest them without mutation.
-
-## Memory helpers
-
-- `MemoryManager` stitches together vector indexing, retrieval, and rolling history; keep constructor parameters optional and promise-based so tests can inject fakes.【F:src/core/memory/MemoryManager.js†L1-L34】
-- `VectorIndexer`, `Retriever`, and `HistoryService` should remain side-effect free beyond their documented responsibilities (indexing, sparse-attention ranking, bounded history). Do not introduce global singletons here.【F:src/core/memory/services/VectorIndexer.js†L1-L24】【F:src/core/memory/services/Retriever.js†L1-L33】【F:src/core/memory/services/HistoryService.js†L1-L15】
-
-## Testing
-
-- Add or update unit tests under `__tests__/` whenever you change parsing, orchestration flow, or memory semantics, and run `npm test` before committing.
+### Living history
+- 2025-02 – Structured tracing around `executeTools` exposed mis-registered tool names; maintain the tracer hand-offs when refactoring to preserve that signal.【F:src/core/AgentOrchestrator.js†L125-L183】
+- 2025-02 – `_parseArgs` validation prevented silent prompt corruption during prompt experiments—keep new tool syntaxes compatible with the existing parser or expand it with focused tests before rollout.【F:src/core/tools/ToolHandler.js†L31-L109】【F:__tests__/toolHandler.test.js†L27-L90】
