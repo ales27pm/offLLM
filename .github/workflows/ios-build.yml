@@ -80,25 +80,33 @@ jobs:
       - name: Run iOS configuration verifiers
         uses: ./.github/actions/verify-ios-config
 
-      - name: Clean DerivedData caches (global + repo-local)
+      - name: Clean caches (global + repo-local) and set fresh module cache
         run: |
           rm -rf ~/Library/Developer/Xcode/DerivedData
           rm -rf ~/Library/Caches/com.apple.dt.Xcode
-          rm -rf "$DERIVED_DATA"
-          rm -rf "$DERIVED_DATA/ModuleCache.noindex"
+          rm -rf build/DerivedData
+          rm -rf build/DerivedData/ModuleCache.noindex
+          rm -rf build/DerivedData/Build/Intermediates.noindex/ArchiveIntermediates
+          rm -rf build/DerivedData/Build/Intermediates.noindex/PrecompiledHeaders
+          MODULE_CACHE_DIR="$(mktemp -d)"
+          echo "MODULE_CACHE_DIR=${MODULE_CACHE_DIR}" >> "$GITHUB_ENV"
+          echo "CLANG_MODULE_CACHE_PATH=${MODULE_CACHE_DIR}" >> "$GITHUB_ENV"
 
       - name: Build (unsigned, Release)
         working-directory: ios
+        env:
+          MODULE_CACHE_DIR: ${{ env.MODULE_CACHE_DIR }}
+          CLANG_MODULE_CACHE_PATH: ${{ env.CLANG_MODULE_CACHE_PATH }}
         run: |
           set -euo pipefail
-          mkdir -p "$DERIVED_DATA"
+          mkdir -p ../build/DerivedData
           xcodebuild \
             -workspace "$WORKSPACE" \
             -scheme "$SCHEME" \
             -configuration "$CONFIGURATION" \
             -sdk "$SDK" \
             -UseModernBuildSystem=YES \
-            -derivedDataPath "$DERIVED_DATA" \
+            -derivedDataPath ../build/DerivedData \
             CODE_SIGNING_ALLOWED=NO \
             CODE_SIGNING_REQUIRED=NO \
             clean build | xcpretty && exit ${PIPESTATUS[0]}
@@ -178,25 +186,33 @@ jobs:
       - name: Run iOS configuration verifiers
         uses: ./.github/actions/verify-ios-config
 
-      - name: Clean DerivedData caches (global + repo-local)
+      - name: Clean caches (global + repo-local) and set fresh module cache
         run: |
           rm -rf ~/Library/Developer/Xcode/DerivedData
           rm -rf ~/Library/Caches/com.apple.dt.Xcode
-          rm -rf "$DERIVED_DATA"
-          rm -rf "$DERIVED_DATA/ModuleCache.noindex"
+          rm -rf build/DerivedData
+          rm -rf build/DerivedData/ModuleCache.noindex
+          rm -rf build/DerivedData/Build/Intermediates.noindex/ArchiveIntermediates
+          rm -rf build/DerivedData/Build/Intermediates.noindex/PrecompiledHeaders
+          MODULE_CACHE_DIR="$(mktemp -d)"
+          echo "MODULE_CACHE_DIR=${MODULE_CACHE_DIR}" >> "$GITHUB_ENV"
+          echo "CLANG_MODULE_CACHE_PATH=${MODULE_CACHE_DIR}" >> "$GITHUB_ENV"
 
       - name: Archive (unsigned)
         working-directory: ios
+        env:
+          MODULE_CACHE_DIR: ${{ env.MODULE_CACHE_DIR }}
+          CLANG_MODULE_CACHE_PATH: ${{ env.CLANG_MODULE_CACHE_PATH }}
         run: |
           set -euo pipefail
-          mkdir -p "$DERIVED_DATA" "$(dirname "$ARCHIVE_PATH")"
+          mkdir -p ../build/DerivedData "$(dirname "$ARCHIVE_PATH")"
           xcodebuild \
             -workspace "$WORKSPACE" \
             -scheme "$SCHEME" \
             -configuration "$CONFIGURATION" \
             -sdk "$SDK" \
             -UseModernBuildSystem=YES \
-            -derivedDataPath "$DERIVED_DATA" \
+            -derivedDataPath ../build/DerivedData \
             CODE_SIGNING_ALLOWED=NO \
             CODE_SIGNING_REQUIRED=NO \
             archive -archivePath "$ARCHIVE_PATH" | xcpretty && exit ${PIPESTATUS[0]}
