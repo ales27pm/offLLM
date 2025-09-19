@@ -39,7 +39,7 @@ final class MLXEvents: RCTEventEmitter {
   }
 
   func emitCompleted() {
-    sendEvent(withName: "mlxCompleted", body: nil)
+    sendEvent(withName: "mlxCompleted", body: [:])
   }
 
   func emitError(_ code: String, message: String) {
@@ -47,6 +47,6 @@ final class MLXEvents: RCTEventEmitter {
   }
 
   func emitStopped() {
-    sendEvent(withName: "mlxStopped", body: nil)
+    sendEvent(withName: "mlxStopped", body: [:])
   }
 }
