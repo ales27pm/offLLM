@@ -21,10 +21,7 @@ private actor ChatSessionActor {
     self.container = container
   }
 
-  func reset(with container: ModelContainer? = nil) {
-    if let updated = container {
-      self.container = updated
-    }
+  func reset() {
     isResponding = false
     shouldStop = false
   }
@@ -47,7 +44,7 @@ private actor ChatSessionActor {
     return out
   }
 
-  func stream(prompt: String, topK: Int, temperature: Float, onToken: @escaping (String) -> Void) async throws {
+  func stream(prompt: String, topK: Int, temperature: Float, onToken: @escaping @Sendable (String) -> Void) async throws {
     guard !isResponding else { return }
     isResponding = true
     defer { isResponding = false; shouldStop = false }
@@ -130,23 +127,25 @@ final class MLXModule: NSObject {
   @objc(load:resolver:rejecter:)
   func load(modelID: NSString?, resolve: @escaping RCTPromiseResolveBlock, reject: @escaping RCTPromiseRejectBlock) {
     let p = MLXPromise(resolve, reject)
-    Task.detached { [weak self] in
+    let requestedID = modelID as String?
+    let candidateIDs = idsToTry(from: requestedID)
+    Task { [weak self, candidateIDs] in
       guard let self else { return }
-      do {
-        let candidateIDs = await MainActor.run { self.idsToTry(from: modelID as String?) }
-        for id in candidateIDs {
-          do {
-            let c = try await Self.loadContainer(modelID: id)
-            await MainActor.run { self.setActive(container: c) }
-            p.ok(["id": id])
-            return
-          } catch {
-            // try next id
-          }
+      var lastError: Error?
+      for id in candidateIDs {
+        do {
+          let container = try await Self.loadContainer(modelID: id)
+          await MainActor.run { self.setActive(container: container) }
+          p.ok(["id": id])
+          return
+        } catch {
+          lastError = error
         }
+      }
+      if let lastError {
+        p.fail("ENOENT", "Failed to load any model id", lastError)
+      } else {
         p.fail("ENOENT", "Failed to load any model id")
-      } catch {
-        p.fail("ELOAD", "Load failed", error)
       }
     }
   }
@@ -154,10 +153,9 @@ final class MLXModule: NSObject {
   /// JS: MLXModule.reset(): void
   @objc(reset)
   func reset() {
-    if let c = container {
-      Task { [weak self] in
-        await self?.actor?.reset(with: c)
-      }
+    guard let activeActor = actor else { return }
+    Task {
+      await activeActor.reset()
     }
   }
 
@@ -171,9 +169,10 @@ final class MLXModule: NSObject {
   /// JS: MLXModule.stop(): void
   @objc(stop)
   func stop() {
-    Task { [weak self] in
-      await self?.actor?.stop()
-      await MLXEvents.shared?.emitStopped()
+    let activeActor = actor
+    Task {
+      await activeActor?.stop()
+      await MainActor.run { MLXEvents.shared?.emitStopped() }
     }
   }
 
@@ -186,15 +185,16 @@ final class MLXModule: NSObject {
     let p = MLXPromise(resolve, reject)
     let topK = (options?["topK"] as? NSNumber)?.intValue ?? 40
     let temperature = (options?["temperature"] as? NSNumber)?.floatValue ?? 0.7
+    let promptString = prompt as String
 
-    Task.detached { [weak self] in
-      guard let self else { return }
-      guard let actor = await self.actor else {
-        p.fail("ENOSESSION", "No active session")
-        return
-      }
+    guard let activeActor = actor else {
+      p.fail("ENOSESSION", "No active session")
+      return
+    }
+
+    Task {
       do {
-        let text = try await actor.generateOnce(prompt: prompt as String, topK: topK, temperature: temperature)
+        let text = try await activeActor.generateOnce(prompt: promptString, topK: topK, temperature: temperature)
         p.ok(text)
       } catch {
         p.fail("EGEN", "Generation failed", error)
@@ -211,12 +211,18 @@ final class MLXModule: NSObject {
     let p = MLXPromise(resolve, reject)
     let topK = (options?["topK"] as? NSNumber)?.intValue ?? 40
     let temperature = (options?["temperature"] as? NSNumber)?.floatValue ?? 0.7
+    let promptString = prompt as String
 
-    Task.detached { [weak self] in
-      guard let self else { return }
-      guard let actor = await self.actor else { p.fail("ENOSESSION", "No active session"); return }
+    guard let activeActor = actor else {
+      p.fail("ENOSESSION", "No active session")
+      return
+    }
+
+    // Non-detached Task reduces unnecessary Sendable requirements
+    // and avoids data-race diagnostics under Swift 6.
+    Task {
       do {
-        try await actor.stream(prompt: prompt as String, topK: topK, temperature: temperature) { token in
+        try await activeActor.stream(prompt: promptString, topK: topK, temperature: temperature) { token in
           Task { @MainActor in MLXEvents.shared?.emitToken(token) }
         }
         Task { @MainActor in MLXEvents.shared?.emitCompleted() }

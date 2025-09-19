@@ -50,10 +50,12 @@ jobs:
             ${{ runner.os }}-pods-xcode-${{ env.XCODE_VERSION }}-
             ${{ runner.os }}-pods-
 
-      - name: Clean DerivedData & SPM cache
+      - name: Clean DerivedData & Xcode caches
         run: |
-          rm -rf "$DERIVED_DATA" ~/Library/Developer/Xcode/DerivedData
-          rm -rf "$HOME/Library/Developer/Xcode/DerivedData/SourcePackages"
+          rm -rf "$DERIVED_DATA" \
+                 ~/Library/Developer/Xcode/DerivedData \
+                 ~/Library/Developer/Xcode/DerivedData/SourcePackages \
+                 ~/Library/Caches/com.apple.dt.Xcode
 
       - name: Run JS checks (tests, lint, format)
         run: |
@@ -89,7 +91,15 @@ jobs:
         working-directory: ios
         env:
           COCOAPODS_DISABLE_STATS: "true"
-        run: bundle exec pod install
+        run: |
+          set -euo pipefail
+          bundle exec pod deintegrate || true
+          rm -rf Pods Podfile.lock
+          bundle exec pod repo update
+          bundle exec pod install --repo-update
+
+      - name: Verify RN/Hermes versions
+        run: python3 scripts/verify-ios-rn-versions.py
 
       - name: Capture iOS environment diagnostics
         run: |
