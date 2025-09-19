@@ -12,7 +12,7 @@
 ## Authoring guidance
 
 - Default to `set -euo pipefail` in Bash scripts and bail with descriptive errors. Existing helpers guard clean worktrees,
-  capture xcresult compatibility, and prune stale build artefacts—mirror their defensive checks when you extend automation.【F:scripts/dev/commit-reports.sh†L17-L77】【F:scripts/ios_doctor.sh†L1-L39】【F:scripts/ci/build_report.py†L99-L153】
+  capture xcresult compatibility, and prune stale build artifacts—mirror their defensive checks when you extend automation.【F:scripts/dev/commit-reports.sh†L17-L77】【F:scripts/ios_doctor.sh†L1-L39】【F:scripts/ci/build_report.py†L99-L153】
 - Centralise repeated logic rather than duplicating: use `scripts/dev/doctor.sh` for local iOS reproduction, then layer
   specialised wrappers via environment variables (e.g., `NO_INSTALL`, `DESTINATION`). Document new toggles directly in the
   script header and in any downstream docs so discoverability stays high.【F:scripts/dev/doctor.sh†L1-L58】
@@ -22,7 +22,7 @@ xcresult-parser.js`, `scripts/codex/lib`). Keep exports pure and deterministic t
 ## Operational workflow
 
 - Run `npm run doctor:ios` (and its variants) to reproduce CI locally; the command wraps `scripts/dev/doctor.sh` and persists
-  artefacts under `ci-reports/<timestamp>`. Use `npm run reports:commit` afterwards to publish updated diagnostics.【F:package.json†L25-L29】【F:scripts/dev/commit-reports.sh†L52-L77】
+  artifacts under `ci-reports/<timestamp>`. Use `npm run reports:commit` afterwards to publish updated diagnostics.【F:package.json†L25-L29】【F:scripts/dev/commit-reports.sh†L52-L77】
 - For manual investigations, `scripts/ios_doctor.sh` clears DerivedData and exports the discovered workspace path to
   `$GITHUB_ENV` when running in CI; reuse that behaviour for any new step that feeds subsequent jobs.【F:scripts/ios_doctor.sh†L20-L40】
 - MLX feature detection writes `ios/Config/Auto/MLXFlags.xcconfig`; keep that file the sole source of conditional compilation so
