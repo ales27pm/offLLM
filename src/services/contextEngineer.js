@@ -4,13 +4,24 @@ import { cosineSimilarity } from "../utils/vectorUtils";
 import { applySparseAttention } from "../utils/sparseAttention";
 import { encoding_for_model } from "tiktoken";
 
-/* global vectorStore */
+/**
+ * @typedef {Object} VectorStore
+ * @property {(embedding: number[], limit: number) => Promise<any[]>} searchVectors
+ * @property {(embedding: number[], limit: number, opts: { useHierarchical: boolean; numClusters: number }) => Promise<any[]>} [searchVectorsSparse]
+ */
+
+const SPARSE_SEARCH_OPTIONS = { useHierarchical: true, numClusters: 3 };
 
 export class ContextEvaluator {
-  constructor() {
+  constructor({
+    llmService = LLMService,
+    sparseAttention = applySparseAttention,
+  } = {}) {
     this.relevanceThreshold = 0.65;
     this.qualityThreshold = 0.7;
     this.useHierarchicalAttention = true;
+    this.llmService = llmService;
+    this.sparseAttention = sparseAttention;
     try {
       this.tokenizer = encoding_for_model("gpt-3.5-turbo");
     } catch {
@@ -48,10 +59,10 @@ export class ContextEvaluator {
   }
 
   async _evaluateWithHierarchicalAttention(query, contextItems) {
-    const queryEmbedding = await LLMService.embed(query);
+    const queryEmbedding = await this.llmService.embed(query);
 
     const clusteredContext = this._clusterContextItems(contextItems);
-    const selectedContext = await applySparseAttention(
+    const selectedContext = await this.sparseAttention(
       queryEmbedding,
       clusteredContext,
       { numClusters: 3, topK: 2 },
@@ -169,8 +180,25 @@ export class ContextEvaluator {
 }
 
 export class ContextEngineer {
-  constructor() {
-    this.contextEvaluator = new ContextEvaluator();
+  constructor({
+    contextEvaluator,
+    llmService = LLMService,
+    vectorStore,
+    sparseAttention = applySparseAttention,
+  } = {}) {
+    if (!vectorStore || typeof vectorStore.searchVectors !== "function") {
+      throw new Error(
+        "ContextEngineer requires a vectorStore with a searchVectors function",
+      );
+    }
+    this.llmService = llmService;
+    this.vectorStore = vectorStore;
+    this.contextEvaluator =
+      contextEvaluator ||
+      new ContextEvaluator({
+        llmService: this.llmService,
+        sparseAttention,
+      });
     this.maxContextTokens = 768;
     this.conversationSummaryLength = 128;
     this.useDynamicTokenBudgeting = true;
@@ -240,7 +268,7 @@ export class ContextEngineer {
     conversationHistory,
     tokenBudget,
   ) {
-    const queryEmbedding = await LLMService.embed(query);
+    const queryEmbedding = await this.llmService.embed(query);
 
     const relevantChunks = await this._retrieveRelevantChunksSparse(
       queryEmbedding,
@@ -278,21 +306,29 @@ export class ContextEngineer {
     };
   }
 
-  async _retrieveRelevantChunksSparse(queryEmbedding, limit) {
-    try {
-      const results = await vectorStore.searchVectorsSparse(
-        queryEmbedding,
-        limit,
-        { useHierarchical: true, numClusters: 3 },
-      );
-      return results;
-    } catch (error) {
-      console.error(
-        "Sparse retrieval failed, falling back to standard:",
-        error,
-      );
-      return await vectorStore.searchVectors(queryEmbedding, limit);
+  async _searchChunks(queryEmbedding, limit, options) {
+    if (typeof this.vectorStore.searchVectorsSparse === "function") {
+      try {
+        return await this.vectorStore.searchVectorsSparse(
+          queryEmbedding,
+          limit,
+          options,
+        );
+      } catch (error) {
+        console.warn("Sparse retrieval failed, falling back:", error);
+      }
     }
+
+    try {
+      return await this.vectorStore.searchVectors(queryEmbedding, limit);
+    } catch (error) {
+      console.error("Vector search failed:", error);
+      return [];
+    }
+  }
+
+  async _retrieveRelevantChunksSparse(queryEmbedding, limit) {
+    return this._searchChunks(queryEmbedding, limit, SPARSE_SEARCH_OPTIONS);
   }
 
   async _summarizeConversationHierarchically(conversationHistory, maxTokens) {
@@ -303,7 +339,7 @@ export class ContextEngineer {
     try {
       const summaryPrompt = `Summarize this conversation history concisely within ${maxTokens} tokens:\n\n${conversationText}\n\nSummary:`;
 
-      const summaryResult = await LLMService.generate(
+      const summaryResult = await this.llmService.generate(
         summaryPrompt,
         maxTokens,
         0.3,

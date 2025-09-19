@@ -242,57 +242,62 @@ export class HNSWVectorStore {
 
   async _searchLayer(queryVector, enterPoint, layer, ef) {
     const visited = new Set();
-    const candidates = new PriorityQueue(
-      (a, b) =>
-        cosineSimilarity(queryVector, this.nodeMap.get(a).vector) >
-        cosineSimilarity(queryVector, this.nodeMap.get(b).vector),
-    );
-    const results = new PriorityQueue(
-      (a, b) =>
-        cosineSimilarity(queryVector, this.nodeMap.get(a).vector) >
-        cosineSimilarity(queryVector, this.nodeMap.get(b).vector),
-    );
+    const candidates = new PriorityQueue();
+    const results = new PriorityQueue();
+
+    const entryNode = this.nodeMap.get(enterPoint);
+    if (!entryNode) {
+      return [];
+    }
+
+    const entrySimilarity = cosineSimilarity(queryVector, entryNode.vector);
 
     visited.add(enterPoint);
-    candidates.add(enterPoint);
-    results.add(enterPoint);
+    candidates.add(enterPoint, entrySimilarity);
+    results.add(enterPoint, entrySimilarity);
 
-    while (candidates.size() > 0) {
-      const current = candidates.poll();
-      const currentVector = this.nodeMap.get(current).vector;
-      const currentSimilarity = cosineSimilarity(queryVector, currentVector);
+    while (!candidates.isEmpty()) {
+      const { value: currentId, priority: currentSimilarity } =
+        candidates.poll();
 
       if (results.size() >= ef && currentSimilarity < results.peekPriority()) {
         break;
       }
 
-      const connections = this.index.layers[layer].get(current) || [];
+      const connections = this.index.layers[layer]?.get(currentId) || [];
 
       for (const neighborId of connections) {
-        if (!visited.has(neighborId)) {
-          visited.add(neighborId);
-          const neighborVector = this.nodeMap.get(neighborId).vector;
-          const neighborSimilarity = cosineSimilarity(
-            queryVector,
-            neighborVector,
-          );
+        if (visited.has(neighborId)) {
+          continue;
+        }
+        visited.add(neighborId);
+        const neighborNode = this.nodeMap.get(neighborId);
+        if (!neighborNode) {
+          continue;
+        }
+        const neighborSimilarity = cosineSimilarity(
+          queryVector,
+          neighborNode.vector,
+        );
 
-          candidates.add(neighborId, neighborSimilarity);
+        candidates.add(neighborId, neighborSimilarity);
 
-          if (
-            results.size() < ef ||
-            neighborSimilarity > results.peekPriority()
-          ) {
-            results.add(neighborId, neighborSimilarity);
-            if (results.size() > ef) {
-              results.poll();
-            }
+        if (
+          results.size() < ef ||
+          neighborSimilarity > results.peekPriority()
+        ) {
+          results.add(neighborId, neighborSimilarity);
+          if (results.size() > ef) {
+            results.poll();
           }
         }
       }
     }
 
-    return results.toArray().map((item) => item.value);
+    return results
+      .toArray()
+      .sort((a, b) => b.priority - a.priority)
+      .map((item) => item.value);
   }
 
   async _insertNodeAtLayer(nodeId, vector, layer, neighbors) {
@@ -473,7 +478,7 @@ export class HNSWVectorStore {
 }
 
 class PriorityQueue {
-  constructor(comparator = (a, b) => a > b) {
+  constructor(comparator = (a, b) => a.priority > b.priority) {
     this._heap = [];
     this._comparator = comparator;
   }
@@ -541,7 +546,7 @@ class PriorityQueue {
   }
 
   _compare(i, j) {
-    return this._comparator(this._heap[i].priority, this._heap[j].priority);
+    return this._comparator(this._heap[i], this._heap[j]);
   }
 
   _swap(i, j) {
