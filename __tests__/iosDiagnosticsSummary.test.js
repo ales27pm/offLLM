@@ -4,8 +4,24 @@ const path = require("path");
 const { spawnSync } = require("child_process");
 
 describe("emit_ios_diagnostics_summary", () => {
+  let tmpDir;
+
+  afterEach(() => {
+    if (!tmpDir) {
+      return;
+    }
+
+    try {
+      fs.rmSync(tmpDir, { recursive: true, force: true });
+    } catch {
+      // best effort cleanup
+    }
+
+    tmpDir = undefined;
+  });
+
   test("summarizes unsigned device build issues from Apple xcresult JSON", () => {
-    const tmpDir = fs.mkdtempSync(path.join(os.tmpdir(), "ios-summary-"));
+    tmpDir = fs.mkdtempSync(path.join(os.tmpdir(), "ios-summary-"));
     const envLog = path.join(tmpDir, "environment.log");
     const errorLog = path.join(tmpDir, "xcode-errors.log");
     const derivedLog = path.join(tmpDir, "derived-data.log");
@@ -62,12 +78,6 @@ describe("emit_ios_diagnostics_summary", () => {
         env: { ...process.env, PYTHONUTF8: "1" },
       },
     );
-
-    try {
-      fs.rmSync(tmpDir, { recursive: true, force: true });
-    } catch {
-      // best effort cleanup
-    }
 
     if (result.stderr) {
       // Improve debugging on CI by surfacing stderr when the command fails.
