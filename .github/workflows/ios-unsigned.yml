@@ -83,8 +83,8 @@ jobs:
         run: |
           rm -rf ~/Library/Developer/Xcode/DerivedData
           rm -rf ~/Library/Caches/com.apple.dt.Xcode
-          rm -rf build/DerivedData
-          rm -rf build/DerivedData/ModuleCache.noindex
+          rm -rf "$DERIVED_DATA"
+          rm -rf "$DERIVED_DATA/ModuleCache.noindex"
 
       - name: Build — Simulator (generic destination)
         env:
@@ -173,8 +173,8 @@ jobs:
         run: |
           rm -rf ~/Library/Developer/Xcode/DerivedData
           rm -rf ~/Library/Caches/com.apple.dt.Xcode
-          rm -rf build/DerivedData
-          rm -rf build/DerivedData/ModuleCache.noindex
+          rm -rf "$DERIVED_DATA"
+          rm -rf "$DERIVED_DATA/ModuleCache.noindex"
 
       - name: Build — Generic iOS Device (Archive)
         env:
