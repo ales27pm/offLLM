@@ -1,23 +1,19 @@
 # Documentation Guide
 
 ## Scope & intent
+- `docs/agent-architecture.md` is the canonical explanation of how the orchestrator, plugins, memory, and services interact—update it in lockstep with runtime changes so code and prose stay aligned.【F:docs/agent-architecture.md†L3-L105】
+- When you publish operational runbooks (e.g., recovery steps, rollout notes), cross-link the relevant evidence from `ci-reports/<timestamp>/` so future contributors can replay the exact remediation path.【F:scripts/dev/doctor.sh†L277-L339】
 
-- `docs/agent-architecture.md` is the single source of truth for how orchestration, plugins, tools, and persistence interact; update it whenever runtime wiring changes so code and prose stay aligned.【F:docs/agent-architecture.md†L3-L58】
-- When you introduce operational playbooks (e.g., build recoveries, rollout guides), cross-link back to the generated diagnostics in `reports/` so future contributors can replay the fix path.【F:REPORT.md†L1-L13】【F:Steps.md†L1-L108】
+## Style & referencing
+- Use sentence-case headings, wrap text around ~100 characters, and cite sources with the repository format (`【F:path†Lx-Ly】`) so readers can jump straight to the code that backs each statement.
+- Start each document with a short context paragraph summarising why it matters; lean on lists, tables, or diagrams only when they clarify execution paths already described in the text.【F:docs/agent-architecture.md†L3-L58】
 
-## Style & structure
-
-- Use sentence-case headings, wrap at ~100 characters, and employ the repository citation format (`【F:path†Lx-Ly】`) to anchor explanations to concrete code locations.
-- Start each document with a succinct context paragraph summarizing what changed or why the guidance matters; reinforce deep dives with tables or diagrams only when they clarify execution paths.
-
-## Living knowledge loop
-
-- Before editing, skim the latest `report_agent.md` or CI artifacts to incorporate newly discovered constraints or resolutions into the docs.【F:report_agent.md†L1-L9】
-- After a postmortem or successful recovery, append a short dated note in the relevant doc describing the trigger and fix, referencing the log or script that validated it. This keeps the documentation adaptive instead of static checklists.
+## Dynamic knowledge loop
+- Before editing, review the latest `report_agent.md`, `REPORT.md`, and `CI-REPORT.md` to absorb new CI heuristics, common failures, and verified fixes; fold relevant lessons into the affected docs.【F:report_agent.md†L1-L10】【F:REPORT.md†L1-L13】【F:CI-REPORT.md†L1-L12】 If the change touches native build recovery, also reconcile it with `Steps.md`.
+- After a postmortem or successful mitigation, append a dated summary (`YYYY-MM-DD – …`) to the appropriate document, cite the diagnostic artefact that proved the fix, and mirror the same entry in the living history below so the guidance keeps evolving.
+- When diagnostics change, regenerate them via `npm run doctor:ios` followed by `npm run reports:commit` to keep linked evidence fresh and auditable.【F:package.json†L25-L29】【F:scripts/dev/commit-reports.sh†L52-L77】
 
 ### Living history
-
-- Architecture docs already capture the orchestrator → plugin → service relationships; keep verifying those narratives when modules like `LLMService` or `ToolRegistry` evolve.【F:docs/agent-architecture.md†L3-L25】【F:src/services/llmService.js†L1-L187】【F:src/architecture/toolSystem.js†L1-L127】
-- The native build recovery playbook feeds this directory—continue recording validated remediation sequences there so the next incident has a tested path forward.【F:Steps.md†L1-L108】
-
-Document what happened, why it succeeded or failed, and where the evidence lives so the knowledge base keeps learning alongside the codebase.
+- 2025-02 – The architecture guide now captures the orchestrator → plugin → service flow and must be revisited whenever tool registration or plugin overrides shift.【F:docs/agent-architecture.md†L3-L58】
+- 2025-02 – The native recovery playbook documents the Swift 6 concurrency fixes applied to `MLXEvents.swift` and `MLXModule.swift`; reference those annotations before introducing alternative solutions.【F:Steps.md†L12-L28】
+- 2025-02 – Generated doctor reports flagged Hermes replacement scripts and sandboxed `[CP]` phases; the linked remediation steps should stay in sync with future CI adjustments.【F:report_agent.md†L6-L10】

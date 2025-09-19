@@ -1,29 +1,25 @@
 # Services & Tools Guide
 
 ## LLM runtime
-
-- `llmService` handles model download, native bridge selection, plugin enablement, KV-cache maintenance, inference metrics, and adaptive quantization scheduling. Keep the `loadModel → clearKVCache → generate` flow intact so plugins and cache sizing stay coherent across platforms.【F:src/services/llmService.js†L14-L187】
-- Generation routes through `PluginManager.execute` when sparse attention is active; ensure new options are plumbed into both native and web code paths so overrides stay consistent.【F:src/services/llmService.js†L116-L175】
-- Embedding requires a loaded model on device; guard new entry points with informative errors instead of silent fallbacks.【F:src/services/llmService.js†L200-L238】
+- `llmService` handles model download, native bridge selection, plugin enablement, KV-cache maintenance, embeddings, and adaptive quantisation scheduling. Keep the `loadModel → clearKVCache → generate` flow intact so plugins and cache sizing stay coherent across platforms.【F:src/services/llmService.js†L14-L350】
+- Generation routes through `PluginManager.execute` when sparse attention is active; ensure new options are plumbed into both native and web code paths so overrides remain consistent.【F:src/services/llmService.js†L116-L187】
+- Embedding requires a loaded model on device—guard new entry points with informative errors instead of silent fallbacks.【F:src/services/llmService.js†L236-L250】
 
 ## Context planning
-
-- `ContextEngineer` provides hierarchical attention, similarity/quality scoring, and device-aware pruning. Preserve its deterministic behavior—outputs feed directly into prompt assembly and sparse attention heuristics.【F:src/services/contextEngineer.js†L15-L179】
-- Keep vector-store contracts intact when swapping implementations; the constructor enforces a `searchVectors` function to avoid runtime surprises.【F:src/services/contextEngineer.js†L182-L200】
+- `ContextEngineer` provides hierarchical attention, similarity/quality scoring, sparse retrieval fallbacks, and device-aware token budgeting; changes must respect its vector-store contract and deterministic behaviour because orchestration depends on the returned prompt budget.【F:src/services/contextEngineer.js†L182-L444】
+- The accompanying `ContextEvaluator` clusters context, adjusts quality scores based on metadata, and can fall back gracefully when hierarchical attention fails—keep those heuristics in sync with device detection logic.【F:src/services/contextEngineer.js†L15-L180】
 
 ## Content & search utilities
+- `ReadabilityService` caches `(html, url)` pairs, strips unsafe nodes, normalises metadata (title, byline, published time), and exposes helpers for published date parsing; maintain cache invalidation and error messages so callers receive actionable responses.【F:src/services/readabilityService.js†L3-L159】
+- `SearchService` wraps multiple providers, validates API keys, rate-limits calls, and enriches results via `extractFromUrl`; the exported `webSearchTool` mirrors those semantics and returns structured success/error payloads. Keep provider names and parameter metadata aligned across both layers.【F:src/services/webSearchService.js†L1-L65】【F:src/tools/webSearchTool.js†L4-L85】
 
-- `ReadabilityService` caches `(html, url)` signatures, strips unsafe nodes, and normalizes metadata (title, byline, published time). Maintain cache invalidation and error wrapping so callers receive actionable responses.【F:src/services/readabilityService.js†L3-L159】
-- `SearchService` validates API keys, rate limits provider calls, and enriches results via `extractFromUrl`; keep that enrichment path intact to avoid reintroducing the deprecated `extract` call.【F:src/services/webSearchService.js†L11-L64】
-- `webSearchTool` exposes a JSON-serializable interface with parameter validation—mirror that contract for new service-backed tools.【F:src/tools/webSearchTool.js†L1-L85】
-- Long-form reasoning utilities such as `TreeOfThoughtReasoner` rely on `llmService.generate`; update both sides whenever you adjust return signatures or scoring heuristics.【F:src/services/treeOfThought.js†L1-L191】【F:src/services/llmService.js†L116-L187】
+## Reasoning utilities
+- `TreeOfThoughtReasoner` implements multi-branch reasoning with candidate generation, scoring, and path selection, delegating all generation/evaluation to `llmService.generate`. Update both sides when you change return signatures or heuristics.【F:src/services/treeOfThought.js†L1-L191】【F:src/services/llmService.js†L116-L208】
 
-## Adaptive feedback loop
-
-- Capture performance heuristics (KV cache pressure, inference time) in `report_agent.md` or related diagnostics when they inform service-level changes, and echo key takeaways in the living history below.【F:report_agent.md†L1-L9】
-- After introducing a new provider or plugin-aware service, refresh `docs/agent-architecture.md` and add regression tests to keep the behavior discoverable.【F:docs/agent-architecture.md†L26-L34】
+## Dynamic feedback loop
+- Capture performance heuristics (KV cache pressure, inference time, quantisation switches) in the generated reports when they inform service-level changes, and mirror key takeaways in the living history below.【F:report_agent.md†L1-L10】
+- After introducing a new provider, plugin-aware service, or reasoning primitive, refresh `docs/agent-architecture.md` and extend the relevant tests so the behaviour stays discoverable.【F:docs/agent-architecture.md†L26-L78】【F:__tests__/AGENTS.md†L1-L37】
 
 ### Living history
-
-- Switching `performSearchWithContentExtraction` to `extractFromUrl` fixed downstream crashes when the old `extract` API was missing—do not regress that call path.【F:src/services/webSearchService.js†L35-L64】
-- Adaptive quantization adjustments rely on averaged inference time and memory metrics; keep those counters accurate or you will lose the self-tuning benefits.【F:src/services/llmService.js†L153-L208】
+- 2025-02 – Switching `performSearchWithContentExtraction` to `extractFromUrl` fixed downstream crashes when the deprecated `extract` API was missing—do not regress that call path.【F:src/services/webSearchService.js†L21-L64】
+- 2025-02 – Adaptive quantisation relies on averaged inference time and memory metrics; keep those counters accurate or you lose the self-tuning benefits.【F:src/services/llmService.js†L153-L350】

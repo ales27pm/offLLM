@@ -1,39 +1,22 @@
 # Build Tooling Guide
 
 ## Scope & responsibilities
-
-- Utilities in this directory back the CI doctor and report generators. They expose small ESM modules (`util.mjs`,
-  `xcresult-parser.js`) that scripts import to inspect xcresult bundles and normalise subprocess execution.【F:tools/util.mjs†L1-L27】【F:tools/xcresult-parser.js†L1-L185】
-- Keep modules side-effect free so they can be required both from CLI entry points and unit tests. Any executable behaviour
-  should be gated behind the `process.argv` check at the bottom of the file, mirroring the xcresult parser’s pattern.【F:tools/xcresult-parser.js†L133-L185】
+- Utilities in this directory back the doctor workflow and CI reports. They expose small ESM modules—`util.mjs` for structured shell execution and `xcresult-parser.js` for xcresult inspection—that scripts import to normalise subprocess handling and diagnostics.【F:tools/util.mjs†L1-L27】【F:tools/xcresult-parser.js†L1-L175】
+- Keep modules side-effect free so they can be required from CLI entry points and unit tests. Any executable behaviour should stay behind the `process.argv` guard at the bottom of the file, mirroring the xcresult parser’s pattern.【F:tools/xcresult-parser.js†L133-L185】
 
 ## Authoring guidance
-
-- Extend `util.mjs` instead of scattering subprocess wrappers; `sh` already captures stdout/stderr/error state and returns
-  structured results for downstream heuristics.【F:tools/util.mjs†L3-L17】
-- When parsing xcresult output, funnel extraction through `getValues` so you respect the nested `_values` arrays in Apple’s
-  plist-style JSON. Document any new traversal helpers with comments explaining the data shape.【F:tools/util.mjs†L19-L27】【F:tools/xcresult-parser.js†L159-L173】
-- Treat legacy Xcode compatibility as a first-class requirement: keep the logic that probes `xcresulttool --help` and reorders
-  command attempts based on support for `--legacy` so older runners still succeed.【F:tools/xcresult-parser.js†L22-L131】
+- Extend `util.mjs` instead of scattering bespoke subprocess wrappers—`sh()` already returns `{ code, stdout, stderr }` and preserves underlying errors for heuristics to inspect.【F:tools/util.mjs†L3-L17】
+- When parsing xcresult output, reuse `determineLegacyFlagState`, `isLegacyUnsupportedMessage`, and `getValues` so you respect Apple’s `_values` arrays and the changing `--legacy` support across toolchains.【F:tools/xcresult-parser.js†L20-L169】 Document new traversal helpers with comments describing the data shape.
+- Treat legacy Xcode compatibility as a first-class requirement: the parser intentionally retries with and without `--legacy` and picks the most informative error message; keep that ordering intact when adding new logic.【F:tools/xcresult-parser.js†L22-L133】
 
 ## Operational workflow
+- Scripts under `scripts/` should import these helpers rather than duplicating parsing or shell logic. If you need additional xcresult fields or shell semantics, add them here, add focused unit coverage, and update the dependent automation in one commit for traceability.【F:scripts/ci/build_report.py†L1-L200】【F:scripts/dev/doctor.sh†L277-L339】
+- Keep exports ESM-friendly (named exports, no CommonJS interop) so Node 18+ runners and Jest can consume them without extra tooling.【F:tools/xcresult-parser.js†L1-L175】
 
-- Scripts under `scripts/` should import these helpers rather than duplicating parsing or shell logic. If a script needs new
-  capabilities (e.g., additional xcresult issue fields), add them here, write focused unit coverage, and update dependent
-  automation in one commit for traceability.【F:scripts/ci/build_report.py†L99-L200】【F:tools/xcresult-parser.js†L133-L185】
-- Keep ESM exports stable—the modules run under Node 18+ using native ES modules. Prefer named exports and avoid CommonJS
-  interop to prevent bundler regressions.【F:tools/xcresult-parser.js†L1-L185】
-
-## Adaptive feedback loop
-
-- Record parsing edge cases or xcresult schema changes in `REPORT.md`/`report_agent.md` when they inform tooling updates, and
-  mirror the distilled lesson in the living history below so future contributors know why heuristics exist.【F:REPORT.md†L1-L13】【F:report_agent.md†L6-L10】
-- When new diagnostics consumers appear (e.g., dashboards, CI comments), document how they ingest parser output and update the
-  dependent script guides accordingly.【F:scripts/AGENTS.md†L1-L54】
+## Dynamic feedback loop
+- Capture xcresult schema changes or parsing edge cases in the generated reports (`REPORT.md`, `report_agent.md`) and reflect the distilled lesson in the living history below; cite the timestamped report in your commit message for easy tracing.【F:REPORT.md†L1-L13】【F:report_agent.md†L1-L10】
+- When new diagnostics consumers appear (dashboards, CI comments, etc.), document how they ingest parser output and update both this guide and the calling scripts so downstream expectations stay aligned.【F:scripts/AGENTS.md†L1-L54】
 
 ### Living history
-
-- The `xcresult` parser’s legacy flag detection prevented CI regressions when Xcode removed `--legacy` support on certain
-  runners—preserve the retry ordering and failure selection logic when refactoring.【F:tools/xcresult-parser.js†L22-L131】
-- Structured shell wrappers in `util.mjs` surfaced non-zero exit codes during earlier investigations; reuse them to avoid silent
-  failures when adding new tooling.【F:tools/util.mjs†L3-L17】
+- 2025-02 – The xcresult parser’s legacy-flag detection prevented CI regressions when Xcode removed `--legacy` support on certain runners; maintain the retry ordering and failure-selection logic when refactoring.【F:tools/xcresult-parser.js†L22-L133】
+- 2025-02 – Structured shell wrappers in `util.mjs` surfaced non-zero exit codes during earlier investigations—reuse and extend them instead of shelling out ad hoc.【F:tools/util.mjs†L3-L17】
