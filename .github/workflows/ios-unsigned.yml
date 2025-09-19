@@ -79,9 +79,17 @@ jobs:
           echo "bundle exec pod install failed; retrying with system pod"
           pod install --repo-update
 
-      - name: Reset caches and prepare module cache
-        id: prepare_module_cache
-        uses: ./.github/actions/ios-reset-module-cache
+      - name: Clean caches (global + repo-local) and set fresh module cache
+        run: |
+          rm -rf ~/Library/Developer/Xcode/DerivedData
+          rm -rf ~/Library/Caches/com.apple.dt.Xcode
+          rm -rf build/DerivedData
+          rm -rf build/DerivedData/ModuleCache.noindex
+          rm -rf build/DerivedData/Build/Intermediates.noindex/ArchiveIntermediates
+          rm -rf build/DerivedData/Build/Intermediates.noindex/PrecompiledHeaders
+          MODULE_CACHE_DIR="$(mktemp -d)"
+          echo "MODULE_CACHE_DIR=${MODULE_CACHE_DIR}" >> $GITHUB_ENV
+          echo "CLANG_MODULE_CACHE_PATH=${MODULE_CACHE_DIR}" >> $GITHUB_ENV
 
       - name: Build — Simulator (generic destination)
         env:
@@ -104,13 +112,13 @@ jobs:
             clean build | xcpretty && exit ${PIPESTATUS[0]}
 
       - name: Remove temporary module cache
-        if: steps.prepare_module_cache.outputs.module_cache_dir != ''
+        if: env.MODULE_CACHE_DIR != ''
         run: |
           if [ -d "${MODULE_CACHE_DIR}" ]; then
             rm -rf "${MODULE_CACHE_DIR}"
           fi
         env:
-          MODULE_CACHE_DIR: ${{ steps.prepare_module_cache.outputs.module_cache_dir }}
+          MODULE_CACHE_DIR: ${{ env.MODULE_CACHE_DIR }}
 
       - name: Upload Simulator Artifacts
         uses: actions/upload-artifact@v4
@@ -178,9 +186,17 @@ jobs:
           echo "bundle exec pod install failed; retrying with system pod"
           pod install --repo-update
 
-      - name: Reset caches and prepare module cache
-        id: prepare_module_cache
-        uses: ./.github/actions/ios-reset-module-cache
+      - name: Clean caches (global + repo-local) and set fresh module cache
+        run: |
+          rm -rf ~/Library/Developer/Xcode/DerivedData
+          rm -rf ~/Library/Caches/com.apple.dt.Xcode
+          rm -rf build/DerivedData
+          rm -rf build/DerivedData/ModuleCache.noindex
+          rm -rf build/DerivedData/Build/Intermediates.noindex/ArchiveIntermediates
+          rm -rf build/DerivedData/Build/Intermediates.noindex/PrecompiledHeaders
+          MODULE_CACHE_DIR="$(mktemp -d)"
+          echo "MODULE_CACHE_DIR=${MODULE_CACHE_DIR}" >> $GITHUB_ENV
+          echo "CLANG_MODULE_CACHE_PATH=${MODULE_CACHE_DIR}" >> $GITHUB_ENV
 
       - name: Build — Generic iOS Device (Archive)
         env:
@@ -202,13 +218,13 @@ jobs:
             clean build archive | xcpretty && exit ${PIPESTATUS[0]}
 
       - name: Remove temporary module cache
-        if: steps.prepare_module_cache.outputs.module_cache_dir != ''
+        if: env.MODULE_CACHE_DIR != ''
         run: |
           if [ -d "${MODULE_CACHE_DIR}" ]; then
             rm -rf "${MODULE_CACHE_DIR}"
           fi
         env:
-          MODULE_CACHE_DIR: ${{ steps.prepare_module_cache.outputs.module_cache_dir }}
+          MODULE_CACHE_DIR: ${{ env.MODULE_CACHE_DIR }}
 
       - name: Upload Device Artifacts
         uses: actions/upload-artifact@v4
