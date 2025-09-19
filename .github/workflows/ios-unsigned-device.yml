@@ -52,10 +52,11 @@ jobs:
 
       - name: Clean DerivedData & Xcode caches
         run: |
-          rm -rf "$DERIVED_DATA" \
-                 ~/Library/Developer/Xcode/DerivedData \
-                 ~/Library/Developer/Xcode/DerivedData/SourcePackages \
-                 ~/Library/Caches/com.apple.dt.Xcode
+          rm -rf "$DERIVED_DATA"
+          rm -rf "$DERIVED_DATA/ModuleCache.noindex"
+          rm -rf ~/Library/Developer/Xcode/DerivedData
+          rm -rf ~/Library/Developer/Xcode/DerivedData/SourcePackages
+          rm -rf ~/Library/Caches/com.apple.dt.Xcode
 
       - name: Run JS checks (tests, lint, format)
         run: |

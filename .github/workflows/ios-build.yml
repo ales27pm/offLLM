@@ -19,6 +19,7 @@ jobs:
       SCHEME: monGARS
       CONFIGURATION: Release
       SDK: iphoneos
+      DERIVED_DATA: ${{ github.workspace }}/build/DerivedData
 
     steps:
       - name: Checkout
@@ -79,23 +80,28 @@ jobs:
       - name: Run iOS configuration verifiers
         uses: ./.github/actions/verify-ios-config
 
-      - name: Clean DerivedData caches
+      - name: Clean DerivedData caches (global + repo-local)
         run: |
           rm -rf ~/Library/Developer/Xcode/DerivedData
           rm -rf ~/Library/Caches/com.apple.dt.Xcode
+          rm -rf "$DERIVED_DATA"
+          rm -rf "$DERIVED_DATA/ModuleCache.noindex"
 
       - name: Build (unsigned, Release)
         working-directory: ios
         run: |
+          set -euo pipefail
+          mkdir -p "$DERIVED_DATA"
           xcodebuild \
             -workspace "$WORKSPACE" \
             -scheme "$SCHEME" \
             -configuration "$CONFIGURATION" \
             -sdk "$SDK" \
             -UseModernBuildSystem=YES \
+            -derivedDataPath "$DERIVED_DATA" \
             CODE_SIGNING_ALLOWED=NO \
             CODE_SIGNING_REQUIRED=NO \
-            clean build | xcpretty
+            clean build | xcpretty && exit ${PIPESTATUS[0]}
         shell: bash
 
   ios-ipa:
@@ -112,6 +118,7 @@ jobs:
       SDK: iphoneos
       ARCHIVE_PATH: build/monGARS.xcarchive
       APP_NAME: monGARS
+      DERIVED_DATA: ${{ github.workspace }}/build/DerivedData
 
     steps:
       - name: Checkout
@@ -171,24 +178,28 @@ jobs:
       - name: Run iOS configuration verifiers
         uses: ./.github/actions/verify-ios-config
 
-      - name: Clean DerivedData caches
+      - name: Clean DerivedData caches (global + repo-local)
         run: |
           rm -rf ~/Library/Developer/Xcode/DerivedData
           rm -rf ~/Library/Caches/com.apple.dt.Xcode
+          rm -rf "$DERIVED_DATA"
+          rm -rf "$DERIVED_DATA/ModuleCache.noindex"
 
       - name: Archive (unsigned)
         working-directory: ios
         run: |
           set -euo pipefail
+          mkdir -p "$DERIVED_DATA" "$(dirname "$ARCHIVE_PATH")"
           xcodebuild \
             -workspace "$WORKSPACE" \
             -scheme "$SCHEME" \
             -configuration "$CONFIGURATION" \
             -sdk "$SDK" \
             -UseModernBuildSystem=YES \
+            -derivedDataPath "$DERIVED_DATA" \
             CODE_SIGNING_ALLOWED=NO \
             CODE_SIGNING_REQUIRED=NO \
-            archive -archivePath "$ARCHIVE_PATH" | xcpretty
+            archive -archivePath "$ARCHIVE_PATH" | xcpretty && exit ${PIPESTATUS[0]}
 
       - name: Create unsigned IPA
         working-directory: ios
