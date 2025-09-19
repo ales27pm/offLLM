@@ -70,6 +70,7 @@ jobs:
             ${{ runner.os }}-pods-
 
       - name: Install Pods (fresh if lock changed)
+        id: install_pods
         working-directory: ios
         run: |
           bundle exec pod deintegrate || true
@@ -79,6 +80,17 @@ jobs:
 
       - name: Run iOS configuration verifiers
         uses: ./.github/actions/verify-ios-config
+
+      - name: Upload CocoaPods artifacts
+        if: steps.install_pods.outcome == 'success'
+        uses: actions/upload-artifact@v4
+        with:
+          name: ios-pods-build
+          path: |
+            ios/Pods
+            ios/monGARS.xcworkspace
+            ios/Podfile.lock
+          if-no-files-found: error
 
       - name: Clean caches (global + repo-local) and set fresh module cache
         run: |
@@ -185,6 +197,7 @@ jobs:
             ${{ runner.os }}-pods-
 
       - name: Install Pods (fresh if lock changed)
+        id: install_pods
         working-directory: ios
         run: |
           bundle exec pod deintegrate || true
@@ -194,6 +207,17 @@ jobs:
 
       - name: Run iOS configuration verifiers
         uses: ./.github/actions/verify-ios-config
+
+      - name: Upload CocoaPods artifacts
+        if: steps.install_pods.outcome == 'success'
+        uses: actions/upload-artifact@v4
+        with:
+          name: ios-pods-archive
+          path: |
+            ios/Pods
+            ios/monGARS.xcworkspace
+            ios/Podfile.lock
+          if-no-files-found: error
 
       - name: Clean caches (global + repo-local) and set fresh module cache
         run: |

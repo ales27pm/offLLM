@@ -70,6 +70,7 @@ jobs:
         run: xcodegen generate
 
       - name: Install CocoaPods
+        id: install_pods
         working-directory: ios
         run: |
           set -euo pipefail
@@ -78,6 +79,17 @@ jobs:
           fi
           echo "bundle exec pod install failed; retrying with system pod"
           pod install --repo-update
+
+      - name: Upload CocoaPods artifacts
+        if: steps.install_pods.outcome == 'success'
+        uses: actions/upload-artifact@v4
+        with:
+          name: ios-pods-sim-build
+          path: |
+            ios/Pods
+            ios/monGARS.xcworkspace
+            ios/Podfile.lock
+          if-no-files-found: error
 
       - name: Clean caches (global + repo-local) and set fresh module cache
         run: |
@@ -177,6 +189,7 @@ jobs:
         run: xcodegen generate
 
       - name: Install CocoaPods
+        id: install_pods
         working-directory: ios
         run: |
           set -euo pipefail
@@ -185,6 +198,17 @@ jobs:
           fi
           echo "bundle exec pod install failed; retrying with system pod"
           pod install --repo-update
+
+      - name: Upload CocoaPods artifacts
+        if: steps.install_pods.outcome == 'success'
+        uses: actions/upload-artifact@v4
+        with:
+          name: ios-pods-device-archive
+          path: |
+            ios/Pods
+            ios/monGARS.xcworkspace
+            ios/Podfile.lock
+          if-no-files-found: error
 
       - name: Clean caches (global + repo-local) and set fresh module cache
         run: |
