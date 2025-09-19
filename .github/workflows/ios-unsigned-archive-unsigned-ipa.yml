@@ -79,6 +79,13 @@ jobs:
         env:
           RCT_NEW_ARCH_ENABLED: "1"
         run: |
+      - name: Install xcpretty
+        run: gem install xcpretty
+
+      - name: Archive — Generic iOS Device (unsigned)
+        env:
+          RCT_NEW_ARCH_ENABLED: "1"
+        run: |
           set -euo pipefail
           mkdir -p "$(dirname "$RESULT_BUNDLE_DEV")" "$(dirname "$ARCHIVE_PATH")" "$DERIVED_DATA"
           xcodebuild \
