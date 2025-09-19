@@ -79,6 +79,13 @@ jobs:
           echo "bundle exec pod install failed; retrying with system pod"
           pod install --repo-update
 
+      - name: Clean DerivedData caches (global + repo-local)
+        run: |
+          rm -rf ~/Library/Developer/Xcode/DerivedData
+          rm -rf ~/Library/Caches/com.apple.dt.Xcode
+          rm -rf build/DerivedData
+          rm -rf build/DerivedData/ModuleCache.noindex
+
       - name: Build — Simulator (generic destination)
         env:
           RCT_NEW_ARCH_ENABLED: "1"
@@ -161,6 +168,13 @@ jobs:
           fi
           echo "bundle exec pod install failed; retrying with system pod"
           pod install --repo-update
+
+      - name: Clean DerivedData caches (global + repo-local)
+        run: |
+          rm -rf ~/Library/Developer/Xcode/DerivedData
+          rm -rf ~/Library/Caches/com.apple.dt.Xcode
+          rm -rf build/DerivedData
+          rm -rf build/DerivedData/ModuleCache.noindex
 
       - name: Build — Generic iOS Device (Archive)
         env:
