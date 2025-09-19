@@ -32,3 +32,23 @@ test("ToolHandler throws on malformed args", () => {
     "Malformed argument string",
   );
 });
+
+test("ToolHandler parses empty argument lists", () => {
+  const parsed = handler.parse("TOOL_CALL: ping()");
+  expect(parsed).toEqual([{ name: "ping", args: {} }]);
+});
+
+test("ToolHandler executes zero-argument tools", async () => {
+  const execute = jest.fn().mockResolvedValue({ ok: true });
+  const registry = {
+    getTool: (name) => (name === "ping" ? { execute } : null),
+  };
+  const localHandler = new ToolHandler(registry);
+
+  const result = await localHandler.execute([{ name: "ping", args: {} }]);
+
+  expect(execute).toHaveBeenCalledWith({});
+  expect(result).toEqual([
+    { role: "tool", name: "ping", content: JSON.stringify({ ok: true }) },
+  ]);
+});

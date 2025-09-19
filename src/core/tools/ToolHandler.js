@@ -6,7 +6,7 @@ const getArgKeys = (args) =>
 export default class ToolHandler {
   constructor(toolRegistry) {
     this.toolRegistry = toolRegistry;
-    this.callRegex = /TOOL_CALL: (\w+) \((.+)\)/g;
+    this.callRegex = /TOOL_CALL:\s*(\w+)\s*\(([\s\S]*?)\)/g;
   }
 
   parse(response) {
