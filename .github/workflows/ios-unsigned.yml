@@ -70,6 +70,7 @@ jobs:
         run: xcodegen generate
 
       - name: Install CocoaPods
+        id: install_pods
         working-directory: ios
         run: |
           set -euo pipefail
@@ -79,17 +80,36 @@ jobs:
           echo "bundle exec pod install failed; retrying with system pod"
           pod install --repo-update
 
-      - name: Clean DerivedData caches (global + repo-local)
+      - name: Upload CocoaPods artifacts
+        if: steps.install_pods.outcome == 'success'
+        uses: actions/upload-artifact@v4
+        with:
+          name: ios-pods-sim-build
+          path: |
+            ios/Pods
+            ios/monGARS.xcworkspace
+            ios/Podfile.lock
+          if-no-files-found: error
+
+      - name: Clean caches (global + repo-local) and set fresh module cache
         run: |
           rm -rf ~/Library/Developer/Xcode/DerivedData
           rm -rf ~/Library/Caches/com.apple.dt.Xcode
-          rm -rf "$DERIVED_DATA"
-          rm -rf "$DERIVED_DATA/ModuleCache.noindex"
+          rm -rf build/DerivedData
+          rm -rf build/DerivedData/ModuleCache.noindex
+          rm -rf build/DerivedData/Build/Intermediates.noindex/ArchiveIntermediates
+          rm -rf build/DerivedData/Build/Intermediates.noindex/PrecompiledHeaders
+          MODULE_CACHE_DIR="$(mktemp -d)"
+          echo "MODULE_CACHE_DIR=${MODULE_CACHE_DIR}" >> $GITHUB_ENV
+          echo "CLANG_MODULE_CACHE_PATH=${MODULE_CACHE_DIR}" >> $GITHUB_ENV
 
       - name: Build — Simulator (generic destination)
         env:
           RCT_NEW_ARCH_ENABLED: "1"
+          MODULE_CACHE_DIR: ${{ env.MODULE_CACHE_DIR }}
+          CLANG_MODULE_CACHE_PATH: ${{ env.CLANG_MODULE_CACHE_PATH }}
         run: |
+          set -euo pipefail
           mkdir -p "$(dirname "$RESULT_BUNDLE_SIM")"
           xcodebuild \
             -workspace "${WORKSPACE}" \
@@ -102,6 +122,15 @@ jobs:
             CODE_SIGNING_ALLOWED=NO \
             CODE_SIGNING_REQUIRED=NO \
             clean build | xcpretty && exit ${PIPESTATUS[0]}
+
+      - name: Remove temporary module cache
+        if: env.MODULE_CACHE_DIR != ''
+        run: |
+          if [ -d "${MODULE_CACHE_DIR}" ]; then
+            rm -rf "${MODULE_CACHE_DIR}"
+          fi
+        env:
+          MODULE_CACHE_DIR: ${{ env.MODULE_CACHE_DIR }}
 
       - name: Upload Simulator Artifacts
         uses: actions/upload-artifact@v4
@@ -160,6 +189,7 @@ jobs:
         run: xcodegen generate
 
       - name: Install CocoaPods
+        id: install_pods
         working-directory: ios
         run: |
           set -euo pipefail
@@ -169,17 +199,36 @@ jobs:
           echo "bundle exec pod install failed; retrying with system pod"
           pod install --repo-update
 
-      - name: Clean DerivedData caches (global + repo-local)
+      - name: Upload CocoaPods artifacts
+        if: steps.install_pods.outcome == 'success'
+        uses: actions/upload-artifact@v4
+        with:
+          name: ios-pods-device-archive
+          path: |
+            ios/Pods
+            ios/monGARS.xcworkspace
+            ios/Podfile.lock
+          if-no-files-found: error
+
+      - name: Clean caches (global + repo-local) and set fresh module cache
         run: |
           rm -rf ~/Library/Developer/Xcode/DerivedData
           rm -rf ~/Library/Caches/com.apple.dt.Xcode
-          rm -rf "$DERIVED_DATA"
-          rm -rf "$DERIVED_DATA/ModuleCache.noindex"
+          rm -rf build/DerivedData
+          rm -rf build/DerivedData/ModuleCache.noindex
+          rm -rf build/DerivedData/Build/Intermediates.noindex/ArchiveIntermediates
+          rm -rf build/DerivedData/Build/Intermediates.noindex/PrecompiledHeaders
+          MODULE_CACHE_DIR="$(mktemp -d)"
+          echo "MODULE_CACHE_DIR=${MODULE_CACHE_DIR}" >> $GITHUB_ENV
+          echo "CLANG_MODULE_CACHE_PATH=${MODULE_CACHE_DIR}" >> $GITHUB_ENV
 
       - name: Build — Generic iOS Device (Archive)
         env:
           RCT_NEW_ARCH_ENABLED: "1"
+          MODULE_CACHE_DIR: ${{ env.MODULE_CACHE_DIR }}
+          CLANG_MODULE_CACHE_PATH: ${{ env.CLANG_MODULE_CACHE_PATH }}
         run: |
+          set -euo pipefail
           mkdir -p "$(dirname "$RESULT_BUNDLE_DEV")"
           xcodebuild \
             -workspace "${WORKSPACE}" \
@@ -191,6 +240,15 @@ jobs:
             CODE_SIGNING_ALLOWED=NO \
             CODE_SIGNING_REQUIRED=NO \
             clean build archive | xcpretty && exit ${PIPESTATUS[0]}
+
+      - name: Remove temporary module cache
+        if: env.MODULE_CACHE_DIR != ''
+        run: |
+          if [ -d "${MODULE_CACHE_DIR}" ]; then
+            rm -rf "${MODULE_CACHE_DIR}"
+          fi
+        env:
+          MODULE_CACHE_DIR: ${{ env.MODULE_CACHE_DIR }}
 
       - name: Upload Device Artifacts
         uses: actions/upload-artifact@v4

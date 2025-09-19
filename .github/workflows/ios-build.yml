@@ -70,6 +70,7 @@ jobs:
             ${{ runner.os }}-pods-
 
       - name: Install Pods (fresh if lock changed)
+        id: install_pods
         working-directory: ios
         run: |
           bundle exec pod deintegrate || true
@@ -80,29 +81,57 @@ jobs:
       - name: Run iOS configuration verifiers
         uses: ./.github/actions/verify-ios-config
 
-      - name: Clean DerivedData caches (global + repo-local)
+      - name: Upload CocoaPods artifacts
+        if: steps.install_pods.outcome == 'success'
+        uses: actions/upload-artifact@v4
+        with:
+          name: ios-pods-build
+          path: |
+            ios/Pods
+            ios/monGARS.xcworkspace
+            ios/Podfile.lock
+          if-no-files-found: error
+
+      - name: Clean caches (global + repo-local) and set fresh module cache
         run: |
           rm -rf ~/Library/Developer/Xcode/DerivedData
           rm -rf ~/Library/Caches/com.apple.dt.Xcode
-          rm -rf "$DERIVED_DATA"
-          rm -rf "$DERIVED_DATA/ModuleCache.noindex"
+          rm -rf build/DerivedData
+          rm -rf build/DerivedData/ModuleCache.noindex
+          rm -rf build/DerivedData/Build/Intermediates.noindex/ArchiveIntermediates
+          rm -rf build/DerivedData/Build/Intermediates.noindex/PrecompiledHeaders
+          MODULE_CACHE_DIR="$(mktemp -d)"
+          echo "MODULE_CACHE_DIR=${MODULE_CACHE_DIR}" >> $GITHUB_ENV
+          echo "CLANG_MODULE_CACHE_PATH=${MODULE_CACHE_DIR}" >> $GITHUB_ENV
 
       - name: Build (unsigned, Release)
         working-directory: ios
+        env:
+          MODULE_CACHE_DIR: ${{ env.MODULE_CACHE_DIR }}
+          CLANG_MODULE_CACHE_PATH: ${{ env.CLANG_MODULE_CACHE_PATH }}
         run: |
           set -euo pipefail
-          mkdir -p "$DERIVED_DATA"
+          mkdir -p ../build/DerivedData
           xcodebuild \
             -workspace "$WORKSPACE" \
             -scheme "$SCHEME" \
             -configuration "$CONFIGURATION" \
             -sdk "$SDK" \
             -UseModernBuildSystem=YES \
-            -derivedDataPath "$DERIVED_DATA" \
+            -derivedDataPath ../build/DerivedData \
             CODE_SIGNING_ALLOWED=NO \
             CODE_SIGNING_REQUIRED=NO \
             clean build | xcpretty && exit ${PIPESTATUS[0]}
         shell: bash
+
+      - name: Remove temporary module cache
+        if: env.MODULE_CACHE_DIR != ''
+        run: |
+          if [ -d "${MODULE_CACHE_DIR}" ]; then
+            rm -rf "${MODULE_CACHE_DIR}"
+          fi
+        env:
+          MODULE_CACHE_DIR: ${{ env.MODULE_CACHE_DIR }}
 
   ios-ipa:
     name: Archive & Export Unsigned IPA
@@ -168,6 +197,7 @@ jobs:
             ${{ runner.os }}-pods-
 
       - name: Install Pods (fresh if lock changed)
+        id: install_pods
         working-directory: ios
         run: |
           bundle exec pod deintegrate || true
@@ -178,28 +208,56 @@ jobs:
       - name: Run iOS configuration verifiers
         uses: ./.github/actions/verify-ios-config
 
-      - name: Clean DerivedData caches (global + repo-local)
+      - name: Upload CocoaPods artifacts
+        if: steps.install_pods.outcome == 'success'
+        uses: actions/upload-artifact@v4
+        with:
+          name: ios-pods-archive
+          path: |
+            ios/Pods
+            ios/monGARS.xcworkspace
+            ios/Podfile.lock
+          if-no-files-found: error
+
+      - name: Clean caches (global + repo-local) and set fresh module cache
         run: |
           rm -rf ~/Library/Developer/Xcode/DerivedData
           rm -rf ~/Library/Caches/com.apple.dt.Xcode
-          rm -rf "$DERIVED_DATA"
-          rm -rf "$DERIVED_DATA/ModuleCache.noindex"
+          rm -rf build/DerivedData
+          rm -rf build/DerivedData/ModuleCache.noindex
+          rm -rf build/DerivedData/Build/Intermediates.noindex/ArchiveIntermediates
+          rm -rf build/DerivedData/Build/Intermediates.noindex/PrecompiledHeaders
+          MODULE_CACHE_DIR="$(mktemp -d)"
+          echo "MODULE_CACHE_DIR=${MODULE_CACHE_DIR}" >> $GITHUB_ENV
+          echo "CLANG_MODULE_CACHE_PATH=${MODULE_CACHE_DIR}" >> $GITHUB_ENV
 
       - name: Archive (unsigned)
         working-directory: ios
+        env:
+          MODULE_CACHE_DIR: ${{ env.MODULE_CACHE_DIR }}
+          CLANG_MODULE_CACHE_PATH: ${{ env.CLANG_MODULE_CACHE_PATH }}
         run: |
           set -euo pipefail
-          mkdir -p "$DERIVED_DATA" "$(dirname "$ARCHIVE_PATH")"
+          mkdir -p ../build/DerivedData "$(dirname "$ARCHIVE_PATH")"
           xcodebuild \
             -workspace "$WORKSPACE" \
             -scheme "$SCHEME" \
             -configuration "$CONFIGURATION" \
             -sdk "$SDK" \
             -UseModernBuildSystem=YES \
-            -derivedDataPath "$DERIVED_DATA" \
+            -derivedDataPath ../build/DerivedData \
             CODE_SIGNING_ALLOWED=NO \
             CODE_SIGNING_REQUIRED=NO \
             archive -archivePath "$ARCHIVE_PATH" | xcpretty && exit ${PIPESTATUS[0]}
+
+      - name: Remove temporary module cache
+        if: env.MODULE_CACHE_DIR != ''
+        run: |
+          if [ -d "${MODULE_CACHE_DIR}" ]; then
+            rm -rf "${MODULE_CACHE_DIR}"
+          fi
+        env:
+          MODULE_CACHE_DIR: ${{ env.MODULE_CACHE_DIR }}
 
       - name: Create unsigned IPA
         working-directory: ios
