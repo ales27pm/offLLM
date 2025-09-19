@@ -117,6 +117,8 @@ post_install do |installer|
   installer.pods_project.targets.each do |t|
     t.build_configurations.each do |c|
       c.build_settings['DISABLE_INPUT_OUTPUT_PATHS'] = 'YES'
+      c.build_settings['CLANG_CXX_LANGUAGE_STANDARD'] = 'c++20'
+      c.build_settings['CLANG_CXX_LIBRARY'] = 'libc++'
     end
   end
 
@@ -243,6 +245,8 @@ post_install do |installer|
       next unless target.name == 'monGARS'
 
       target.build_configurations.each do |config|
+        config.build_settings['CLANG_CXX_LANGUAGE_STANDARD'] = 'c++20'
+        config.build_settings['CLANG_CXX_LIBRARY'] = 'libc++'
         existing = config.build_settings['HEADER_SEARCH_PATHS']
 
         if existing.nil?

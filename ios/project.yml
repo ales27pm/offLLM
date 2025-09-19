@@ -13,6 +13,11 @@ packages:
     url: https://github.com/ml-explore/mlx-swift-examples
     exactVersion: 2.25.6
 
+settings:
+  base:
+    CLANG_CXX_LANGUAGE_STANDARD: c++20
+    CLANG_CXX_LIBRARY: libc++
+
 targets:
   monGARS:
     type: application
@@ -62,7 +67,7 @@ targets:
 
         # Stable toolchain for RN/Folly
         CLANG_CXX_LIBRARY: libc++
-        CLANG_CXX_LANGUAGE_STANDARD: c++17
+        CLANG_CXX_LANGUAGE_STANDARD: c++20
         OTHER_MTLFLAGS:
           - "$(inherited)"
           - "-Wno-c++17-extensions"
