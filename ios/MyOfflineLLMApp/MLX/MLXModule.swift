@@ -11,7 +11,8 @@ import React
 @preconcurrency import MLXLLM
 @preconcurrency import MLXLMCommon
 
-// MARK: - Actor that owns ChatSession (off-main, concurrency-safe)
+// MARK: - Actor that owns ChatSession (main actor to satisfy MLX isolation)
+@MainActor
 private actor ChatSessionActor {
   private var container: ModelContainer
   private var isResponding = false
