@@ -53,6 +53,99 @@ def remove_flag(value, flag)
   [materialize_tokens(tokens, preference), tokens != original]
 end
 
+def swift_flag_pair?(value, flag)
+  return false if flag.nil?
+
+  tokens, _ = normalize_tokens(value)
+  tokens.each_cons(2).any? { |first, second| first == '-Xcc' && second == flag }
+end
+
+def sanitize_module_map_settings(config, header_search_fix:, module_map_flags:, module_map_path:, legacy_module_map_flag:, force_tokens: false, enforce_module_map: false, enforce_defines_module: false)
+  updated = false
+  module_flag = module_map_flags.first
+
+  existing_c_flags = config.build_settings['OTHER_CFLAGS']
+  c_tokens, _ = normalize_tokens(existing_c_flags)
+  contains_legacy_c_flag = c_tokens.include?(legacy_module_map_flag)
+  contains_canonical_c_flag = module_flag ? c_tokens.include?(module_flag) : false
+
+  existing_cpp_flags = config.build_settings['OTHER_CPLUSPLUSFLAGS']
+  cpp_tokens, _ = normalize_tokens(existing_cpp_flags)
+  contains_legacy_cpp_flag = cpp_tokens.include?(legacy_module_map_flag)
+  contains_canonical_cpp_flag = module_flag ? cpp_tokens.include?(module_flag) : false
+
+  existing_swift_flags = config.build_settings['OTHER_SWIFT_FLAGS']
+  contains_legacy_swift = swift_flag_pair?(existing_swift_flags, legacy_module_map_flag)
+  contains_canonical_swift = swift_flag_pair?(existing_swift_flags, module_flag)
+
+  requires_tokens = force_tokens || contains_legacy_c_flag || contains_canonical_c_flag ||
+                    contains_legacy_cpp_flag || contains_canonical_cpp_flag ||
+                    contains_legacy_swift || contains_canonical_swift
+
+  if requires_tokens
+    existing_header_paths = config.build_settings['HEADER_SEARCH_PATHS']
+    desired_header_paths = append_flag(existing_header_paths, header_search_fix)
+    if desired_header_paths != existing_header_paths
+      config.build_settings['HEADER_SEARCH_PATHS'] = desired_header_paths
+      updated = true
+    end
+  end
+
+  if contains_legacy_c_flag
+    pruned_c_flags, _ = remove_flag(existing_c_flags, legacy_module_map_flag)
+    config.build_settings['OTHER_CFLAGS'] = pruned_c_flags
+    existing_c_flags = pruned_c_flags
+    updated = true
+  end
+
+  if requires_tokens
+    updated_c_flags = append_flags(existing_c_flags, module_map_flags)
+    if updated_c_flags != existing_c_flags
+      config.build_settings['OTHER_CFLAGS'] = updated_c_flags
+      updated = true
+    end
+  end
+
+  if contains_legacy_cpp_flag
+    pruned_cpp_flags, _ = remove_flag(existing_cpp_flags, legacy_module_map_flag)
+    config.build_settings['OTHER_CPLUSPLUSFLAGS'] = pruned_cpp_flags
+    existing_cpp_flags = pruned_cpp_flags
+    updated = true
+  end
+
+  if requires_tokens
+    updated_cpp_flags = append_flags(existing_cpp_flags, module_map_flags)
+    if updated_cpp_flags != existing_cpp_flags
+      config.build_settings['OTHER_CPLUSPLUSFLAGS'] = updated_cpp_flags
+      updated = true
+    end
+  end
+
+  if requires_tokens
+    swift_tokens, swift_changed = ensure_swift_module_flags(
+      existing_swift_flags,
+      module_map_flags,
+      :forbidden_flags => [legacy_module_map_flag]
+    )
+    if swift_changed
+      config.build_settings['OTHER_SWIFT_FLAGS'] = swift_tokens
+      updated = true
+    end
+  end
+
+  if enforce_module_map && config.build_settings['MODULEMAP_FILE'] != module_map_path
+    config.build_settings['MODULEMAP_FILE'] = module_map_path
+    updated = true
+  end
+
+  if enforce_defines_module && config.build_settings['DEFINES_MODULE'] != 'YES'
+    config.build_settings['DEFINES_MODULE'] = 'YES'
+    updated = true
+  end
+
+  updated
+end
+
 def ensure_swift_module_flags(swift_flags, module_map_flags, forbidden_flags: [])
   tokens, preference = normalize_tokens(swift_flags)
   changed = false
@@ -251,10 +344,13 @@ post_install do |installer|
   # build because the AST referenced a different module map path. Keeping only the
   # canonical file and updating build settings to point at it ensures every
   # invocation resolves the module identically.
-  module_map_flags = [module_map_flag]
+  module_map_flags = [module_map_flag].compact
   module_map_dir = File.join(installer.sandbox.root.to_s, 'Headers', 'Public', 'RCTDeprecation')
   module_map_disk = File.join(module_map_dir, 'module.modulemap')
   legacy_module_map_disk = File.join(module_map_dir, 'RCTDeprecation.modulemap')
+  target_support_dir = File.join(installer.sandbox.root.to_s, 'Target Support Files', 'RCTDeprecation')
+  target_support_module_map = File.join(target_support_dir, 'module.modulemap')
+  legacy_target_support_module_map = File.join(target_support_dir, 'RCTDeprecation.modulemap')
   module_map_template = File.join(__dir__, 'Config', 'RCTDeprecation.modulemap')
   raise "Missing #{module_map_template}; ensure it is checked in" unless File.exist?(module_map_template)
   desired_module_map = File.read(module_map_template)
@@ -281,77 +377,21 @@ post_install do |installer|
   end
 
   installer.pods_project.targets.each do |target|
-    next unless target.name == 'RCTDeprecation'
+    target_name = target.respond_to?(:name) ? target.name.to_s : ''
+    force_tokens = target_name == 'RCTDeprecation' || target_name.start_with?('Pods-')
+    enforce_module_identity = target_name == 'RCTDeprecation'
 
     target.build_configurations.each do |config|
-      updated = false
-
-      header_paths = config.build_settings['HEADER_SEARCH_PATHS']
-      if header_paths.nil?
-        config.build_settings['HEADER_SEARCH_PATHS'] = ['$(inherited)', header_search_fix]
-        updated = true
-      elsif header_paths.is_a?(Array)
-        unless header_paths.include?(header_search_fix)
-          config.build_settings['HEADER_SEARCH_PATHS'] = header_paths + [header_search_fix]
-          updated = true
-        end
-      else
-        value = header_paths.to_s
-        unless value.include?(header_search_fix)
-          config.build_settings['HEADER_SEARCH_PATHS'] = "#{value} #{header_search_fix}"
-          updated = true
-        end
-      end
-
-      existing_c_flags = config.build_settings['OTHER_CFLAGS']
-      pruned_c_flags, pruned = remove_flag(existing_c_flags, legacy_module_map_flag)
-      if pruned
-        config.build_settings['OTHER_CFLAGS'] = pruned_c_flags
-        existing_c_flags = pruned_c_flags
-        updated = true
-      end
-
-      new_c_flags = append_flags(existing_c_flags, module_map_flags)
-      if new_c_flags != existing_c_flags
-        config.build_settings['OTHER_CFLAGS'] = new_c_flags
-        existing_c_flags = new_c_flags
-        updated = true
-      end
-
-      existing_cpp_flags = config.build_settings['OTHER_CPLUSPLUSFLAGS']
-      pruned_cpp_flags, pruned_cpp = remove_flag(existing_cpp_flags, legacy_module_map_flag)
-      if pruned_cpp
-        config.build_settings['OTHER_CPLUSPLUSFLAGS'] = pruned_cpp_flags
-        existing_cpp_flags = pruned_cpp_flags
-        updated = true
-      end
-
-      new_cpp_flags = append_flags(existing_cpp_flags, module_map_flags)
-      if new_cpp_flags != existing_cpp_flags
-        config.build_settings['OTHER_CPLUSPLUSFLAGS'] = new_cpp_flags
-        existing_cpp_flags = new_cpp_flags
-        updated = true
-      end
-
-      swift_tokens, swift_changed = ensure_swift_module_flags(
-        config.build_settings['OTHER_SWIFT_FLAGS'],
-        module_map_flags,
-        :forbidden_flags => [legacy_module_map_flag]
+      updated = sanitize_module_map_settings(
+        config,
+        :header_search_fix => header_search_fix,
+        :module_map_flags => module_map_flags,
+        :module_map_path => module_map_path,
+        :legacy_module_map_flag => legacy_module_map_flag,
+        :force_tokens => force_tokens,
+        :enforce_module_map => enforce_module_identity,
+        :enforce_defines_module => enforce_module_identity
       )
-      if swift_changed
-        config.build_settings['OTHER_SWIFT_FLAGS'] = swift_tokens
-        updated = true
-      end
-
-      if config.build_settings['MODULEMAP_FILE'] != module_map_path
-        config.build_settings['MODULEMAP_FILE'] = module_map_path
-        updated = true
-      end
-
-      if config.build_settings['DEFINES_MODULE'] != 'YES'
-        config.build_settings['DEFINES_MODULE'] = 'YES'
-        updated = true
-      end
 
       if updated
         Pod::UI.puts "[Podfile] Updated build settings for #{target.name} (#{config.name})"
@@ -373,67 +413,17 @@ post_install do |installer|
       target.build_configurations.each do |config|
         config.build_settings['CLANG_CXX_LANGUAGE_STANDARD'] = 'c++20'
         config.build_settings['CLANG_CXX_LIBRARY'] = 'libc++'
-        existing = config.build_settings['HEADER_SEARCH_PATHS']
 
-        if existing.nil?
-          config.build_settings['HEADER_SEARCH_PATHS'] = ['$(inherited)', header_search_fix]
-          project_modified = true
-          next
-        end
-
-        if existing.is_a?(Array)
-          unless existing.include?(header_search_fix)
-            existing << header_search_fix
-            config.build_settings['HEADER_SEARCH_PATHS'] = existing
-            project_modified = true
-          end
-        else
-          value = existing.to_s
-          unless value.include?(header_search_fix)
-            config.build_settings['HEADER_SEARCH_PATHS'] = "#{value} #{header_search_fix}"
-            project_modified = true
-          end
-        end
-
-        existing_c_flags = config.build_settings['OTHER_CFLAGS']
-        pruned_c_flags, pruned = remove_flag(existing_c_flags, legacy_module_map_flag)
-        if pruned
-          config.build_settings['OTHER_CFLAGS'] = pruned_c_flags
-          existing_c_flags = pruned_c_flags
-          project_modified = true
-        end
-
-        updated_c_flags = append_flags(existing_c_flags, module_map_flags)
-        if updated_c_flags != existing_c_flags
-          config.build_settings['OTHER_CFLAGS'] = updated_c_flags
-          existing_c_flags = updated_c_flags
-          project_modified = true
-        end
-
-        existing_cpp_flags = config.build_settings['OTHER_CPLUSPLUSFLAGS']
-        pruned_cpp_flags, pruned_cpp = remove_flag(existing_cpp_flags, legacy_module_map_flag)
-        if pruned_cpp
-          config.build_settings['OTHER_CPLUSPLUSFLAGS'] = pruned_cpp_flags
-          existing_cpp_flags = pruned_cpp_flags
-          project_modified = true
-        end
-
-        updated_cpp_flags = append_flags(existing_cpp_flags, module_map_flags)
-        if updated_cpp_flags != existing_cpp_flags
-          config.build_settings['OTHER_CPLUSPLUSFLAGS'] = updated_cpp_flags
-          existing_cpp_flags = updated_cpp_flags
-          project_modified = true
-        end
-
-        swift_tokens, swift_changed = ensure_swift_module_flags(
-          config.build_settings['OTHER_SWIFT_FLAGS'],
-          module_map_flags,
-          :forbidden_flags => [legacy_module_map_flag]
+        updated = sanitize_module_map_settings(
+          config,
+          :header_search_fix => header_search_fix,
+          :module_map_flags => module_map_flags,
+          :module_map_path => module_map_path,
+          :legacy_module_map_flag => legacy_module_map_flag,
+          :force_tokens => true
         )
-        if swift_changed
-          config.build_settings['OTHER_SWIFT_FLAGS'] = swift_tokens
-          project_modified = true
-        end
+
+        project_modified ||= updated
       end
     end
 
@@ -454,6 +444,24 @@ post_install do |installer|
       Pod::UI.puts "[Podfile] Updated #{xcconfig_path} to prefer module.modulemap"
       File.write(xcconfig_path, replaced)
     end
+  end
+
+  if Dir.exist?(target_support_dir)
+    existing_target_support_map = File.exist?(target_support_module_map) ? File.read(target_support_module_map) : nil
+    if existing_target_support_map != desired_module_map
+      Pod::UI.puts "[Podfile] Writing #{target_support_module_map} (target support)"
+      File.write(target_support_module_map, desired_module_map)
+    end
+
+    if File.exist?(legacy_target_support_module_map) || File.symlink?(legacy_target_support_module_map)
+      Pod::UI.puts "[Podfile] Removing legacy module map at #{legacy_target_support_module_map}"
+      FileUtils.rm_f(legacy_target_support_module_map)
+    end
+  end
+
+  Dir.glob(File.join(installer.sandbox.root.to_s, '**', 'RCTDeprecation.modulemap')).each do |stray_module_map|
+    Pod::UI.puts "[Podfile] Removing stray legacy module map at #{stray_module_map}"
+    FileUtils.rm_f(stray_module_map)
   end
 
   mlx_patch_script = File.join(__dir__, 'scripts', 'patch-mlx-metal-cxx17.sh')
