@@ -8,7 +8,11 @@
 #import "RCTAppSetupUtils.h"
 #else
 #warning "RCTAppSetupUtils header not found. The app will skip RCTAppSetupPrepareApp; ensure Pods are installed if you rely on it."
-static inline void RCTAppSetupPrepareApp(id application) {}
+static inline void RCTAppSetupPrepareApp(id application, BOOL turboModuleEnabled)
+{
+  (void)application;
+  (void)turboModuleEnabled;
+}
 #endif
 
 @implementation AppDelegate
@@ -17,7 +21,7 @@ static inline void RCTAppSetupPrepareApp(id application) {}
     didFinishLaunchingWithOptions:(NSDictionary *)launchOptions
 {
   // Prepare the React Native environment.
-  RCTAppSetupPrepareApp(application);
+  RCTAppSetupPrepareApp(application, [self turboModuleEnabled]);
   // Name must match the "name" field in app.json.
   self.moduleName = @"monGARS";
   return [super application:application didFinishLaunchingWithOptions:launchOptions];
