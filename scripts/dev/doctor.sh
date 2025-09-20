@@ -26,6 +26,10 @@ elif [ -f "$DEFAULT_ENV_FILE" ]; then
   set +a
 fi
 
+# shellcheck source=../lib/xcode_env.sh
+source "$ROOT_DIR/scripts/lib/xcode_env.sh"
+sanitize_xcode_env
+
 ### ───────────────────────────────────────────────────────────────────────────────────
 ### Config (defaults can be overridden via env)
 ### ───────────────────────────────────────────────────────────────────────────────────

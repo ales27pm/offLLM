@@ -19,6 +19,10 @@ elif [ -f "$DEFAULT_ENV_FILE" ]; then
   set +a
 fi
 
+# shellcheck source=scripts/lib/xcode_env.sh
+source "$ROOT_DIR/scripts/lib/xcode_env.sh"
+sanitize_xcode_env
+
 # Configuration
 # Default to the monGARS scheme
 : "${SCHEME:=monGARS}"

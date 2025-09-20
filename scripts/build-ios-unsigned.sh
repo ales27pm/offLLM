@@ -1,6 +1,12 @@
 #!/bin/bash
 set -euo pipefail
 
+SCRIPT_DIR="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
+ROOT_DIR="$(cd "$SCRIPT_DIR/.." && pwd)"
+# shellcheck source=lib/xcode_env.sh
+source "$ROOT_DIR/scripts/lib/xcode_env.sh"
+sanitize_xcode_env
+
 echo "🚀 Starting failproof iOS unsigned build process..."
 
 # Step 1: Verify Node.js version

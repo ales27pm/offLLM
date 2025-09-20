@@ -1,6 +1,12 @@
 #!/usr/bin/env bash
 set -euo pipefail
 
+SCRIPT_DIR="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
+REPO_ROOT="$(cd "$SCRIPT_DIR/../.." && pwd)"
+# shellcheck source=../../scripts/lib/xcode_env.sh
+source "$REPO_ROOT/scripts/lib/xcode_env.sh"
+sanitize_xcode_env
+
 WS="${WORKSPACE:-monGARS.xcworkspace}"
 SCHEME="${SCHEME:-monGARS}"
 

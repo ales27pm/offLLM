@@ -19,6 +19,10 @@ elif [ -f "$DEFAULT_ENV_FILE" ]; then
   set +a
 fi
 
+# shellcheck source=lib/xcode_env.sh
+source "$ROOT_DIR/scripts/lib/xcode_env.sh"
+sanitize_xcode_env
+
 # Simple unsigned iOS Simulator build helper. Assumes pods and project are ready.
 
 ROOT="$(pwd)"
