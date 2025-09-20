@@ -14,36 +14,68 @@ def env_flag_enabled?(name, default:)
   default
 end
 
-def append_flag(value, flag)
+def normalize_tokens(value)
   case value
   when nil
-    ['$(inherited)', flag]
+    [[], :array]
   when Array
-    value.include?(flag) ? value : (value + [flag])
+    [value.compact.dup, :array]
   else
-    current = value.to_s
-    current.include?(flag) ? current : "#{current} #{flag}"
+    [value.to_s.split(/\s+/), :string]
   end
+end
+
+def materialize_tokens(tokens, preference)
+  filtered = tokens.compact
+  return nil if filtered.empty?
+
+  preference == :array ? filtered : filtered.join(' ')
+end
+
+def append_flag(value, flag)
+  return ['$(inherited)', flag] if value.nil?
+
+  tokens, preference = normalize_tokens(value)
+  return materialize_tokens(tokens, preference) if tokens.include?(flag)
+
+  tokens << flag
+  materialize_tokens(tokens, preference)
 end
 
 def append_flags(value, flags)
   flags.reduce(value) { |memo, flag| append_flag(memo, flag) }
 end
 
-def ensure_swift_module_flags(swift_flags, module_map_flags)
-  tokens =
-    case swift_flags
-    when nil
-      []
-    when Array
-      swift_flags.dup
-    else
-      swift_flags.to_s.split(/\s+/)
-    end
-
-  tokens.unshift('$(inherited)') unless tokens.include?('$(inherited)')
-
+def remove_flag(value, flag)
+  tokens, preference = normalize_tokens(value)
   original = tokens.dup
+  tokens.reject! { |token| token == flag }
+  [materialize_tokens(tokens, preference), tokens != original]
+end
+
+def ensure_swift_module_flags(swift_flags, module_map_flags, forbidden_flags: [])
+  tokens, preference = normalize_tokens(swift_flags)
+  changed = false
+
+  unless tokens.include?('$(inherited)')
+    tokens.unshift('$(inherited)')
+    changed = true
+  end
+
+  forbidden_flags.each do |flag|
+    before = tokens.length
+    tokens.reject! { |token| token == flag }
+    changed ||= tokens.length != before
+
+    loop do
+      entry = tokens.each_cons(2).with_index.find { |(first, second), _i| first == '-Xcc' && second == flag }
+      break unless entry
+
+      _, removal_index = entry
+      tokens.slice!(removal_index, 2)
+      changed = true
+    end
+  end
 
   module_map_flags.each do |flag|
     has_pair = tokens.each_cons(2).any? { |first, second| first == '-Xcc' && second == flag }
@@ -51,9 +83,10 @@ def ensure_swift_module_flags(swift_flags, module_map_flags)
 
     tokens << '-Xcc'
     tokens << flag
+    changed = true
   end
 
-  [tokens, tokens != original]
+  [materialize_tokens(tokens, preference), changed]
 end
 
 install! 'cocoapods', :disable_input_output_paths => true
@@ -175,6 +208,7 @@ post_install do |installer|
   module_map_path = '$(PODS_ROOT)/Headers/Public/RCTDeprecation/module.modulemap'
   legacy_module_map_path = '$(PODS_ROOT)/Headers/Public/RCTDeprecation/RCTDeprecation.modulemap'
   module_map_flag = "-fmodule-map-file=#{module_map_path}"
+  legacy_module_map_flag = "-fmodule-map-file=#{legacy_module_map_path}"
   # Keep the legacy module map on disk for older toolchains that still probe for
   # `RCTDeprecation.modulemap`, but avoid feeding it directly to clang.
   # Xcode 16's clang treats duplicate `-fmodule-map-file` entries defining the
@@ -231,19 +265,41 @@ post_install do |installer|
         end
       end
 
-      new_c_flags = append_flags(config.build_settings['OTHER_CFLAGS'], module_map_flags)
-      if new_c_flags != config.build_settings['OTHER_CFLAGS']
+      existing_c_flags = config.build_settings['OTHER_CFLAGS']
+      pruned_c_flags, pruned = remove_flag(existing_c_flags, legacy_module_map_flag)
+      if pruned
+        config.build_settings['OTHER_CFLAGS'] = pruned_c_flags
+        existing_c_flags = pruned_c_flags
+        updated = true
+      end
+
+      new_c_flags = append_flags(existing_c_flags, module_map_flags)
+      if new_c_flags != existing_c_flags
         config.build_settings['OTHER_CFLAGS'] = new_c_flags
+        existing_c_flags = new_c_flags
         updated = true
       end
 
-      new_cpp_flags = append_flags(config.build_settings['OTHER_CPLUSPLUSFLAGS'], module_map_flags)
-      if new_cpp_flags != config.build_settings['OTHER_CPLUSPLUSFLAGS']
+      existing_cpp_flags = config.build_settings['OTHER_CPLUSPLUSFLAGS']
+      pruned_cpp_flags, pruned_cpp = remove_flag(existing_cpp_flags, legacy_module_map_flag)
+      if pruned_cpp
+        config.build_settings['OTHER_CPLUSPLUSFLAGS'] = pruned_cpp_flags
+        existing_cpp_flags = pruned_cpp_flags
+        updated = true
+      end
+
+      new_cpp_flags = append_flags(existing_cpp_flags, module_map_flags)
+      if new_cpp_flags != existing_cpp_flags
         config.build_settings['OTHER_CPLUSPLUSFLAGS'] = new_cpp_flags
+        existing_cpp_flags = new_cpp_flags
         updated = true
       end
 
-      swift_tokens, swift_changed = ensure_swift_module_flags(config.build_settings['OTHER_SWIFT_FLAGS'], module_map_flags)
+      swift_tokens, swift_changed = ensure_swift_module_flags(
+        config.build_settings['OTHER_SWIFT_FLAGS'],
+        module_map_flags,
+        :forbidden_flags => [legacy_module_map_flag]
+      )
       if swift_changed
         config.build_settings['OTHER_SWIFT_FLAGS'] = swift_tokens
         updated = true
@@ -301,19 +357,41 @@ post_install do |installer|
           end
         end
 
-        updated_c_flags = append_flags(config.build_settings['OTHER_CFLAGS'], module_map_flags)
-        if updated_c_flags != config.build_settings['OTHER_CFLAGS']
+        existing_c_flags = config.build_settings['OTHER_CFLAGS']
+        pruned_c_flags, pruned = remove_flag(existing_c_flags, legacy_module_map_flag)
+        if pruned
+          config.build_settings['OTHER_CFLAGS'] = pruned_c_flags
+          existing_c_flags = pruned_c_flags
+          project_modified = true
+        end
+
+        updated_c_flags = append_flags(existing_c_flags, module_map_flags)
+        if updated_c_flags != existing_c_flags
           config.build_settings['OTHER_CFLAGS'] = updated_c_flags
+          existing_c_flags = updated_c_flags
           project_modified = true
         end
 
-        updated_cpp_flags = append_flags(config.build_settings['OTHER_CPLUSPLUSFLAGS'], module_map_flags)
-        if updated_cpp_flags != config.build_settings['OTHER_CPLUSPLUSFLAGS']
+        existing_cpp_flags = config.build_settings['OTHER_CPLUSPLUSFLAGS']
+        pruned_cpp_flags, pruned_cpp = remove_flag(existing_cpp_flags, legacy_module_map_flag)
+        if pruned_cpp
+          config.build_settings['OTHER_CPLUSPLUSFLAGS'] = pruned_cpp_flags
+          existing_cpp_flags = pruned_cpp_flags
+          project_modified = true
+        end
+
+        updated_cpp_flags = append_flags(existing_cpp_flags, module_map_flags)
+        if updated_cpp_flags != existing_cpp_flags
           config.build_settings['OTHER_CPLUSPLUSFLAGS'] = updated_cpp_flags
+          existing_cpp_flags = updated_cpp_flags
           project_modified = true
         end
 
-        swift_tokens, swift_changed = ensure_swift_module_flags(config.build_settings['OTHER_SWIFT_FLAGS'], module_map_flags)
+        swift_tokens, swift_changed = ensure_swift_module_flags(
+          config.build_settings['OTHER_SWIFT_FLAGS'],
+          module_map_flags,
+          :forbidden_flags => [legacy_module_map_flag]
+        )
         if swift_changed
           config.build_settings['OTHER_SWIFT_FLAGS'] = swift_tokens
           project_modified = true
@@ -322,6 +400,22 @@ post_install do |installer|
     end
 
     user_project.save if project_modified
+  end
+
+  support_files_root = File.join(__dir__, 'Pods', 'Target Support Files')
+  if Dir.exist?(support_files_root)
+    Dir.glob(File.join(support_files_root, '**', '*.xcconfig')).each do |xcconfig_path|
+      original = File.read(xcconfig_path)
+      replaced = original.gsub(legacy_module_map_flag, module_map_flag)
+      replaced = replaced.gsub(legacy_module_map_path, module_map_path)
+      replaced = replaced.gsub("\"#{legacy_module_map_flag}\"", "\"#{module_map_flag}\"")
+      replaced = replaced.gsub("\"#{legacy_module_map_path}\"", "\"#{module_map_path}\"")
+
+      next if replaced == original
+
+      Pod::UI.puts "[Podfile] Updated #{xcconfig_path} to prefer module.modulemap"
+      File.write(xcconfig_path, replaced)
+    end
   end
 
   # Try to apply RN Contacts orientation patch (if repo has the script)
