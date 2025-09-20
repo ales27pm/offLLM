@@ -9,9 +9,9 @@
         <key>CFBundleIdentifier</key>
         <string>$(PRODUCT_BUNDLE_IDENTIFIER)</string>
         <key>CFBundleDisplayName</key>
-        <string>monGARS</string>
+        <string>$(PRODUCT_NAME)</string>
         <key>CFBundleName</key>
-        <string>monGARS</string>
+        <string>$(PRODUCT_NAME)</string>
         <key>CFBundleInfoDictionaryVersion</key>
         <string>6.0</string>
         <key>CFBundlePackageType</key>
