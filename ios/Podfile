@@ -411,8 +411,19 @@ post_install do |installer|
       next unless target.name == 'monGARS'
 
       target.build_configurations.each do |config|
-        config.build_settings['CLANG_CXX_LANGUAGE_STANDARD'] = 'c++20'
-        config.build_settings['CLANG_CXX_LIBRARY'] = 'libc++'
+        removed_std = config.build_settings.delete('CLANG_CXX_LANGUAGE_STANDARD')
+        if removed_std
+          project_modified = true
+          if removed_std != '$(inherited)'
+            Pod::UI.puts "[Podfile] Clearing CLANG_CXX_LANGUAGE_STANDARD for #{target.name} (#{config.name})"
+          end
+        end
+
+        current_library = config.build_settings['CLANG_CXX_LIBRARY']
+        if current_library != 'libc++'
+          config.build_settings['CLANG_CXX_LIBRARY'] = 'libc++'
+          project_modified = true
+        end
 
         updated = sanitize_module_map_settings(
           config,

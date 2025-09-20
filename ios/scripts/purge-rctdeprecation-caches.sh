@@ -1,5 +1,7 @@
 #!/usr/bin/env bash
-set -euo pipefail
+set -uo pipefail
+
+candidate_roots=()
 
 log_info() {
   printf '[purge-rctdeprecation] %s\n' "$1"
@@ -35,11 +37,13 @@ append_candidate() {
   fi
 
   local existing
-  for existing in "${candidate_roots[@]}"; do
-    if [ "$existing" = "$canonical" ]; then
-      return 0
-    fi
-  done
+  if [ "${#candidate_roots[@]}" -ne 0 ]; then
+    for existing in "${candidate_roots[@]}"; do
+      if [ "$existing" = "$canonical" ]; then
+        return 0
+      fi
+    done
+  fi
 
   candidate_roots+=("$canonical")
 }
