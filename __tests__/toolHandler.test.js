@@ -89,3 +89,34 @@ test("ToolHandler executes zero-argument tools", async () => {
     { role: "tool", name: "ping", content: JSON.stringify({ ok: true }) },
   ]);
 });
+
+test("ToolHandler reports missing required parameters without executing the tool", async () => {
+  let executedCount = 0;
+  const registry = {
+    getTool: (name) =>
+      name === "needsFoo"
+        ? {
+            name: "needsFoo",
+            parameters: { foo: { type: "string", required: true } },
+            async execute() {
+              executedCount += 1;
+              return { ok: true };
+            },
+          }
+        : null,
+  };
+  const handlerWithRequired = new ToolHandler(registry);
+
+  const result = await handlerWithRequired.execute([
+    { name: "needsFoo", args: {} },
+  ]);
+
+  expect(executedCount).toBe(0);
+  expect(result).toEqual([
+    {
+      role: "tool",
+      name: "needsFoo",
+      content: "Error: Missing required parameters: foo",
+    },
+  ]);
+});

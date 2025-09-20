@@ -3,6 +3,10 @@ ci-reports
 CI-REPORT.md
 report_agent.md
 REPORT.md
+# ignore environment templates generated per developer
+.env*
+# CocoaPods outputs are third-party and not maintained by Prettier
+ios/Pods
 .github/workflows/ios.yml
 .github/workflows/ios-unsigned.yml
 .github/workflows/ios-unsigned-device.yml
