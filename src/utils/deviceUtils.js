@@ -11,6 +11,40 @@ const fallbackWarningState = {
   cores: false,
 };
 
+const isTestEnvironment =
+  typeof process !== "undefined" && process.env?.NODE_ENV === "test";
+
+function safeReadMetric(getter) {
+  if (typeof getter !== "function") {
+    return { value: undefined, error: undefined };
+  }
+  try {
+    return { value: getter(), error: undefined };
+  } catch (error) {
+    return { value: undefined, error };
+  }
+}
+
+function formatFallbackReason(...errors) {
+  const reasons = errors
+    .flat()
+    .filter(Boolean)
+    .map((error) => {
+      if (typeof error === "string") {
+        return error;
+      }
+      if (error && typeof error.message === "string") {
+        return error.message;
+      }
+      return String(error);
+    })
+    .filter((reason) => typeof reason === "string" && reason.length > 0);
+  if (reasons.length === 0) {
+    return "";
+  }
+  return ` (${reasons.join("; ")})`;
+}
+
 function toPositiveInteger(value) {
   if (typeof value !== "number" || !Number.isFinite(value)) {
     return undefined;
@@ -82,41 +116,78 @@ function buildDeviceProfile() {
   let processorCores;
   let usedFallbackForMemory = false;
   let usedFallbackForCores = false;
+  let memoryProbeError;
+  let coresProbeError;
 
   if (Platform.OS === "ios") {
-    const nativeMemory = toPositiveInteger(
+    const memoryProbe = safeReadMetric(() =>
       NativeModules.DeviceInfo?.getTotalMemory?.(),
     );
+    const nativeMemory = toPositiveInteger(memoryProbe.value);
     if (nativeMemory) {
       totalMemory = nativeMemory;
       sources.add("native");
       fallbackWarningState.memory = false;
+    } else if (memoryProbe.error) {
+      memoryProbeError = memoryProbe.error;
     }
-    const nativeCores = toPositiveInteger(
+    const coresProbe = safeReadMetric(() =>
       NativeModules.DeviceInfo?.getProcessorCount?.(),
     );
+    const nativeCores = toPositiveInteger(coresProbe.value);
     if (nativeCores) {
       processorCores = nativeCores;
       sources.add("native");
       fallbackWarningState.cores = false;
+    } else if (coresProbe.error) {
+      coresProbeError = coresProbe.error;
     }
   } else {
-    const nativeMemory = toPositiveInteger(
+    const memoryProbe = safeReadMetric(() =>
       NativeModules.DeviceInfo?.totalMemory?.(),
     );
+    const nativeMemory = toPositiveInteger(memoryProbe.value);
     if (nativeMemory) {
       totalMemory = nativeMemory;
       sources.add("native");
       fallbackWarningState.memory = false;
+    } else if (memoryProbe.error) {
+      memoryProbeError = memoryProbe.error;
     }
-    const nativeCores = toPositiveInteger(
+    const coresProbe = safeReadMetric(() =>
       NativeModules.DeviceInfo?.processorCores?.(),
     );
+    const nativeCores = toPositiveInteger(coresProbe.value);
     if (nativeCores) {
       processorCores = nativeCores;
       sources.add("native");
       fallbackWarningState.cores = false;
+    } else if (coresProbe.error) {
+      coresProbeError = coresProbe.error;
     }
+  }
+
+  if (memoryProbeError || coresProbeError) {
+    if (!fallbackWarningState.memory || !fallbackWarningState.cores) {
+      if (!isTestEnvironment) {
+        console.warn(
+          "[DeviceProfile] native hardware probes failed" +
+            formatFallbackReason(memoryProbeError, coresProbeError) +
+            ", returning fallback profile",
+        );
+      }
+    }
+    fallbackWarningState.memory = true;
+    fallbackWarningState.cores = true;
+    return {
+      tier: "low",
+      totalMemory: 2000,
+      processorCores: 2,
+      isLowEndDevice: true,
+      platform: Platform.OS,
+      isQuantized: true,
+      detectionMethod: "fallback",
+    };
   }
 
   if (!totalMemory || !processorCores) {
@@ -135,9 +206,13 @@ function buildDeviceProfile() {
 
   if (!totalMemory) {
     if (!fallbackWarningState.memory) {
-      console.warn(
-        "[DeviceProfile] hardware memory probe unavailable, using fallback value 4000MB",
-      );
+      if (!isTestEnvironment) {
+        console.warn(
+          "[DeviceProfile] hardware memory probe unavailable" +
+            formatFallbackReason(memoryProbeError) +
+            ", using fallback value 4000MB",
+        );
+      }
     }
     fallbackWarningState.memory = true;
     usedFallbackForMemory = true;
@@ -146,9 +221,13 @@ function buildDeviceProfile() {
   }
   if (!processorCores) {
     if (!fallbackWarningState.cores) {
-      console.warn(
-        "[DeviceProfile] hardware core probe unavailable, using fallback value 4 cores",
-      );
+      if (!isTestEnvironment) {
+        console.warn(
+          "[DeviceProfile] hardware core probe unavailable" +
+            formatFallbackReason(coresProbeError) +
+            ", using fallback value 4 cores",
+        );
+      }
     }
     fallbackWarningState.cores = true;
     usedFallbackForCores = true;
