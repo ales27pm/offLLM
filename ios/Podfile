@@ -418,6 +418,14 @@ post_install do |installer|
     FileUtils.rm_f(legacy_module_map_disk)
   end
 
+  begin
+    FileUtils.ln_sf(module_map_disk, legacy_module_map_disk)
+    Pod::UI.puts "[Podfile] Linked legacy module map to #{legacy_module_map_disk}"
+  rescue => e
+    FileUtils.cp(module_map_disk, legacy_module_map_disk)
+    Pod::UI.warn "[Podfile] Symlink failed (#{e}); copied canonical module map to legacy path"
+  end
+
   pods_project_modified = false
   installer.pods_project.targets.each do |target|
     removed = remove_hermes_phase.call(target, 'pods')
@@ -521,7 +529,10 @@ post_install do |installer|
     end
   end
 
+  preserved_legacy_module_maps = [legacy_module_map_disk].compact
   Dir.glob(File.join(installer.sandbox.root.to_s, '**', 'RCTDeprecation.modulemap')).each do |stray_module_map|
+    next if preserved_legacy_module_maps.include?(stray_module_map)
+
     Pod::UI.puts "[Podfile] Removing stray legacy module map at #{stray_module_map}"
     FileUtils.rm_f(stray_module_map)
   end
