@@ -48,7 +48,6 @@ targets:
       #   product: Tokenizers
       # System frameworks required by custom native modules
       - sdk: EventKit.framework
-      - sdk: CoreAudioTypes.framework
 
     settings:
       base:
