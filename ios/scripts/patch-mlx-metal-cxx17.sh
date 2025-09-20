@@ -143,6 +143,19 @@ maybe_add_variations() {
   done
 }
 
+array_contains() {
+  local needle="$1"
+  shift || true
+
+  for item in "$@"; do
+    if [ "$item" = "$needle" ]; then
+      return 0
+    fi
+  done
+
+  return 1
+}
+
 declare -a candidate_roots=()
 
 maybe_add_variations "${PROJECT_DIR:-}" 3
@@ -154,17 +167,15 @@ maybe_add_root "$HOME/Library/Developer/Xcode/DerivedData"
 maybe_add_root "$HOME/Library/Developer/Xcode/DerivedData/SourcePackages"
 maybe_add_root "$HOME/Library/Developer/Xcode/DerivedData/SourcePackages/checkouts"
 
-declare -A seen_roots=()
 declare -a roots=()
 
 for candidate in "${candidate_roots[@]}"; do
   if [ -z "$candidate" ]; then
     continue
   fi
-  if [[ -n "${seen_roots[$candidate]:-}" ]]; then
+  if array_contains "$candidate" "${roots[@]}"; then
     continue
   fi
-  seen_roots[$candidate]=1
   roots+=("$candidate")
 done
 
