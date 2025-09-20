@@ -32,8 +32,8 @@ def materialize_tokens(tokens, preference)
   preference == :array ? filtered : filtered.join(' ')
 end
 
-def token_equals?(token, candidate)
-  return false if token.nil? || candidate.nil?
+def normalize_token(token)
+  return nil if token.nil?
 
   normalized = token.to_s.strip
 
@@ -44,7 +44,30 @@ def token_equals?(token, candidate)
     break if normalized == original
   end
 
-  normalized == candidate
+  if normalized.include?('=')
+    prefix, suffix = normalized.split('=', 2)
+    stripped_suffix = suffix.strip
+
+    loop do
+      original_suffix = stripped_suffix
+      stripped_suffix = stripped_suffix.sub(/\A\\?["']/, '')
+      stripped_suffix = stripped_suffix.sub(/\\?["']\z/, '')
+      break if stripped_suffix == original_suffix
+    end
+
+    normalized = "#{prefix}=#{stripped_suffix}"
+  end
+
+  normalized
+end
+
+def token_equals?(token, candidate)
+  normalized_token = normalize_token(token)
+  normalized_candidate = normalize_token(candidate)
+
+  return false if normalized_token.nil? || normalized_candidate.nil?
+
+  normalized_token == normalized_candidate
 end
 
 def tokens_include_flag?(tokens, flag)
