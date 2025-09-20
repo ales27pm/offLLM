@@ -1,21 +1,37 @@
 #!/usr/bin/env bash
 set -euo pipefail
 
+log_info() {
+  printf '[purge-rctdeprecation] %s\n' "$1"
+}
+
+log_warn() {
+  printf '[purge-rctdeprecation] %s\n' "$1" >&2
+}
+
 if [ -z "${BASH_VERSION:-}" ]; then
-  echo "[purge-rctdeprecation] This script requires bash" >&2
+  log_warn "This script requires bash"
   exit 1
 fi
 
 if [ "${BASH_VERSINFO[0]}" -lt 3 ]; then
-  echo "[purge-rctdeprecation] Bash 3.0 or newer is required" >&2
+  log_warn "Bash 3.0 or newer is required"
   exit 1
 fi
 
 script_dir="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd -P)"
 project_dir_default="$(cd "${script_dir}/.." && pwd -P)"
-PROJECT_DIR="${PROJECT_DIR:-$project_dir_default}"
-PROJECT_DIR="$(cd "${PROJECT_DIR}" && pwd -P)"
-PROJECT_ROOT="$(cd "${PROJECT_DIR}/.." && pwd -P)"
+project_dir_source="${PROJECT_DIR:-$project_dir_default}"
+
+if ! PROJECT_DIR="$(cd "${project_dir_source}" 2>/dev/null && pwd -P)"; then
+  log_warn "Unable to resolve project directory from ${project_dir_source}; skipping purge"
+  exit 0
+fi
+
+if ! PROJECT_ROOT="$(cd "${PROJECT_DIR}/.." 2>/dev/null && pwd -P)"; then
+  log_warn "Unable to resolve project root from ${PROJECT_DIR}/..; skipping purge"
+  exit 0
+fi
 
 APP_TARGET="${APP_TARGET:-monGARS}"
 MODULE_NAME="${MODULE_NAME:-RCTDeprecation}"
@@ -44,7 +60,7 @@ append_candidate() {
 
   local canonical
   if ! canonical="$(cd "$probe" 2>/dev/null && pwd -P)"; then
-    echo "[purge-rctdeprecation] Skipping unreadable derived data root $probe" >&2
+    log_warn "Skipping unreadable derived data root $probe"
     return 0
   fi
 
@@ -65,7 +81,7 @@ append_candidate "${PROJECT_ROOT}/build/DerivedData"
 append_candidate "${HOME:-}/Library/Developer/Xcode/DerivedData"
 
 if [ "${#candidate_roots[@]}" -eq 0 ]; then
-  echo "[purge-rctdeprecation] No derived data roots to inspect" >&2
+  log_info "No derived data roots to inspect"
   exit 0
 fi
 
@@ -75,7 +91,7 @@ safe_remove_dir() {
     return 0
   fi
 
-  echo "[purge-rctdeprecation] Warning: failed to remove directory $target" >&2
+  log_warn "Warning: failed to remove directory $target"
   return 1
 }
 
@@ -85,7 +101,7 @@ safe_remove_file() {
     return 0
   fi
 
-  echo "[purge-rctdeprecation] Warning: failed to remove file $target" >&2
+  log_warn "Warning: failed to remove file $target"
   return 1
 }
 
@@ -106,10 +122,10 @@ remove_matches() {
     fi
 
     if [ -d "$path" ]; then
-      echo "[purge-rctdeprecation] Removing $description directory $path"
+      log_info "Removing $description directory $path"
       safe_remove_dir "$path" || status=1
     else
-      echo "[purge-rctdeprecation] Removing $description file $path"
+      log_info "Removing $description file $path"
       safe_remove_file "$path" || status=1
     fi
   done < <(find "$root" "$@" -print0 2>/dev/null || true)
@@ -126,7 +142,7 @@ for root in "${candidate_roots[@]}"; do
 done
 
 if [ "$overall_status" -ne 0 ]; then
-  echo "[purge-rctdeprecation] Completed with warnings" >&2
+  log_warn "Completed with warnings"
 fi
 
 exit 0
