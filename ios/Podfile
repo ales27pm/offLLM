@@ -26,6 +26,36 @@ def append_flag(value, flag)
   end
 end
 
+def append_flags(value, flags)
+  flags.reduce(value) { |memo, flag| append_flag(memo, flag) }
+end
+
+def ensure_swift_module_flags(swift_flags, module_map_flags)
+  tokens =
+    case swift_flags
+    when nil
+      []
+    when Array
+      swift_flags.dup
+    else
+      swift_flags.to_s.split(/\s+/)
+    end
+
+  tokens.unshift('$(inherited)') unless tokens.include?('$(inherited)')
+
+  original = tokens.dup
+
+  module_map_flags.each do |flag|
+    has_pair = tokens.each_cons(2).any? { |first, second| first == '-Xcc' && second == flag }
+    next if has_pair
+
+    tokens << '-Xcc'
+    tokens << flag
+  end
+
+  [tokens, tokens != original]
+end
+
 install! 'cocoapods', :disable_input_output_paths => true
 
 # --- Auto-detect the .xcodeproj near this Podfile ---
@@ -142,18 +172,25 @@ post_install do |installer|
   end
 
   header_search_fix = '$(PODS_ROOT)/Headers/Public/RCTDeprecation'
-  module_map_path = '$(PODS_ROOT)/Headers/Public/RCTDeprecation/RCTDeprecation.modulemap'
+  module_map_path = '$(PODS_ROOT)/Headers/Public/RCTDeprecation/module.modulemap'
+  legacy_module_map_path = '$(PODS_ROOT)/Headers/Public/RCTDeprecation/RCTDeprecation.modulemap'
   module_map_flag = "-fmodule-map-file=#{module_map_path}"
-  module_map_disk = File.join(installer.sandbox.root.to_s, 'Headers', 'Public', 'RCTDeprecation', 'RCTDeprecation.modulemap')
+  legacy_module_map_flag = "-fmodule-map-file=#{legacy_module_map_path}"
+  module_map_flags = [module_map_flag, legacy_module_map_flag]
+  module_map_dir = File.join(installer.sandbox.root.to_s, 'Headers', 'Public', 'RCTDeprecation')
+  module_map_disk = File.join(module_map_dir, 'module.modulemap')
+  legacy_module_map_disk = File.join(module_map_dir, 'RCTDeprecation.modulemap')
   module_map_template = File.join(__dir__, 'Config', 'RCTDeprecation.modulemap')
   raise "Missing #{module_map_template}; ensure it is checked in" unless File.exist?(module_map_template)
   desired_module_map = File.read(module_map_template)
 
-  FileUtils.mkdir_p(File.dirname(module_map_disk))
-  existing_module_map = File.exist?(module_map_disk) ? File.read(module_map_disk) : nil
-  if existing_module_map != desired_module_map
-    Pod::UI.puts "[Podfile] Writing #{module_map_disk}"
-    File.write(module_map_disk, desired_module_map)
+  FileUtils.mkdir_p(module_map_dir)
+  { module_map_disk => 'primary', legacy_module_map_disk => 'legacy' }.each do |path, label|
+    existing_module_map = File.exist?(path) ? File.read(path) : nil
+    next if existing_module_map == desired_module_map
+
+    Pod::UI.puts "[Podfile] Writing #{path} (#{label})"
+    File.write(path, desired_module_map)
   end
 
   pods_project_modified = false
@@ -188,31 +225,20 @@ post_install do |installer|
         end
       end
 
-      new_c_flags = append_flag(config.build_settings['OTHER_CFLAGS'], module_map_flag)
+      new_c_flags = append_flags(config.build_settings['OTHER_CFLAGS'], module_map_flags)
       if new_c_flags != config.build_settings['OTHER_CFLAGS']
         config.build_settings['OTHER_CFLAGS'] = new_c_flags
         updated = true
       end
 
-      new_cpp_flags = append_flag(config.build_settings['OTHER_CPLUSPLUSFLAGS'], module_map_flag)
+      new_cpp_flags = append_flags(config.build_settings['OTHER_CPLUSPLUSFLAGS'], module_map_flags)
       if new_cpp_flags != config.build_settings['OTHER_CPLUSPLUSFLAGS']
         config.build_settings['OTHER_CPLUSPLUSFLAGS'] = new_cpp_flags
         updated = true
       end
 
-      swift_flags = config.build_settings['OTHER_SWIFT_FLAGS']
-      swift_tokens =
-        case swift_flags
-        when nil
-          ['$(inherited)']
-        when Array
-          swift_flags.dup
-        else
-          swift_flags.to_s.split(/\s+/)
-        end
-      if !swift_tokens.include?('-Xcc') || !swift_tokens.include?(module_map_flag)
-        swift_tokens << '-Xcc' unless swift_tokens.include?('-Xcc')
-        swift_tokens << module_map_flag unless swift_tokens.include?(module_map_flag)
+      swift_tokens, swift_changed = ensure_swift_module_flags(config.build_settings['OTHER_SWIFT_FLAGS'], module_map_flags)
+      if swift_changed
         config.build_settings['OTHER_SWIFT_FLAGS'] = swift_tokens
         updated = true
       end
@@ -269,31 +295,20 @@ post_install do |installer|
           end
         end
 
-        updated_c_flags = append_flag(config.build_settings['OTHER_CFLAGS'], module_map_flag)
+        updated_c_flags = append_flags(config.build_settings['OTHER_CFLAGS'], module_map_flags)
         if updated_c_flags != config.build_settings['OTHER_CFLAGS']
           config.build_settings['OTHER_CFLAGS'] = updated_c_flags
           project_modified = true
         end
 
-        updated_cpp_flags = append_flag(config.build_settings['OTHER_CPLUSPLUSFLAGS'], module_map_flag)
+        updated_cpp_flags = append_flags(config.build_settings['OTHER_CPLUSPLUSFLAGS'], module_map_flags)
         if updated_cpp_flags != config.build_settings['OTHER_CPLUSPLUSFLAGS']
           config.build_settings['OTHER_CPLUSPLUSFLAGS'] = updated_cpp_flags
           project_modified = true
         end
 
-        swift_flags = config.build_settings['OTHER_SWIFT_FLAGS']
-        swift_tokens =
-          case swift_flags
-          when nil
-            ['$(inherited)']
-          when Array
-            swift_flags.dup
-          else
-            swift_flags.to_s.split(/\s+/)
-          end
-        if !swift_tokens.include?('-Xcc') || !swift_tokens.include?(module_map_flag)
-          swift_tokens << '-Xcc' unless swift_tokens.include?('-Xcc')
-          swift_tokens << module_map_flag unless swift_tokens.include?(module_map_flag)
+        swift_tokens, swift_changed = ensure_swift_module_flags(config.build_settings['OTHER_SWIFT_FLAGS'], module_map_flags)
+        if swift_changed
           config.build_settings['OTHER_SWIFT_FLAGS'] = swift_tokens
           project_modified = true
         end
