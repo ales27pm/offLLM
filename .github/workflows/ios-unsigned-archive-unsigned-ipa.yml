@@ -28,10 +28,6 @@ jobs:
     steps:
       - uses: actions/checkout@v5
 
-      - name: Ensure legacy RCTDeprecation.modulemap exists
-        run: |
-          bash ios/scripts/ensure-rctdeprecation-legacy.sh
-
       - name: Select Xcode ${{ env.XCODE_VERSION }}
         run: |
           sudo xcode-select -s "/Applications/Xcode_${XCODE_VERSION}.app"
@@ -68,9 +64,18 @@ jobs:
           set -euo pipefail
           rm -rf ios/Pods ios/Podfile.lock
           cd ios
-          bundle install || true
-          bundle exec pod repo update
-          bundle exec pod install --repo-update --clean-install
+          if [ -f Gemfile ]; then
+            bundle install
+            bundle exec pod repo update
+            bundle exec pod install --repo-update --clean-install
+          else
+            pod repo update
+            pod install --repo-update --clean-install
+          fi
+
+      - name: Ensure legacy RCTDeprecation.modulemap exists
+        run: |
+          bash ios/scripts/ensure-rctdeprecation-legacy.sh
 
       - name: React Native Codegen (generate specs)
         run: |

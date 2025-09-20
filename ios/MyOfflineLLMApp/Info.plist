@@ -20,8 +20,8 @@
 	<string>Microphone access is required for voice features.</string>
 	<key>NSMotionUsageDescription</key>
 	<string>Motion data helps with sensor-based tools.</string>
-	<key>NSMusicUsageDescription</key>
-	<string>Music access allows controlling playback.</string>
+        <key>NSAppleMusicUsageDescription</key>
+        <string>Apple Music access allows controlling playback.</string>
 	<key>NSPhotoLibraryUsageDescription</key>
 	<string>Photo library access lets you share images.</string>
 	<key>RCTNewArchEnabled</key>
