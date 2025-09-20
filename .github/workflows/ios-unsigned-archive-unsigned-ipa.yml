@@ -58,6 +58,12 @@ jobs:
           pod repo update
           pod install --repo-update
 
+      - name: Install xcresultparser
+        run: |
+          set -euo pipefail
+          brew tap a7ex/homebrew-formulae
+          brew install xcresultparser
+
       - name: Verify RN/Hermes versions
         run: python3 scripts/verify-ios-rn-versions.py
 
@@ -100,6 +106,20 @@ jobs:
             CODE_SIGNING_REQUIRED=NO \
             clean archive | xcpretty && exit ${PIPESTATUS[0]}
 
+      - name: Summarize xcresult bundle
+        if: ${{ always() }}
+        run: |
+          set -euo pipefail
+          mkdir -p build
+          if [ -d "${RESULT_BUNDLE_DEV}" ]; then
+            if ! xcresultparser -o md "${RESULT_BUNDLE_DEV}" > build/ResultBundle_device.md; then
+              echo "::warning title=xcresultparser failed::Unable to summarize ${RESULT_BUNDLE_DEV}."
+              rm -f build/ResultBundle_device.md || true
+            fi
+          else
+            echo "::warning title=xcresult missing::${RESULT_BUNDLE_DEV} not found; skipping summary."
+          fi
+
       - name: Package Unsigned IPA (zip Payload)
         run: |
           APP_PATH="$(/usr/bin/find "${DERIVED_DATA}/Build/Products/Release-iphoneos" -maxdepth 1 -name '*.app' -print -quit)"
@@ -122,6 +142,7 @@ jobs:
             ${{ env.ARCHIVE_PATH }}
             ${{ env.IPA_OUT }}
             ${{ env.RESULT_BUNDLE_DEV }}
+            build/ResultBundle_device.md
             build/xcodebuild-list.txt
             build/build-settings.txt
           if-no-files-found: error

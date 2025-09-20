@@ -14,36 +14,191 @@ def env_flag_enabled?(name, default:)
   default
 end
 
-def append_flag(value, flag)
+def normalize_tokens(value)
   case value
   when nil
-    ['$(inherited)', flag]
+    [[], :array]
   when Array
-    value.include?(flag) ? value : (value + [flag])
+    [value.compact.dup, :array]
   else
-    current = value.to_s
-    current.include?(flag) ? current : "#{current} #{flag}"
+    [value.to_s.split(/\s+/), :string]
   end
+end
+
+def materialize_tokens(tokens, preference)
+  filtered = tokens.compact
+  return preference == :array ? [] : '' if filtered.empty?
+
+  preference == :array ? filtered : filtered.join(' ')
+end
+
+def append_flag(value, flag)
+  return ['$(inherited)', flag] if value.nil?
+
+  tokens, preference = normalize_tokens(value)
+  return materialize_tokens(tokens, preference) if tokens.include?(flag)
+
+  tokens << flag
+  materialize_tokens(tokens, preference)
 end
 
 def append_flags(value, flags)
   flags.reduce(value) { |memo, flag| append_flag(memo, flag) }
 end
 
-def ensure_swift_module_flags(swift_flags, module_map_flags)
-  tokens =
-    case swift_flags
-    when nil
-      []
-    when Array
-      swift_flags.dup
-    else
-      swift_flags.to_s.split(/\s+/)
+def remove_flag(value, flag)
+  tokens, preference = normalize_tokens(value)
+  original = tokens.dup
+  tokens.reject! { |token| token == flag }
+  [materialize_tokens(tokens, preference), tokens != original]
+end
+
+def swift_flag_pair?(value, flag)
+  return false if flag.nil?
+
+  tokens, _ = normalize_tokens(value)
+  tokens.each_cons(2).any? { |first, second| first == '-Xcc' && second == flag }
+end
+
+def sanitize_module_map_settings(config, header_search_fix:, module_map_flags:, module_map_path:, legacy_module_map_flag:, force_tokens: false, enforce_module_map: false, enforce_defines_module: false)
+  updated = false
+  module_flag = module_map_flags.first
+
+  existing_c_flags = config.build_settings['OTHER_CFLAGS']
+  c_tokens, _ = normalize_tokens(existing_c_flags)
+  contains_legacy_c_flag = c_tokens.include?(legacy_module_map_flag)
+  contains_canonical_c_flag = module_flag ? c_tokens.include?(module_flag) : false
+
+  existing_cpp_flags = config.build_settings['OTHER_CPLUSPLUSFLAGS']
+  cpp_tokens, _ = normalize_tokens(existing_cpp_flags)
+  contains_legacy_cpp_flag = cpp_tokens.include?(legacy_module_map_flag)
+  contains_canonical_cpp_flag = module_flag ? cpp_tokens.include?(module_flag) : false
+
+  existing_swift_flags = config.build_settings['OTHER_SWIFT_FLAGS']
+  contains_legacy_swift = swift_flag_pair?(existing_swift_flags, legacy_module_map_flag)
+  contains_canonical_swift = swift_flag_pair?(existing_swift_flags, module_flag)
+
+  requires_tokens = force_tokens || contains_legacy_c_flag || contains_canonical_c_flag ||
+                    contains_legacy_cpp_flag || contains_canonical_cpp_flag ||
+                    contains_legacy_swift || contains_canonical_swift
+
+  if requires_tokens
+    existing_header_paths = config.build_settings['HEADER_SEARCH_PATHS']
+    desired_header_paths = append_flag(existing_header_paths, header_search_fix)
+    if desired_header_paths != existing_header_paths
+      config.build_settings['HEADER_SEARCH_PATHS'] = desired_header_paths
+      updated = true
+    end
+  end
+
+  if contains_legacy_c_flag
+    pruned_c_flags, _ = remove_flag(existing_c_flags, legacy_module_map_flag)
+    config.build_settings['OTHER_CFLAGS'] = pruned_c_flags
+    existing_c_flags = pruned_c_flags
+    updated = true
+  end
+
+  if requires_tokens
+    updated_c_flags = append_flags(existing_c_flags, module_map_flags)
+    if updated_c_flags != existing_c_flags
+      config.build_settings['OTHER_CFLAGS'] = updated_c_flags
+      updated = true
+    end
+  end
+
+  if contains_legacy_cpp_flag
+    pruned_cpp_flags, _ = remove_flag(existing_cpp_flags, legacy_module_map_flag)
+    config.build_settings['OTHER_CPLUSPLUSFLAGS'] = pruned_cpp_flags
+    existing_cpp_flags = pruned_cpp_flags
+    updated = true
+  end
+
+  if requires_tokens
+    updated_cpp_flags = append_flags(existing_cpp_flags, module_map_flags)
+    if updated_cpp_flags != existing_cpp_flags
+      config.build_settings['OTHER_CPLUSPLUSFLAGS'] = updated_cpp_flags
+      updated = true
+    end
+  end
+
+  if requires_tokens
+    swift_tokens, swift_changed = ensure_swift_module_flags(
+      existing_swift_flags,
+      module_map_flags,
+      :forbidden_flags => [legacy_module_map_flag]
+    )
+    if swift_changed
+      config.build_settings['OTHER_SWIFT_FLAGS'] = swift_tokens
+      updated = true
+    end
+  end
+
+  if enforce_module_map && config.build_settings['MODULEMAP_FILE'] != module_map_path
+    config.build_settings['MODULEMAP_FILE'] = module_map_path
+    updated = true
+  end
+
+  if enforce_defines_module && config.build_settings['DEFINES_MODULE'] != 'YES'
+    config.build_settings['DEFINES_MODULE'] = 'YES'
+    updated = true
+  end
+
+  updated
+end
+
+def ensure_swift_module_flags(swift_flags, module_map_flags, forbidden_flags: [])
+  tokens, preference = normalize_tokens(swift_flags)
+  changed = false
+
+  unless tokens.include?('$(inherited)')
+    tokens.unshift('$(inherited)')
+    changed = true
+  end
+
+  forbidden_flags.each do |flag|
+    before = tokens.length
+    tokens.reject! { |token| token == flag }
+    changed ||= tokens.length != before
+
+    loop do
+      entry = tokens.each_cons(2).with_index.find { |(first, second), _i| first == '-Xcc' && second == flag }
+      break unless entry
+
+      _, removal_index = entry
+      tokens.slice!(removal_index, 2)
+      changed = true
+    end
+  end
+
+  original_tokens = tokens.dup
+  cleaned_tokens = []
+  index = 0
+  while index < tokens.length
+    token = tokens[index]
+
+    if token == '-Xcc'
+      next_token = tokens[index + 1]
+
+      if next_token.nil? || next_token == '-Xcc'
+        changed = true
+        index += 1
+        next
+      end
+
+      cleaned_tokens << token
+      cleaned_tokens << next_token
+      index += 2
+      next
     end
 
-  tokens.unshift('$(inherited)') unless tokens.include?('$(inherited)')
+    cleaned_tokens << token
+    index += 1
+  end
 
-  original = tokens.dup
+  if cleaned_tokens != original_tokens
+    tokens = cleaned_tokens
+    changed = true
+  end
 
   module_map_flags.each do |flag|
     has_pair = tokens.each_cons(2).any? { |first, second| first == '-Xcc' && second == flag }
@@ -51,9 +206,10 @@ def ensure_swift_module_flags(swift_flags, module_map_flags)
 
     tokens << '-Xcc'
     tokens << flag
+    changed = true
   end
 
-  [tokens, tokens != original]
+  [materialize_tokens(tokens, preference), changed]
 end
 
 install! 'cocoapods', :disable_input_output_paths => true
@@ -175,28 +331,40 @@ post_install do |installer|
   module_map_path = '$(PODS_ROOT)/Headers/Public/RCTDeprecation/module.modulemap'
   legacy_module_map_path = '$(PODS_ROOT)/Headers/Public/RCTDeprecation/RCTDeprecation.modulemap'
   module_map_flag = "-fmodule-map-file=#{module_map_path}"
-  # Keep the legacy module map on disk for older toolchains that still probe for
-  # `RCTDeprecation.modulemap`, but avoid feeding it directly to clang.
-  # Xcode 16's clang treats duplicate `-fmodule-map-file` entries defining the
-  # same module as a hard error ("redefinition of module"), which surfaced in CI.
-  # Limiting the compiler flags to the canonical module map sidesteps the clash
-  # while maintaining the compatibility file for consumers that reference it
-  # directly on disk.
-  module_map_flags = [module_map_flag]
+  legacy_module_map_flag = "-fmodule-map-file=#{legacy_module_map_path}"
+  legacy_module_map_flag_pattern = /(?<!\S)#{Regexp.escape(legacy_module_map_flag)}(?!\S)/
+  legacy_module_map_path_pattern = /(?<!\S)#{Regexp.escape(legacy_module_map_path)}(?!\S)/
+  legacy_module_map_flag_quoted_pattern = /"#{Regexp.escape(legacy_module_map_flag)}"/
+  legacy_module_map_path_quoted_pattern = /"#{Regexp.escape(legacy_module_map_path)}"/
+  # Provide a single canonical module map so clang never has to reconcile two
+  # definitions of the same module. Previous builds shipped both
+  # `module.modulemap` and `RCTDeprecation.modulemap`, which allowed the compiler
+  # to load either file depending on discovery order. When a precompiled header
+  # cached one path and the next build discovered the other, Xcode 16 aborted the
+  # build because the AST referenced a different module map path. Keeping only the
+  # canonical file and updating build settings to point at it ensures every
+  # invocation resolves the module identically.
+  module_map_flags = [module_map_flag].compact
   module_map_dir = File.join(installer.sandbox.root.to_s, 'Headers', 'Public', 'RCTDeprecation')
   module_map_disk = File.join(module_map_dir, 'module.modulemap')
   legacy_module_map_disk = File.join(module_map_dir, 'RCTDeprecation.modulemap')
+  target_support_dir = File.join(installer.sandbox.root.to_s, 'Target Support Files', 'RCTDeprecation')
+  target_support_module_map = File.join(target_support_dir, 'module.modulemap')
+  legacy_target_support_module_map = File.join(target_support_dir, 'RCTDeprecation.modulemap')
   module_map_template = File.join(__dir__, 'Config', 'RCTDeprecation.modulemap')
   raise "Missing #{module_map_template}; ensure it is checked in" unless File.exist?(module_map_template)
   desired_module_map = File.read(module_map_template)
 
   FileUtils.mkdir_p(module_map_dir)
-  { module_map_disk => 'primary', legacy_module_map_disk => 'legacy' }.each do |path, label|
-    existing_module_map = File.exist?(path) ? File.read(path) : nil
-    next if existing_module_map == desired_module_map
+  existing_module_map = File.exist?(module_map_disk) ? File.read(module_map_disk) : nil
+  if existing_module_map != desired_module_map
+    Pod::UI.puts "[Podfile] Writing #{module_map_disk} (primary)"
+    File.write(module_map_disk, desired_module_map)
+  end
 
-    Pod::UI.puts "[Podfile] Writing #{path} (#{label})"
-    File.write(path, desired_module_map)
+  if File.exist?(legacy_module_map_disk) || File.symlink?(legacy_module_map_disk)
+    Pod::UI.puts "[Podfile] Removing legacy module map at #{legacy_module_map_disk}"
+    FileUtils.rm_f(legacy_module_map_disk)
   end
 
   pods_project_modified = false
@@ -209,55 +377,21 @@ post_install do |installer|
   end
 
   installer.pods_project.targets.each do |target|
-    next unless target.name == 'RCTDeprecation'
+    target_name = target.respond_to?(:name) ? target.name.to_s : ''
+    force_tokens = target_name == 'RCTDeprecation' || target_name.start_with?('Pods-')
+    enforce_module_identity = target_name == 'RCTDeprecation'
 
     target.build_configurations.each do |config|
-      updated = false
-
-      header_paths = config.build_settings['HEADER_SEARCH_PATHS']
-      if header_paths.nil?
-        config.build_settings['HEADER_SEARCH_PATHS'] = ['$(inherited)', header_search_fix]
-        updated = true
-      elsif header_paths.is_a?(Array)
-        unless header_paths.include?(header_search_fix)
-          config.build_settings['HEADER_SEARCH_PATHS'] = header_paths + [header_search_fix]
-          updated = true
-        end
-      else
-        value = header_paths.to_s
-        unless value.include?(header_search_fix)
-          config.build_settings['HEADER_SEARCH_PATHS'] = "#{value} #{header_search_fix}"
-          updated = true
-        end
-      end
-
-      new_c_flags = append_flags(config.build_settings['OTHER_CFLAGS'], module_map_flags)
-      if new_c_flags != config.build_settings['OTHER_CFLAGS']
-        config.build_settings['OTHER_CFLAGS'] = new_c_flags
-        updated = true
-      end
-
-      new_cpp_flags = append_flags(config.build_settings['OTHER_CPLUSPLUSFLAGS'], module_map_flags)
-      if new_cpp_flags != config.build_settings['OTHER_CPLUSPLUSFLAGS']
-        config.build_settings['OTHER_CPLUSPLUSFLAGS'] = new_cpp_flags
-        updated = true
-      end
-
-      swift_tokens, swift_changed = ensure_swift_module_flags(config.build_settings['OTHER_SWIFT_FLAGS'], module_map_flags)
-      if swift_changed
-        config.build_settings['OTHER_SWIFT_FLAGS'] = swift_tokens
-        updated = true
-      end
-
-      if config.build_settings['MODULEMAP_FILE'] != module_map_path
-        config.build_settings['MODULEMAP_FILE'] = module_map_path
-        updated = true
-      end
-
-      if config.build_settings['DEFINES_MODULE'] != 'YES'
-        config.build_settings['DEFINES_MODULE'] = 'YES'
-        updated = true
-      end
+      updated = sanitize_module_map_settings(
+        config,
+        :header_search_fix => header_search_fix,
+        :module_map_flags => module_map_flags,
+        :module_map_path => module_map_path,
+        :legacy_module_map_flag => legacy_module_map_flag,
+        :force_tokens => force_tokens,
+        :enforce_module_map => enforce_module_identity,
+        :enforce_defines_module => enforce_module_identity
+      )
 
       if updated
         Pod::UI.puts "[Podfile] Updated build settings for #{target.name} (#{config.name})"
@@ -279,49 +413,105 @@ post_install do |installer|
       target.build_configurations.each do |config|
         config.build_settings['CLANG_CXX_LANGUAGE_STANDARD'] = 'c++20'
         config.build_settings['CLANG_CXX_LIBRARY'] = 'libc++'
-        existing = config.build_settings['HEADER_SEARCH_PATHS']
 
-        if existing.nil?
-          config.build_settings['HEADER_SEARCH_PATHS'] = ['$(inherited)', header_search_fix]
-          project_modified = true
-          next
-        end
+        updated = sanitize_module_map_settings(
+          config,
+          :header_search_fix => header_search_fix,
+          :module_map_flags => module_map_flags,
+          :module_map_path => module_map_path,
+          :legacy_module_map_flag => legacy_module_map_flag,
+          :force_tokens => true
+        )
 
-        if existing.is_a?(Array)
-          unless existing.include?(header_search_fix)
-            existing << header_search_fix
-            config.build_settings['HEADER_SEARCH_PATHS'] = existing
-            project_modified = true
-          end
-        else
-          value = existing.to_s
-          unless value.include?(header_search_fix)
-            config.build_settings['HEADER_SEARCH_PATHS'] = "#{value} #{header_search_fix}"
-            project_modified = true
-          end
-        end
-
-        updated_c_flags = append_flags(config.build_settings['OTHER_CFLAGS'], module_map_flags)
-        if updated_c_flags != config.build_settings['OTHER_CFLAGS']
-          config.build_settings['OTHER_CFLAGS'] = updated_c_flags
-          project_modified = true
-        end
-
-        updated_cpp_flags = append_flags(config.build_settings['OTHER_CPLUSPLUSFLAGS'], module_map_flags)
-        if updated_cpp_flags != config.build_settings['OTHER_CPLUSPLUSFLAGS']
-          config.build_settings['OTHER_CPLUSPLUSFLAGS'] = updated_cpp_flags
-          project_modified = true
-        end
-
-        swift_tokens, swift_changed = ensure_swift_module_flags(config.build_settings['OTHER_SWIFT_FLAGS'], module_map_flags)
-        if swift_changed
-          config.build_settings['OTHER_SWIFT_FLAGS'] = swift_tokens
-          project_modified = true
-        end
+        project_modified ||= updated
       end
     end
 
     user_project.save if project_modified
+  end
+
+  support_files_root = File.join(__dir__, 'Pods', 'Target Support Files')
+  if Dir.exist?(support_files_root)
+    Dir.glob(File.join(support_files_root, '**', '*.xcconfig')).each do |xcconfig_path|
+      original = File.read(xcconfig_path)
+      replaced = original.gsub(legacy_module_map_flag_pattern, module_map_flag)
+      replaced = replaced.gsub(legacy_module_map_path_pattern, module_map_path)
+      replaced = replaced.gsub(legacy_module_map_flag_quoted_pattern, "\"#{module_map_flag}\"")
+      replaced = replaced.gsub(legacy_module_map_path_quoted_pattern, "\"#{module_map_path}\"")
+
+      next if replaced == original
+
+      Pod::UI.puts "[Podfile] Updated #{xcconfig_path} to prefer module.modulemap"
+      File.write(xcconfig_path, replaced)
+    end
+  end
+
+  if Dir.exist?(target_support_dir)
+    existing_target_support_map = File.exist?(target_support_module_map) ? File.read(target_support_module_map) : nil
+    if existing_target_support_map != desired_module_map
+      Pod::UI.puts "[Podfile] Writing #{target_support_module_map} (target support)"
+      File.write(target_support_module_map, desired_module_map)
+    end
+
+    if File.exist?(legacy_target_support_module_map) || File.symlink?(legacy_target_support_module_map)
+      Pod::UI.puts "[Podfile] Removing legacy module map at #{legacy_target_support_module_map}"
+      FileUtils.rm_f(legacy_target_support_module_map)
+    end
+  end
+
+  Dir.glob(File.join(installer.sandbox.root.to_s, '**', 'RCTDeprecation.modulemap')).each do |stray_module_map|
+    Pod::UI.puts "[Podfile] Removing stray legacy module map at #{stray_module_map}"
+    FileUtils.rm_f(stray_module_map)
+  end
+
+  purge_script = File.join(__dir__, 'scripts', 'purge-rctdeprecation-caches.sh')
+  if File.exist?(purge_script)
+    env = {
+      'PROJECT_DIR' => __dir__,
+      'APP_TARGET' => 'monGARS',
+      'MODULE_NAME' => 'RCTDeprecation',
+      'LEGACY_MODULE_MAP_NAME' => 'RCTDeprecation.modulemap'
+    }
+
+    stdout_str, stderr_str, status = Open3.capture3(env, 'bash', purge_script)
+
+    stdout_str.each_line do |line|
+      line = line.strip
+      Pod::UI.puts("[Podfile] #{line}") unless line.empty?
+    end
+
+    stderr_str.each_line do |line|
+      line = line.strip
+      Pod::UI.warn("[Podfile] STDERR: #{line}") unless line.empty?
+    end
+
+    unless status.success?
+      Pod::UI.warn('[Podfile] Failed to purge legacy RCTDeprecation caches; manual cleanup may be required.')
+    end
+  else
+    Pod::UI.warn('[Podfile] Missing ios/scripts/purge-rctdeprecation-caches.sh; derived data may still reference legacy module maps.')
+  end
+
+  mlx_patch_script = File.join(__dir__, 'scripts', 'patch-mlx-metal-cxx17.sh')
+  if File.exist?(mlx_patch_script)
+    env = { 'PROJECT_DIR' => __dir__, 'SRCROOT' => __dir__ }
+    stdout_str, stderr_str, status = Open3.capture3(env, 'bash', mlx_patch_script)
+
+    stdout_str.each_line do |line|
+      line = line.strip
+      Pod::UI.puts("[Podfile] #{line}") unless line.empty?
+    end
+
+    unless status.success?
+      stderr_str.each_line do |line|
+        line = line.strip
+        Pod::UI.warn("[Podfile] STDERR: #{line}") unless line.empty?
+      end
+      Pod::UI.warn('[Podfile] Failed to patch MLX metal headers; warnings may persist. ' \
+                   'You can re-run ios/scripts/patch-mlx-metal-cxx17.sh manually.')
+    end
+  else
+    Pod::UI.warn('[Podfile] Missing ios/scripts/patch-mlx-metal-cxx17.sh; MLX metal warnings may persist.')
   end
 
   # Try to apply RN Contacts orientation patch (if repo has the script)

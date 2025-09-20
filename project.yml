@@ -81,6 +81,7 @@ targets:
         CLANG_CXX_LANGUAGE_STANDARD: c++20
         OTHER_MTLFLAGS:
           - "$(inherited)"
+          - "-std=metal-cpp17"
 
         # Allow CocoaPods header symlink scripts to write in Xcode 15+
         ENABLE_USER_SCRIPT_SANDBOXING: NO
@@ -90,6 +91,16 @@ targets:
           DEBUG_INFORMATION_FORMAT: dwarf-with-dsym
 
     scripts:
+      - name: Purge legacy RCTDeprecation caches
+        script: |
+          bash "${PROJECT_DIR}/scripts/purge-rctdeprecation-caches.sh"
+        runOnlyForDeploymentPostprocessing: false
+        alwaysOutOfDate: true
+      - name: Patch MLX metal headers for C++17 warnings
+        script: |
+          bash "${PROJECT_DIR}/scripts/patch-mlx-metal-cxx17.sh"
+        runOnlyForDeploymentPostprocessing: false
+        alwaysOutOfDate: true
       - name: Create Symlinks to Header Folders
         script: |
           echo "Symlinks handled by CocoaPods"
@@ -101,3 +112,12 @@ targets:
 
     scheme:
       testTargets: []
+      preActions:
+        - name: Purge legacy RCTDeprecation caches
+          settingsTarget: monGARS
+          script: |
+            bash "${PROJECT_DIR}/scripts/purge-rctdeprecation-caches.sh"
+        - name: Patch MLX metal headers
+          settingsTarget: monGARS
+          script: |
+            bash "${PROJECT_DIR}/scripts/patch-mlx-metal-cxx17.sh"
