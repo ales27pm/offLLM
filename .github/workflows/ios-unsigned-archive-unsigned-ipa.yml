@@ -28,6 +28,10 @@ jobs:
     steps:
       - uses: actions/checkout@v5
 
+      - name: Ensure legacy RCTDeprecation.modulemap exists
+        run: |
+          bash ios/scripts/ensure-rctdeprecation-legacy.sh
+
       - name: Select Xcode ${{ env.XCODE_VERSION }}
         run: |
           sudo xcode-select -s "/Applications/Xcode_${XCODE_VERSION}.app"
@@ -38,8 +42,62 @@ jobs:
           node-version: ${{ env.NODE_VERSION }}
           cache: "npm"
 
-      - name: Install JS deps
-        run: npm ci
+      - name: Yarn/NPM install
+        run: |
+          if [ -f yarn.lock ]; then
+            corepack enable || true
+            yarn install --frozen-lockfile
+          else
+            npm ci
+          fi
+
+      - name: Clean caches (global + repo-local) and set fresh module cache
+        run: |
+          set -euo pipefail
+          rm -rf ~/Library/Developer/Xcode/DerivedData
+          rm -rf ~/Library/Caches/com.apple.dt.Xcode
+          rm -rf build/DerivedData
+          rm -rf build/DerivedData/ModuleCache.noindex
+          rm -rf build/DerivedData/Build/Intermediates.noindex/ArchiveIntermediates
+          rm -rf build/DerivedData/Build/Intermediates.noindex/PrecompiledHeaders
+          MODULE_CACHE_DIR="$(mktemp -d)"
+          echo "CLANG_MODULE_CACHE_PATH=${MODULE_CACHE_DIR}" >> $GITHUB_ENV
+
+      - name: Force fresh Pods (ensures Podfile post_install runs)
+        run: |
+          set -euo pipefail
+          rm -rf ios/Pods ios/Podfile.lock
+          cd ios
+          bundle install || true
+          bundle exec pod repo update
+          bundle exec pod install --repo-update --clean-install
+
+      - name: React Native Codegen (generate specs)
+        run: |
+          set -euo pipefail
+          npx react-native --version || true
+          npx react-native codegen || true
+
+      - name: Validate Codegen headers exist (FBReactNativeSpec & LLMSpec)
+        run: |
+          set -euo pipefail
+          FOUND=0
+          for H in \
+            "ios/Pods/Headers/Public/FBReactNativeSpec/FBReactNativeSpec/FBReactNativeSpec.h" \
+            "ios/Pods/Headers/Public/FBReactNativeSpec/FBReactNativeSpec.h" \
+            "ios/Pods/Headers/Public/FBReactNativeSpec/AppSpec.h" \
+            "ios/Pods/Headers/Public/AppSpec/LLMSpec.h" \
+            "ios/Pods/Headers/Public/AppSpecs/LLMSpec.h" \
+            "ios/Pods/Headers/Public/LLMSpec.h"; do
+            if [ -f "$H" ]; then
+              echo "found: $H"
+              FOUND=1
+            fi
+          done
+          if [ "$FOUND" -eq 0 ]; then
+            echo "::error::No codegen spec headers found. Did 'pod install' run and RN codegen execute?"
+            exit 64
+          fi
 
       - name: Install xcresultparser
         run: |
@@ -78,6 +136,7 @@ jobs:
             -resultBundlePath "${RESULT_BUNDLE_DEV}" \
             CODE_SIGNING_ALLOWED=NO \
             CODE_SIGNING_REQUIRED=NO \
+            OTHER_LDFLAGS="-v" \
             clean archive | xcpretty && exit ${PIPESTATUS[0]}
 
       - name: Summarize xcresult bundle

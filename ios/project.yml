@@ -34,6 +34,13 @@ targets:
         # MLXCompat.swift has been removed; the app now uses the new MLX API via LanguageModel
 
     dependencies:
+      - sdk: Contacts.framework
+      - sdk: CoreLocation.framework
+      - sdk: CoreMotion.framework
+      - sdk: MapKit.framework
+      - sdk: MediaPlayer.framework
+      - sdk: MessageUI.framework
+      - sdk: Photos.framework
       - package: mlx-swift-examples
         product: MLXLLM
       # If your code imports additional MLX products, keep them here:
