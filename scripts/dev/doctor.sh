@@ -10,6 +10,7 @@ set -euo pipefail
 
 SCRIPT_DIR="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
 ROOT_DIR="$(cd "$SCRIPT_DIR/../.." && pwd)"
+XCODE_ENV_HELPER="$ROOT_DIR/scripts/lib/xcode_env.sh"
 ENV_FILE="$ROOT_DIR/.env"
 DEFAULT_ENV_FILE="$ROOT_DIR/.env.default"
 
@@ -25,6 +26,10 @@ elif [ -f "$DEFAULT_ENV_FILE" ]; then
   source "$DEFAULT_ENV_FILE"
   set +a
 fi
+
+# shellcheck source=../lib/xcode_env.sh
+source "$XCODE_ENV_HELPER"
+sanitize_xcode_env
 
 ### ───────────────────────────────────────────────────────────────────────────────────
 ### Config (defaults can be overridden via env)
