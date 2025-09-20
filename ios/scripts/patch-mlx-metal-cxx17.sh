@@ -78,52 +78,108 @@ PY
   esac
 }
 
-collect_roots() {
-  local candidate
-  for candidate in "$@"; do
-    if [ -d "$candidate" ]; then
-      printf '%s\0' "$candidate"
+resolve_realpath() {
+  python3 - "$1" <<'PY'
+import os
+import sys
+
+path = sys.argv[1]
+print(os.path.realpath(path))
+PY
+}
+
+maybe_add_root() {
+  local candidate="$1"
+  if [ -z "$candidate" ]; then
+    return
+  fi
+  if [ ! -d "$candidate" ]; then
+    return
+  fi
+
+  local resolved
+  if ! resolved="$(resolve_realpath "$candidate")"; then
+    return
+  fi
+
+  candidate_roots+=("$resolved")
+}
+
+maybe_add_variations() {
+  local base="$1"
+  local depth="${2:-2}"
+
+  if [ -z "$base" ]; then
+    return
+  fi
+
+  local resolved
+  if ! resolved="$(resolve_realpath "$base")"; then
+    return
+  fi
+
+  local current="$resolved"
+  local step=0
+
+  while [ "$step" -le "$depth" ]; do
+    maybe_add_root "$current/SourcePackages"
+    maybe_add_root "$current/SourcePackages/checkouts"
+    maybe_add_root "$current/build"
+    maybe_add_root "$current/build/DerivedData"
+    maybe_add_root "$current/build/DerivedData/SourcePackages"
+    maybe_add_root "$current/build/DerivedData/SourcePackages/checkouts"
+    maybe_add_root "$current/DerivedData"
+    maybe_add_root "$current/DerivedData/SourcePackages"
+    maybe_add_root "$current/DerivedData/SourcePackages/checkouts"
+
+    local next
+    next="$(dirname "$current")"
+    if [ -z "$next" ] || [ "$next" = "$current" ]; then
+      break
     fi
+
+    current="$next"
+    step=$((step + 1))
   done
 }
 
-mapfile -d '' roots < <(collect_roots \
-  "${PROJECT_DIR:-}"/SourcePackages/checkouts \
-  "${PROJECT_DIR:-}"/../SourcePackages/checkouts \
-  "${SRCROOT:-}"/SourcePackages/checkouts \
-  "${DERIVED_DATA_DIR:-}"/SourcePackages/checkouts \
-  "$HOME/Library/Developer/Xcode/DerivedData")
+declare -a candidate_roots=()
+
+maybe_add_variations "${PROJECT_DIR:-}" 3
+maybe_add_variations "${SRCROOT:-}" 3
+maybe_add_variations "${PWD:-}" 3
+maybe_add_variations "${DERIVED_DATA_DIR:-}" 1
+
+maybe_add_root "$HOME/Library/Developer/Xcode/DerivedData"
+maybe_add_root "$HOME/Library/Developer/Xcode/DerivedData/SourcePackages"
+maybe_add_root "$HOME/Library/Developer/Xcode/DerivedData/SourcePackages/checkouts"
+
+declare -A seen_roots=()
+declare -a roots=()
+
+for candidate in "${candidate_roots[@]}"; do
+  if [ -z "$candidate" ]; then
+    continue
+  fi
+  if [[ -n "${seen_roots[$candidate]:-}" ]]; then
+    continue
+  fi
+  seen_roots[$candidate]=1
+  roots+=("$candidate")
+done
 
 if [ "${#roots[@]}" -eq 0 ]; then
   log "No SourcePackages directories discovered; nothing to patch"
   exit 0
 fi
 
-declare -A seen_roots=()
-
-for root in "${roots[@]}"; do
-  if [ -z "$root" ]; then
-    continue
-  fi
-  if [[ -n "${seen_roots[$root]:-}" ]]; then
-    continue
-  fi
-  seen_roots[$root]=1
-
-done
-
-if [ "${#seen_roots[@]}" -eq 0 ]; then
-  log "No unique SourcePackages directories found; exiting"
-  exit 0
-fi
-
 patched_any=false
 
-for root in "${!seen_roots[@]}"; do
+for root in "${roots[@]}"; do
   while IFS= read -r -d '' file; do
     apply_patch "$file"
     patched_any=true
-  done < <(find "$root" -maxdepth 15 -path '*/mlx-swift/Source/Cmlx/mlx-generated/metal/steel/attn/kernels/steel_attention.h' -print0 || true)
+  done < <(find "$root" -maxdepth 15 -path '*/mlx-swift/Source/Cmlx/mlx-generated/metal/steel/attn/kernels/steel_attention.h' -print0 2>/dev/null || true)
 done
 
 if [ "$patched_any" = false ]; then

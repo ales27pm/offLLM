@@ -96,3 +96,8 @@ targets:
 
     scheme:
       testTargets: []
+      preActions:
+        - name: Patch MLX metal headers
+          settingsTarget: monGARS
+          script: |
+            bash "${PROJECT_DIR}/scripts/patch-mlx-metal-cxx17.sh"
