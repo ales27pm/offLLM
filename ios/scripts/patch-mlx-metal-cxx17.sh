@@ -171,7 +171,7 @@ declare -a candidate_roots=()
 declare -a temp_files=()
 
 cleanup() {
-  if [ "${#temp_files[@]}" -eq 0 ]; then
+  if [ -z "${temp_files+x}" ] || [ "${#temp_files[@]}" -eq 0 ]; then
     return
   fi
 
@@ -212,48 +212,52 @@ maybe_add_root "$HOME/Library/Developer/Xcode/DerivedData/SourcePackages/checkou
 
 declare -a roots=()
 
-for candidate in "${candidate_roots[@]}"; do
-  if [ -z "$candidate" ]; then
-    continue
-  fi
-  if array_contains "$candidate" "${roots[@]}"; then
-    continue
-  fi
-  roots+=("$candidate")
-done
+if [ -n "${candidate_roots+x}" ]; then
+  for candidate in "${candidate_roots[@]}"; do
+    if [ -z "$candidate" ]; then
+      continue
+    fi
+    if [ -n "${roots+x}" ] && array_contains "$candidate" "${roots[@]}"; then
+      continue
+    fi
+    roots+=("$candidate")
+  done
+fi
 
-if [ "${#roots[@]}" -eq 0 ]; then
+if [ -z "${roots+x}" ] || [ "${#roots[@]}" -eq 0 ]; then
   log "No SourcePackages directories discovered; nothing to patch"
   exit 0
 fi
 
 patched_any=false
 
-for root in "${roots[@]}"; do
-  tmp_file="$(make_tmp_file 2>/dev/null || true)"
-  if [ -z "$tmp_file" ]; then
-    log "Unable to allocate temporary file for ${root}; skipping"
-    continue
-  fi
+if [ -n "${roots+x}" ]; then
+  for root in "${roots[@]}"; do
+    tmp_file="$(make_tmp_file 2>/dev/null || true)"
+    if [ -z "$tmp_file" ]; then
+      log "Unable to allocate temporary file for ${root}; skipping"
+      continue
+    fi
 
-  temp_files+=("$tmp_file")
+    temp_files+=("$tmp_file")
 
-  if ! find "$root" -maxdepth 15 \
-    -path '*/mlx-swift/Source/Cmlx/mlx-generated/metal/steel/attn/kernels/steel_attention.h' \
-    -print0 2>/dev/null >"$tmp_file"; then
-    log "Failed to scan ${root} for mlx-swift headers"
-    continue
-  fi
+    if ! find "$root" -maxdepth 15 \
+      -path '*/mlx-swift/Source/Cmlx/mlx-generated/metal/steel/attn/kernels/steel_attention.h' \
+      -print0 2>/dev/null >"$tmp_file"; then
+      log "Failed to scan ${root} for mlx-swift headers"
+      continue
+    fi
 
-  if [ ! -s "$tmp_file" ]; then
-    continue
-  fi
+    if [ ! -s "$tmp_file" ]; then
+      continue
+    fi
 
-  while IFS= read -r -d '' file; do
-    apply_patch "$file"
-    patched_any=true
-  done < "$tmp_file"
-done
+    while IFS= read -r -d '' file; do
+      apply_patch "$file"
+      patched_any=true
+    done < "$tmp_file"
+  done
+fi
 
 if [ "$patched_any" = false ]; then
   log "Did not locate mlx-swift steel_attention.h; nothing to patch"
