@@ -34,17 +34,19 @@ append_candidate() {
     return 0
   fi
 
-  if [ -d "$raw" ]; then
-    :
-  else
-    raw="$(dirname "$raw")"
-    if [ ! -d "$raw" ]; then
+  local probe="$raw"
+  if [ ! -d "$probe" ]; then
+    probe="$(dirname "$probe")"
+    if [ ! -d "$probe" ]; then
       return 0
     fi
   fi
 
   local canonical
-  canonical="$(cd "$raw" && pwd -P)"
+  if ! canonical="$(cd "$probe" 2>/dev/null && pwd -P)"; then
+    echo "[purge-rctdeprecation] Skipping unreadable derived data root $probe" >&2
+    return 0
+  fi
 
   local existing
   for existing in "${candidate_roots[@]}"; do
@@ -67,6 +69,26 @@ if [ "${#candidate_roots[@]}" -eq 0 ]; then
   exit 0
 fi
 
+safe_remove_dir() {
+  local target="$1"
+  if rm -rf "$target"; then
+    return 0
+  fi
+
+  echo "[purge-rctdeprecation] Warning: failed to remove directory $target" >&2
+  return 1
+}
+
+safe_remove_file() {
+  local target="$1"
+  if rm -f "$target"; then
+    return 0
+  fi
+
+  echo "[purge-rctdeprecation] Warning: failed to remove file $target" >&2
+  return 1
+}
+
 remove_matches() {
   local description="$1"
   local root="$2"
@@ -76,25 +98,35 @@ remove_matches() {
     return 0
   fi
 
-  find "$root" "$@" -print0 2>/dev/null | while IFS= read -r -d '' path; do
+  local status=0
+
+  while IFS= read -r -d '' path; do
     if [ -z "$path" ]; then
       continue
     fi
 
     if [ -d "$path" ]; then
       echo "[purge-rctdeprecation] Removing $description directory $path"
-      rm -rf "$path"
+      safe_remove_dir "$path" || status=1
     else
       echo "[purge-rctdeprecation] Removing $description file $path"
-      rm -f "$path"
+      safe_remove_file "$path" || status=1
     fi
-  done || :
+  done < <(find "$root" "$@" -print0 2>/dev/null || true)
+
+  return "$status"
 }
 
+overall_status=0
+
 for root in "${candidate_roots[@]}"; do
-  remove_matches "bridging header cache" "$root" -type f -name "${APP_TARGET}-Bridging-Header-swift*.pch"
-  remove_matches "module cache" "$root" -path "*ModuleCache.noindex*" -name "*${MODULE_NAME}*"
-  remove_matches "legacy module map" "$root" -type f -name "${LEGACY_MODULE_MAP_NAME}"
+  remove_matches "bridging header cache" "$root" -type f -name "${APP_TARGET}-Bridging-Header-swift*.pch" || overall_status=1
+  remove_matches "module cache" "$root" -path "*ModuleCache.noindex*" -name "*${MODULE_NAME}*" || overall_status=1
+  remove_matches "legacy module map" "$root" -type f -name "${LEGACY_MODULE_MAP_NAME}" || overall_status=1
 done
+
+if [ "$overall_status" -ne 0 ]; then
+  echo "[purge-rctdeprecation] Completed with warnings" >&2
+fi
 
 exit 0
