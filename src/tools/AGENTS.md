@@ -19,3 +19,6 @@
 ### Living history
 - 2025-02 – Keeping Android stubs throwing explicit "unsupported" errors prevented silent failures during parity testing—continue matching stub names to their iOS counterparts for clarity.【F:src/tools/androidTools.js†L1-L15】
 - 2025-02 – Returning `{ success: false }` payloads from `webSearchTool` surfaced API key misconfigurations early; preserve that pattern when integrating additional providers.【F:src/tools/webSearchTool.js†L56-L85】
+
+### Session reflection
+- Before ending the session, save the current run's successes and errors so the next session can build on what worked and avoid repeating mistakes.

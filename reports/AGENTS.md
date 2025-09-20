@@ -16,3 +16,6 @@
 ### Living history
 - 2025-02 – Recent runs highlighted the need to remove Hermes "Replace Hermes" script phases and disable sandboxing for `[CP]` build steps—leave those notes in place until the underlying pods change.【F:report_agent.md†L6-L10】
 - 2025-02 – The absence of xcresult issues in the latest doctor run confirmed the xcresult parser fallback is working; regenerate diagnostics immediately and update tooling guides if that signal changes.【F:REPORT.md†L1-L13】
+
+### Session reflection
+- Before ending the session, save the current run's successes and errors so the next session can build on what worked and avoid repeating mistakes.

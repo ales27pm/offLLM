@@ -20,3 +20,6 @@
 ### Living history
 - 2025-02 – Guarding `_replaceModuleFunction` with dotted module paths prevented accidental overrides of service instances; keep that restriction as you add new patch targets.【F:src/architecture/pluginManager.js†L35-L104】
 - 2025-02 – Tool usage analytics surfaced prompt regressions—continue recording executions in `executionHistory` so adaptive tooling has reliable telemetry.【F:src/architecture/toolSystem.js†L8-L83】
+
+### Session reflection
+- Before ending the session, save the current run's successes and errors so the next session can build on what worked and avoid repeating mistakes.
