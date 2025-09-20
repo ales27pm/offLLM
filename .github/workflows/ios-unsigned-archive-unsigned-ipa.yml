@@ -131,6 +131,14 @@ jobs:
         run: |
           set -euo pipefail
           mkdir -p "$(dirname "$RESULT_BUNDLE_DEV")" "$(dirname "$ARCHIVE_PATH")" "$DERIVED_DATA"
+          LINK_MAP_DIR="${RUNNER_TEMP:-/tmp}"
+          LINK_MAP_PATH="${LINK_MAP_DIR}/link-map-device-archive-$(date +%s).map"
+          EXTRA_OTHER_LDFLAGS="-v -Xlinker -map -Xlinker ${LINK_MAP_PATH}"
+          if [ -n "${OTHER_LDFLAGS:-}" ]; then
+            OTHER_LDFLAGS="${OTHER_LDFLAGS} ${EXTRA_OTHER_LDFLAGS}"
+          else
+            OTHER_LDFLAGS="${EXTRA_OTHER_LDFLAGS}"
+          fi
           xcodebuild \
             -workspace "${WORKSPACE}" \
             -scheme "${SCHEME}" \
@@ -141,7 +149,7 @@ jobs:
             -resultBundlePath "${RESULT_BUNDLE_DEV}" \
             CODE_SIGNING_ALLOWED=NO \
             CODE_SIGNING_REQUIRED=NO \
-            OTHER_LDFLAGS="-v" \
+            OTHER_LDFLAGS="${OTHER_LDFLAGS}" \
             clean archive | xcpretty && exit ${PIPESTATUS[0]}
 
       - name: Summarize xcresult bundle

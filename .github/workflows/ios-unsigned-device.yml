@@ -366,13 +366,21 @@ jobs:
           rm -rf "$ARCHIVE_PATH" "$RB_ARCHIVE"
           LOG_FILE="build-log.txt"
           rm -f "$LOG_FILE"
+          LINK_MAP_DIR="${RUNNER_TEMP:-/tmp}"
+          LINK_MAP_PATH="${LINK_MAP_DIR}/link-map-device-archive-$(date +%s).map"
+          EXTRA_OTHER_LDFLAGS="-v -Xlinker -map -Xlinker ${LINK_MAP_PATH}"
+          if [ -n "${OTHER_LDFLAGS:-}" ]; then
+            OTHER_LDFLAGS="${OTHER_LDFLAGS} ${EXTRA_OTHER_LDFLAGS}"
+          else
+            OTHER_LDFLAGS="${EXTRA_OTHER_LDFLAGS}"
+          fi
           xcodebuild archive \
             -${XCODE_CONTAINER_TYPE} "$XCODE_CONTAINER" \
             -scheme "$SCHEME" \
             -configuration Release \
             -destination generic/platform=iOS \
             CODE_SIGNING_ALLOWED=NO CODE_SIGNING_REQUIRED=NO \
-            OTHER_LDFLAGS="-v" \
+            OTHER_LDFLAGS="$OTHER_LDFLAGS" \
             -derivedDataPath "$DERIVED_DATA" \
             -resultBundlePath "$RB_ARCHIVE" \
             -archivePath "$ARCHIVE_PATH" \
