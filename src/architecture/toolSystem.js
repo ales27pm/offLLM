@@ -233,14 +233,14 @@ const resolveOptionValue = (
     fallback,
   },
 ) => {
-  if (hasOwn(originalParameters, key)) {
-    return originalParameters[key];
+  if (hasOwn(parameterValues, key)) {
+    return parameterValues[key];
   }
   if (hasOwn(contextOptions, key)) {
     return contextOptions[key];
   }
-  if (hasOwn(parameterValues, key)) {
-    return parameterValues[key];
+  if (hasOwn(originalParameters, key)) {
+    return originalParameters[key];
   }
   return fallback;
 };
@@ -459,11 +459,34 @@ export class ToolRegistry {
       tool.lastUsed = new Date();
       tool.usageCount = (tool.usageCount || 0) + 1;
 
+      const summarize = (r) => {
+        if (!r || typeof r !== "object") {
+          return r;
+        }
+        const summary = { success: !!r.success };
+        if (typeof r.error === "string") {
+          summary.error = r.error.slice(0, 200);
+        }
+        if (Array.isArray(r.results)) {
+          summary.resultCount = r.results.length;
+        }
+        if (Array.isArray(r.entries)) {
+          summary.resultCount = r.entries.length;
+        }
+        if (typeof r.bytesWritten === "number") {
+          summary.bytesWritten = r.bytesWritten;
+        }
+        if (typeof r.bytesRead === "number") {
+          summary.bytesRead = r.bytesRead;
+        }
+        return summary;
+      };
+
       // Log execution
       this.executionHistory.push({
         tool: toolName,
         parameters: normalizedParameters,
-        result,
+        result: summarize(result),
         timestamp: new Date(),
         success: true,
         ...(this.extractResultAnalytics(result) || {}),
