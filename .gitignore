@@ -1,6 +1,7 @@
 node_modules/
 *.log
 vector_memory.dat
+session_notes.dat
 ios/vendor/
 ios/monGARS.xcodeproj/
 ios/.bundle/
