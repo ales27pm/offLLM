@@ -36,6 +36,7 @@
 - 2025-02 – Swift 6 strict-concurrency failures were neutralised by the annotated patches captured in the native recovery playbook; reuse those edits before chasing new build ghosts.【F:Steps.md†L12-L28】
 - 2025-02 – CI runs stalled on leftover Hermes "Replace Hermes" phases and sandboxed `[CP]` scripts; the doctor workflow now strips those phases and flags deployment-target drift automatically, so keep the heuristics intact when updating build automation.【F:report_agent.md†L6-L10】【F:scripts/dev/doctor.sh†L233-L318】
 - 2025-02 – `commit-reports.sh` enforces clean worktrees and can archive full report folders, preventing teams from losing diagnostics during joint investigations—do not remove those guards when extending the helper.【F:scripts/dev/commit-reports.sh†L22-L77】
+- 2025-09-20 – Sideloading builds failed when the Info.plist missed `CFBundleExecutable`; populate the core bundle metadata (`CFBundleExecutable`, version strings, package type) so export tools accept the archive.【F:ios/MyOfflineLLMApp/Info.plist†L1-L44】
 
 ### Session reflection
 - Before ending the session, save the current run's successes and errors so the next session can build on what worked and avoid repeating mistakes.
