@@ -418,6 +418,14 @@ post_install do |installer|
     FileUtils.rm_f(legacy_module_map_disk)
   end
 
+  begin
+    FileUtils.ln_sf(module_map_disk, legacy_module_map_disk)
+    Pod::UI.puts "[Podfile] Linked legacy module map to #{legacy_module_map_disk}"
+  rescue => e
+    FileUtils.cp(module_map_disk, legacy_module_map_disk)
+    Pod::UI.warn "[Podfile] Symlink failed (#{e}); copied canonical module map to legacy path"
+  end
+
   pods_project_modified = false
   installer.pods_project.targets.each do |target|
     removed = remove_hermes_phase.call(target, 'pods')
