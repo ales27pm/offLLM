@@ -1,5 +1,13 @@
 import logger from "../../utils/logger";
 
+class ToolValidationError extends Error {
+  constructor(message, { missingParameters = [] } = {}) {
+    super(message);
+    this.name = "ToolValidationError";
+    this.missingParameters = missingParameters;
+  }
+}
+
 const getArgKeys = (args) =>
   args && typeof args === "object" ? Object.keys(args) : [];
 
@@ -17,7 +25,10 @@ const validateRequiredParameters = (tool, args) => {
     .filter((name) => !Object.prototype.hasOwnProperty.call(args, name));
 
   if (missing.length > 0) {
-    throw new Error(`Missing required parameters: ${missing.join(", ")}`);
+    throw new ToolValidationError(
+      `Missing required parameters: ${missing.join(", ")}`,
+      { missingParameters: missing },
+    );
   }
 };
 
@@ -164,10 +175,18 @@ export default class ToolHandler {
         if (step && tracer && typeof tracer.failStep === "function") {
           tracer.failStep(step, error, { tool: name });
         }
-        logger.error("ToolHandler", `Tool ${name} execution failed`, error, {
-          tool: name,
-          argKeys,
-        });
+        if (error instanceof ToolValidationError) {
+          logger.warn("ToolHandler", `Tool ${name} validation failed`, {
+            tool: name,
+            argKeys,
+            missingParameters: error.missingParameters,
+          });
+        } else {
+          logger.error("ToolHandler", `Tool ${name} execution failed`, error, {
+            tool: name,
+            argKeys,
+          });
+        }
         results.push({
           role: "tool",
           name,

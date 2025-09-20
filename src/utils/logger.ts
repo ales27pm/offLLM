@@ -26,6 +26,8 @@ class Logger {
 
   private readonly isProduction = process?.env?.NODE_ENV === "production";
 
+  private readonly isTest = process?.env?.NODE_ENV === "test";
+
   private logLevel: LogLevel = this.isProduction
     ? LogLevel.WARN
     : LogLevel.DEBUG;
@@ -103,7 +105,7 @@ class Logger {
       this.logs = this.logs.slice(-this.maxLogs);
     }
 
-    if (!this.isProduction) {
+    if (!this.isProduction && !this.isTest) {
       const formatted = this.formatMessage(level, tag, message);
       switch (level) {
         case LogLevel.DEBUG:

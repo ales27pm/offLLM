@@ -20,6 +20,9 @@ interface StoredData {
   items: MemoryItem[];
 }
 
+let cachedEphemeralKey: string | null = null;
+let hasWarnedMissingKey = false;
+
 function getKey() {
   const envKey = getEnv("MEMORY_ENCRYPTION_KEY");
   if (!envKey) {
@@ -28,11 +31,20 @@ function getKey() {
         "[VectorMemory] MEMORY_ENCRYPTION_KEY is required in production.",
       );
     }
-    console.warn(
-      "[VectorMemory] MEMORY_ENCRYPTION_KEY missing; using ephemeral key for development.",
-    );
-    return randomBytes(16).toString("hex");
+    const shouldWarn = process.env.NODE_ENV !== "test" && !hasWarnedMissingKey;
+    if (shouldWarn) {
+      console.warn(
+        "[VectorMemory] MEMORY_ENCRYPTION_KEY missing; using ephemeral key for development.",
+      );
+      hasWarnedMissingKey = true;
+    }
+    if (!cachedEphemeralKey) {
+      cachedEphemeralKey = randomBytes(16).toString("hex");
+    }
+    return cachedEphemeralKey;
   }
+  hasWarnedMissingKey = false;
+  cachedEphemeralKey = null;
   return envKey.padEnd(32, "0").slice(0, 32);
 }
 
