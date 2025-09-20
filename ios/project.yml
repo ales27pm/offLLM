@@ -80,6 +80,11 @@ targets:
           DEBUG_INFORMATION_FORMAT: dwarf-with-dsym
 
     scripts:
+      - name: Patch MLX metal headers for C++17 warnings
+        script: |
+          bash "${PROJECT_DIR}/scripts/patch-mlx-metal-cxx17.sh"
+        runOnlyForDeploymentPostprocessing: false
+        alwaysOutOfDate: true
       - name: Create Symlinks to Header Folders
         script: |
           echo "Symlinks handled by CocoaPods"

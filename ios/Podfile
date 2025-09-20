@@ -456,6 +456,28 @@ post_install do |installer|
     end
   end
 
+  mlx_patch_script = File.join(__dir__, 'scripts', 'patch-mlx-metal-cxx17.sh')
+  if File.exist?(mlx_patch_script)
+    env = { 'PROJECT_DIR' => __dir__, 'SRCROOT' => __dir__ }
+    stdout_str, stderr_str, status = Open3.capture3(env, 'bash', mlx_patch_script)
+
+    stdout_str.each_line do |line|
+      line = line.strip
+      Pod::UI.puts("[Podfile] #{line}") unless line.empty?
+    end
+
+    unless status.success?
+      stderr_str.each_line do |line|
+        line = line.strip
+        Pod::UI.warn("[Podfile] STDERR: #{line}") unless line.empty?
+      end
+      Pod::UI.warn('[Podfile] Failed to patch MLX metal headers; warnings may persist. ' \
+                   'You can re-run ios/scripts/patch-mlx-metal-cxx17.sh manually.')
+    end
+  else
+    Pod::UI.warn('[Podfile] Missing ios/scripts/patch-mlx-metal-cxx17.sh; MLX metal warnings may persist.')
+  end
+
   # Try to apply RN Contacts orientation patch (if repo has the script)
   patch_script = File.join(__dir__, 'scripts', 'patch-react-native-contacts.sh')
   if File.exist?(patch_script)
