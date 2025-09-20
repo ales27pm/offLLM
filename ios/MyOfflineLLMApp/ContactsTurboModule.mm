@@ -157,12 +157,12 @@ RCT_EXPORT_METHOD(findContact:(NSString *)query
       return;
     }
 
-    NSArray<CNKeyDescriptor *> *keys = @[CNContactGivenNameKey,
-                                         CNContactMiddleNameKey,
-                                         CNContactFamilyNameKey,
-                                         CNContactOrganizationNameKey,
-                                         CNContactPhoneNumbersKey,
-                                         CNContactEmailAddressesKey];
+    NSArray<id<CNKeyDescriptor>> *keys = @[CNContactGivenNameKey,
+                                           CNContactMiddleNameKey,
+                                           CNContactFamilyNameKey,
+                                           CNContactOrganizationNameKey,
+                                           CNContactPhoneNumbersKey,
+                                           CNContactEmailAddressesKey];
     NSPredicate *predicate = [CNContact predicateForContactsMatchingName:trimmedQuery];
     NSError *fetchError = nil;
     NSArray<CNContact *> *contacts = [store unifiedContactsMatchingPredicate:predicate
