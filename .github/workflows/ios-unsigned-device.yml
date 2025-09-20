@@ -75,6 +75,12 @@ jobs:
             brew install xcodegen
           fi
 
+      - name: Install xcresultparser
+        run: |
+          set -euo pipefail
+          brew tap a7ex/homebrew-formulae
+          brew install xcresultparser
+
       - name: Generate Xcode project (XcodeGen)
         working-directory: ios
         run: xcodegen generate
@@ -541,6 +547,27 @@ jobs:
             exit 65
           fi
 
+      - name: Summarize xcresult bundles
+        if: ${{ always() }}
+        run: |
+          set -euo pipefail
+          mkdir -p build
+          summarize() {
+            local label="$1"
+            local bundle="$2"
+            local output="$3"
+            if [ -d "$bundle" ]; then
+              if ! xcresultparser -o md "$bundle" > "$output"; then
+                echo "::warning title=xcresultparser failed::Unable to summarize ${label} xcresult at ${bundle}."
+                rm -f "$output" || true
+              fi
+            else
+              echo "::warning title=xcresult missing::${label} xcresult bundle not found at ${bundle}."
+            fi
+          }
+          summarize "resolve" "${DERIVED_DATA}/ResultBundle_resolve.xcresult" build/ResultBundle_resolve.md
+          summarize "archive" "${DERIVED_DATA}/ResultBundle_archive.xcresult" build/ResultBundle_archive.md
+
       - name: Package unsigned IPA from archive (robust)
         if: ${{ steps.sdk.outputs.present == 'true' }}
         run: |
@@ -559,6 +586,8 @@ jobs:
             ${{ env.DERIVED_DATA }}/ResultBundle_archive.xcresult
             build/ResultBundle_archive.json
             build/ResultBundle_resolve.json
+            build/ResultBundle_archive.md
+            build/ResultBundle_resolve.md
             build/diagnostics
           if-no-files-found: warn
           compression-level: 6

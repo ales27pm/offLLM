@@ -65,6 +65,12 @@ jobs:
             brew install xcodegen
           fi
 
+      - name: Install xcresultparser
+        run: |
+          set -euo pipefail
+          brew tap a7ex/homebrew-formulae
+          brew install xcresultparser
+
       - name: Generate Xcode project
         working-directory: ios
         run: xcodegen generate
@@ -123,6 +129,20 @@ jobs:
             CODE_SIGNING_REQUIRED=NO \
             clean build | xcpretty && exit ${PIPESTATUS[0]}
 
+      - name: Summarize simulator xcresult
+        if: ${{ always() }}
+        run: |
+          set -euo pipefail
+          mkdir -p build
+          if [ -d "${RESULT_BUNDLE_SIM}" ]; then
+            if ! xcresultparser -o md "${RESULT_BUNDLE_SIM}" > build/ResultBundle_sim.md; then
+              echo "::warning title=xcresultparser failed::Unable to summarize ${RESULT_BUNDLE_SIM}."
+              rm -f build/ResultBundle_sim.md || true
+            fi
+          else
+            echo "::warning title=xcresult missing::${RESULT_BUNDLE_SIM} not found; skipping summary."
+          fi
+
       - name: Remove temporary module cache
         if: env.MODULE_CACHE_DIR != ''
         run: |
@@ -139,6 +159,7 @@ jobs:
           path: |
             build/DerivedData/Build/Products/Release-iphonesimulator/*.app
             ${{ env.RESULT_BUNDLE_SIM }}
+            build/ResultBundle_sim.md
           if-no-files-found: warn
 
   device-archive:
@@ -183,6 +204,12 @@ jobs:
           if ! command -v xcodegen >/dev/null 2>&1; then
             brew install xcodegen
           fi
+
+      - name: Install xcresultparser
+        run: |
+          set -euo pipefail
+          brew tap a7ex/homebrew-formulae
+          brew install xcresultparser
 
       - name: Generate Xcode project
         working-directory: ios
@@ -241,6 +268,20 @@ jobs:
             CODE_SIGNING_REQUIRED=NO \
             clean build archive | xcpretty && exit ${PIPESTATUS[0]}
 
+      - name: Summarize device xcresult
+        if: ${{ always() }}
+        run: |
+          set -euo pipefail
+          mkdir -p build
+          if [ -d "${RESULT_BUNDLE_DEV}" ]; then
+            if ! xcresultparser -o md "${RESULT_BUNDLE_DEV}" > build/ResultBundle_device.md; then
+              echo "::warning title=xcresultparser failed::Unable to summarize ${RESULT_BUNDLE_DEV}."
+              rm -f build/ResultBundle_device.md || true
+            fi
+          else
+            echo "::warning title=xcresult missing::${RESULT_BUNDLE_DEV} not found; skipping summary."
+          fi
+
       - name: Remove temporary module cache
         if: env.MODULE_CACHE_DIR != ''
         run: |
@@ -258,4 +299,5 @@ jobs:
             build/DerivedData/Build/Products/Release-iphoneos/*.app
             build/DerivedData/Build/Intermediates.noindex/ArchiveIntermediates/${{ env.SCHEME }}/BuildProductsPath/Release-iphoneos/*.app
             ${{ env.RESULT_BUNDLE_DEV }}
+            build/ResultBundle_device.md
           if-no-files-found: warn
