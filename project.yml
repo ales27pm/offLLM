@@ -81,6 +81,7 @@ targets:
         CLANG_CXX_LANGUAGE_STANDARD: c++20
         OTHER_MTLFLAGS:
           - "$(inherited)"
+          - "-std=metal-cpp17"
 
         # Allow CocoaPods header symlink scripts to write in Xcode 15+
         ENABLE_USER_SCRIPT_SANDBOXING: NO

@@ -243,13 +243,14 @@ post_install do |installer|
   legacy_module_map_path_pattern = /(?<!\S)#{Regexp.escape(legacy_module_map_path)}(?!\S)/
   legacy_module_map_flag_quoted_pattern = /"#{Regexp.escape(legacy_module_map_flag)}"/
   legacy_module_map_path_quoted_pattern = /"#{Regexp.escape(legacy_module_map_path)}"/
-  # Keep the legacy module map on disk for older toolchains that still probe for
-  # `RCTDeprecation.modulemap`, but avoid feeding it directly to clang.
-  # Xcode 16's clang treats duplicate `-fmodule-map-file` entries defining the
-  # same module as a hard error ("redefinition of module"), which surfaced in CI.
-  # Limiting the compiler flags to the canonical module map sidesteps the clash
-  # while maintaining the compatibility file for consumers that reference it
-  # directly on disk.
+  # Provide a single canonical module map so clang never has to reconcile two
+  # definitions of the same module. Previous builds shipped both
+  # `module.modulemap` and `RCTDeprecation.modulemap`, which allowed the compiler
+  # to load either file depending on discovery order. When a precompiled header
+  # cached one path and the next build discovered the other, Xcode 16 aborted the
+  # build because the AST referenced a different module map path. Keeping only the
+  # canonical file and updating build settings to point at it ensures every
+  # invocation resolves the module identically.
   module_map_flags = [module_map_flag]
   module_map_dir = File.join(installer.sandbox.root.to_s, 'Headers', 'Public', 'RCTDeprecation')
   module_map_disk = File.join(module_map_dir, 'module.modulemap')
@@ -259,12 +260,15 @@ post_install do |installer|
   desired_module_map = File.read(module_map_template)
 
   FileUtils.mkdir_p(module_map_dir)
-  { module_map_disk => 'primary', legacy_module_map_disk => 'legacy' }.each do |path, label|
-    existing_module_map = File.exist?(path) ? File.read(path) : nil
-    next if existing_module_map == desired_module_map
+  existing_module_map = File.exist?(module_map_disk) ? File.read(module_map_disk) : nil
+  if existing_module_map != desired_module_map
+    Pod::UI.puts "[Podfile] Writing #{module_map_disk} (primary)"
+    File.write(module_map_disk, desired_module_map)
+  end
 
-    Pod::UI.puts "[Podfile] Writing #{path} (#{label})"
-    File.write(path, desired_module_map)
+  if File.exist?(legacy_module_map_disk) || File.symlink?(legacy_module_map_disk)
+    Pod::UI.puts "[Podfile] Removing legacy module map at #{legacy_module_map_disk}"
+    FileUtils.rm_f(legacy_module_map_disk)
   end
 
   pods_project_modified = false
