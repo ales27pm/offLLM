@@ -15,6 +15,8 @@ const isReactNative =
 let RNFS = null;
 let nodeFs = null;
 let nodePath = null;
+let nodeModulesLoaded = false;
+let nodeFsWarningLogged = false;
 
 if (isReactNative) {
   try {
@@ -26,23 +28,91 @@ if (isReactNative) {
     );
     RNFS = null;
   }
-} else {
+}
+
+const FS_MODULE_ID = ["f", "s"].join("");
+const PATH_MODULE_ID = ["p", "a", "t", "h"].join("");
+
+const resolveNodeRequire = () => {
+  if (typeof globalThis === "object") {
+    const nonWebpackRequire = globalThis.__non_webpack_require__;
+    if (typeof nonWebpackRequire === "function") {
+      return nonWebpackRequire;
+    }
+  }
+
+  if (typeof module !== "undefined" && typeof module.require === "function") {
+    return module.require.bind(module);
+  }
+
+  if (typeof require === "function") {
+    return require;
+  }
+
   try {
-    nodeFs = require("fs").promises;
-  } catch (error) {
-    nodeFs = null;
+    return Function("return require")();
+  } catch {
+    return null;
+  }
+};
+
+const logNodeFsUnavailable = (error) => {
+  if (!nodeFsWarningLogged) {
     console.warn(
       "[toolSystem] Node fs.promises is unavailable; file system tool cannot access the local disk.",
       error,
     );
+    nodeFsWarningLogged = true;
+  }
+};
+
+const loadNodeModulesIfNeeded = () => {
+  if (nodeModulesLoaded) {
+    return;
+  }
+  nodeModulesLoaded = true;
+
+  if (isReactNative) {
+    nodeFs = null;
+    nodePath = null;
+    return;
+  }
+
+  const requireFn = resolveNodeRequire();
+  if (!requireFn) {
+    nodeFs = null;
+    nodePath = null;
+    logNodeFsUnavailable();
+    return;
   }
 
   try {
-    nodePath = require("path");
+    const fsModule = requireFn(FS_MODULE_ID);
+    nodeFs = fsModule && fsModule.promises ? fsModule.promises : null;
+    if (!nodeFs) {
+      logNodeFsUnavailable();
+    }
+  } catch (error) {
+    nodeFs = null;
+    logNodeFsUnavailable(error);
+  }
+
+  try {
+    nodePath = requireFn(PATH_MODULE_ID) || null;
   } catch {
     nodePath = null;
   }
-}
+};
+
+const getNodeFs = () => {
+  loadNodeModulesIfNeeded();
+  return nodeFs;
+};
+
+const getNodePath = () => {
+  loadNodeModulesIfNeeded();
+  return nodePath;
+};
 
 const hasOwn = (object, key) =>
   object != null && Object.prototype.hasOwnProperty.call(object, key);
@@ -70,8 +140,9 @@ const pathDirname = (targetPath) => {
   if (!targetPath) {
     return "";
   }
-  if (nodePath) {
-    return nodePath.dirname(targetPath);
+  const nodePathModule = getNodePath();
+  if (nodePathModule) {
+    return nodePathModule.dirname(targetPath);
   }
   const normalised = targetPath.replace(/\\+/g, "/");
   const index = normalised.lastIndexOf("/");
@@ -82,8 +153,9 @@ const pathDirname = (targetPath) => {
 };
 
 const joinPath = (base, segment) => {
-  if (nodePath) {
-    return nodePath.join(base, segment);
+  const nodePathModule = getNodePath();
+  if (nodePathModule) {
+    return nodePathModule.join(base, segment);
   }
   if (!base) {
     return segment;
@@ -109,8 +181,9 @@ const ensureDirectoryExists = async (filePath) => {
     }
     return;
   }
-  if (nodeFs) {
-    await nodeFs.mkdir(directory, { recursive: true });
+  const nodeFsModule = getNodeFs();
+  if (nodeFsModule) {
+    await nodeFsModule.mkdir(directory, { recursive: true });
   }
 };
 
@@ -123,9 +196,10 @@ const getPathStats = async (targetPath) => {
     }
   }
 
-  if (nodeFs) {
+  const nodeFsModule = getNodeFs();
+  if (nodeFsModule) {
     try {
-      return await nodeFs.stat(targetPath);
+      return await nodeFsModule.stat(targetPath);
     } catch {
       return null;
     }
@@ -305,16 +379,19 @@ const normalizeDirectoryEntriesFromRN = (entries) =>
   }));
 
 const listNodeDirectory = async (directoryPath) => {
-  if (!nodeFs) {
+  const nodeFsModule = getNodeFs();
+  if (!nodeFsModule) {
     throw new Error("Node file system is not available");
   }
-  const dirents = await nodeFs.readdir(directoryPath, { withFileTypes: true });
+  const dirents = await nodeFsModule.readdir(directoryPath, {
+    withFileTypes: true,
+  });
   const entries = await Promise.all(
     dirents.map(async (dirent) => {
       const entryPath = joinPath(directoryPath, dirent.name);
       let stats = null;
       try {
-        stats = await nodeFs.stat(entryPath);
+        stats = await nodeFsModule.stat(entryPath);
       } catch {
         stats = null;
       }
@@ -864,6 +941,7 @@ export const builtInTools = {
     },
     execute: async (parameters) => {
       const { operation, path: targetPath, content } = parameters;
+      const nodeFsModule = getNodeFs();
 
       try {
         if (!targetPath || typeof targetPath !== "string") {
@@ -889,8 +967,8 @@ export const builtInTools = {
               };
             }
 
-            if (nodeFs) {
-              const data = await nodeFs.readFile(targetPath, "utf8");
+            if (nodeFsModule) {
+              const data = await nodeFsModule.readFile(targetPath, "utf8");
               return {
                 success: true,
                 operation,
@@ -916,8 +994,8 @@ export const builtInTools = {
 
             if (RNFS) {
               await RNFS.writeFile(targetPath, dataToWrite, "utf8");
-            } else if (nodeFs) {
-              await nodeFs.writeFile(targetPath, dataToWrite, "utf8");
+            } else if (nodeFsModule) {
+              await nodeFsModule.writeFile(targetPath, dataToWrite, "utf8");
             } else {
               throw new Error("No file system implementation available");
             }
@@ -951,7 +1029,7 @@ export const builtInTools = {
               };
             }
 
-            if (nodeFs) {
+            if (nodeFsModule) {
               const entries = await listNodeDirectory(targetPath);
               return {
                 success: true,
