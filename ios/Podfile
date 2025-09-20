@@ -175,8 +175,14 @@ post_install do |installer|
   module_map_path = '$(PODS_ROOT)/Headers/Public/RCTDeprecation/module.modulemap'
   legacy_module_map_path = '$(PODS_ROOT)/Headers/Public/RCTDeprecation/RCTDeprecation.modulemap'
   module_map_flag = "-fmodule-map-file=#{module_map_path}"
-  legacy_module_map_flag = "-fmodule-map-file=#{legacy_module_map_path}"
-  module_map_flags = [module_map_flag, legacy_module_map_flag]
+  # Keep the legacy module map on disk for older toolchains that still probe for
+  # `RCTDeprecation.modulemap`, but avoid feeding it directly to clang.
+  # Xcode 16's clang treats duplicate `-fmodule-map-file` entries defining the
+  # same module as a hard error ("redefinition of module"), which surfaced in CI.
+  # Limiting the compiler flags to the canonical module map sidesteps the clash
+  # while maintaining the compatibility file for consumers that reference it
+  # directly on disk.
+  module_map_flags = [module_map_flag]
   module_map_dir = File.join(installer.sandbox.root.to_s, 'Headers', 'Public', 'RCTDeprecation')
   module_map_disk = File.join(module_map_dir, 'module.modulemap')
   legacy_module_map_disk = File.join(module_map_dir, 'RCTDeprecation.modulemap')
