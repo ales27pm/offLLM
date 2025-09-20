@@ -1,76 +1,235 @@
 import { Platform, NativeModules } from "react-native";
+import {
+  getRuntimeConfigValue,
+  setRuntimeConfigValue,
+} from "../config/runtime";
 
-export function getDeviceProfile() {
-  let totalMemory;
-  let processorCores;
-  let isLowEndDevice = false;
+const DEVICE_PROFILE_KEY = "deviceProfile";
+
+const fallbackWarningState = {
+  memory: false,
+  cores: false,
+};
+
+function toPositiveInteger(value) {
+  if (typeof value !== "number" || !Number.isFinite(value)) {
+    return undefined;
+  }
+  return Math.max(1, Math.round(value));
+}
+
+function getNodeRequire() {
+  if (typeof module !== "undefined" && typeof module.require === "function") {
+    return module.require.bind(module);
+  }
+  try {
+    // Using eval avoids bundlers (e.g. Metro) trying to resolve the module at build time.
+    return eval("require");
+  } catch {
+    return null;
+  }
+}
+
+function probeNodeHardware() {
+  if (
+    typeof process === "undefined" ||
+    !process.release ||
+    process.release.name !== "node"
+  ) {
+    return { totalMemory: undefined, processorCores: undefined };
+  }
+
+  const nodeRequire = getNodeRequire();
+  if (!nodeRequire) {
+    return { totalMemory: undefined, processorCores: undefined };
+  }
 
   try {
-    if (Platform.OS === "ios") {
-      totalMemory = NativeModules.DeviceInfo?.getTotalMemory?.();
-      processorCores = NativeModules.DeviceInfo?.getProcessorCount?.();
+    const os = nodeRequire("os");
+    const totalMemoryBytes =
+      typeof os.totalmem === "function" ? os.totalmem() : undefined;
+    const cpuInfo = typeof os.cpus === "function" ? os.cpus() : undefined;
 
-      if (!totalMemory) {
-        console.warn(
-          "[DeviceProfile] getTotalMemory unavailable, using fallback value 4000MB",
-        );
-        totalMemory = 4000;
-      }
-      if (!processorCores) {
-        console.warn(
-          "[DeviceProfile] getProcessorCount unavailable, using fallback value 4 cores",
-        );
-        processorCores = 4;
-      }
-    } else {
-      totalMemory = NativeModules.DeviceInfo?.totalMemory?.();
-      processorCores = NativeModules.DeviceInfo?.processorCores?.();
+    const totalMemory = toPositiveInteger(
+      typeof totalMemoryBytes === "number"
+        ? totalMemoryBytes / (1024 * 1024)
+        : undefined,
+    );
+    const processorCores = Array.isArray(cpuInfo)
+      ? toPositiveInteger(cpuInfo.length)
+      : undefined;
 
-      if (!totalMemory) {
-        console.warn(
-          "[DeviceProfile] totalMemory unavailable, using fallback value 4000MB",
-        );
-        totalMemory = 4000;
-      }
-      if (!processorCores) {
-        console.warn(
-          "[DeviceProfile] processorCores unavailable, using fallback value 4 cores",
-        );
-        processorCores = 4;
-      }
+    return { totalMemory, processorCores };
+  } catch {
+    return { totalMemory: undefined, processorCores: undefined };
+  }
+}
+
+function deriveTier(totalMemory, processorCores) {
+  if (totalMemory >= 6000 && processorCores >= 6) {
+    return "high";
+  }
+  if (totalMemory >= 3000 && processorCores >= 4) {
+    return "mid";
+  }
+  return "low";
+}
+
+function buildDeviceProfile() {
+  const sources = new Set();
+
+  let totalMemory;
+  let processorCores;
+  let usedFallbackForMemory = false;
+  let usedFallbackForCores = false;
+
+  if (Platform.OS === "ios") {
+    const nativeMemory = toPositiveInteger(
+      NativeModules.DeviceInfo?.getTotalMemory?.(),
+    );
+    if (nativeMemory) {
+      totalMemory = nativeMemory;
+      sources.add("native");
+      fallbackWarningState.memory = false;
     }
-
-    // Determine device tier based on memory and processor
-    let tier = "low";
-    if (totalMemory >= 6000 && processorCores >= 6) {
-      tier = "high";
-    } else if (totalMemory >= 3000 && processorCores >= 4) {
-      tier = "mid";
-    } else {
-      tier = "low";
-      isLowEndDevice = true;
+    const nativeCores = toPositiveInteger(
+      NativeModules.DeviceInfo?.getProcessorCount?.(),
+    );
+    if (nativeCores) {
+      processorCores = nativeCores;
+      sources.add("native");
+      fallbackWarningState.cores = false;
     }
+  } else {
+    const nativeMemory = toPositiveInteger(
+      NativeModules.DeviceInfo?.totalMemory?.(),
+    );
+    if (nativeMemory) {
+      totalMemory = nativeMemory;
+      sources.add("native");
+      fallbackWarningState.memory = false;
+    }
+    const nativeCores = toPositiveInteger(
+      NativeModules.DeviceInfo?.processorCores?.(),
+    );
+    if (nativeCores) {
+      processorCores = nativeCores;
+      sources.add("native");
+      fallbackWarningState.cores = false;
+    }
+  }
 
-    return {
-      tier,
-      totalMemory,
-      processorCores,
-      isLowEndDevice,
-      platform: Platform.OS,
-      isQuantized: totalMemory < 4000, // Use quantized models on lower memory devices
-    };
+  if (!totalMemory || !processorCores) {
+    const nodeHardware = probeNodeHardware();
+    if (!totalMemory && nodeHardware.totalMemory) {
+      totalMemory = nodeHardware.totalMemory;
+      sources.add("node");
+      fallbackWarningState.memory = false;
+    }
+    if (!processorCores && nodeHardware.processorCores) {
+      processorCores = nodeHardware.processorCores;
+      sources.add("node");
+      fallbackWarningState.cores = false;
+    }
+  }
+
+  if (!totalMemory) {
+    if (!fallbackWarningState.memory) {
+      console.warn(
+        "[DeviceProfile] hardware memory probe unavailable, using fallback value 4000MB",
+      );
+    }
+    fallbackWarningState.memory = true;
+    usedFallbackForMemory = true;
+    totalMemory = 4000;
+    sources.add("fallback");
+  }
+  if (!processorCores) {
+    if (!fallbackWarningState.cores) {
+      console.warn(
+        "[DeviceProfile] hardware core probe unavailable, using fallback value 4 cores",
+      );
+    }
+    fallbackWarningState.cores = true;
+    usedFallbackForCores = true;
+    processorCores = 4;
+    sources.add("fallback");
+  }
+
+  const tier = deriveTier(totalMemory, processorCores);
+  const detectionMethod =
+    sources.size > 0 ? Array.from(sources).sort().join("+") : "unknown";
+
+  const profile = {
+    tier,
+    totalMemory,
+    processorCores,
+    isLowEndDevice: tier === "low",
+    platform: Platform.OS,
+    isQuantized: totalMemory < 4000,
+    detectionMethod,
+  };
+
+  if (!usedFallbackForMemory) {
+    fallbackWarningState.memory = false;
+  }
+
+  if (!usedFallbackForCores) {
+    fallbackWarningState.cores = false;
+  }
+
+  return profile;
+}
+
+function isFallbackProfile(profile) {
+  if (!profile) {
+    return false;
+  }
+
+  const detection = profile.detectionMethod;
+  if (typeof detection !== "string") {
+    return false;
+  }
+
+  return detection.split("+").includes("fallback");
+}
+
+export function getDeviceProfile(options = {}) {
+  const { forceRefresh = false } = options ?? {};
+
+  const cachedProfile = getRuntimeConfigValue(DEVICE_PROFILE_KEY);
+  const hasValidCachedProfile =
+    cachedProfile && !isFallbackProfile(cachedProfile);
+
+  if (hasValidCachedProfile && !forceRefresh) {
+    return cachedProfile;
+  }
+
+  if (cachedProfile && !hasValidCachedProfile) {
+    setRuntimeConfigValue(DEVICE_PROFILE_KEY, undefined);
+  }
+
+  try {
+    const profile = buildDeviceProfile();
+    if (!isFallbackProfile(profile)) {
+      setRuntimeConfigValue(DEVICE_PROFILE_KEY, profile);
+    }
+    return profile;
   } catch (error) {
     console.error("Failed to get device profile:", error);
-
-    // Return default profile
-    return {
+    if (hasValidCachedProfile) {
+      return cachedProfile;
+    }
+    const fallbackProfile = {
       tier: "low",
       totalMemory: 2000,
       processorCores: 2,
       isLowEndDevice: true,
       platform: Platform.OS,
       isQuantized: true,
+      detectionMethod: "fallback",
     };
+    return fallbackProfile;
   }
 }
 

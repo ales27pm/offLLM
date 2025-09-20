@@ -41,3 +41,25 @@ test("VectorMemory enforces size cap", async () => {
   }
   expect(vm.data.items.length).toBeLessThan(10);
 });
+
+test("VectorMemory requires an encryption key in production", () => {
+  const originalNodeEnv = process.env.NODE_ENV;
+  const originalKey = process.env.MEMORY_ENCRYPTION_KEY;
+
+  delete process.env.MEMORY_ENCRYPTION_KEY;
+  process.env.NODE_ENV = "production";
+  jest.resetModules();
+
+  const VectorMemoryProd = require("../src/memory/VectorMemory").default;
+  expect(() => new VectorMemoryProd()).toThrow(
+    "[VectorMemory] MEMORY_ENCRYPTION_KEY is required in production.",
+  );
+
+  process.env.NODE_ENV = originalNodeEnv;
+  if (originalKey === undefined) {
+    delete process.env.MEMORY_ENCRYPTION_KEY;
+  } else {
+    process.env.MEMORY_ENCRYPTION_KEY = originalKey;
+  }
+  jest.resetModules();
+});

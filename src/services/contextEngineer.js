@@ -1,8 +1,9 @@
-import { NativeModules, Platform } from "react-native";
+import { Platform } from "react-native";
 import LLMService from "./llmService";
 import { cosineSimilarity } from "../utils/vectorUtils";
 import { applySparseAttention } from "../utils/sparseAttention";
 import { encoding_for_model } from "tiktoken";
+import { getDeviceProfile } from "../utils/deviceUtils";
 
 /**
  * @typedef {Object} VectorStore
@@ -143,11 +144,7 @@ export class ContextEvaluator {
 
   async _getDeviceMemory() {
     try {
-      if (Platform.OS === "ios") {
-        return NativeModules.DeviceInfo?.getTotalMemory?.() || 2000;
-      } else {
-        return NativeModules.DeviceInfo?.totalMemory?.() || 2000;
-      }
+      return getDeviceProfile().totalMemory;
     } catch {
       return 2000;
     }
@@ -407,11 +404,7 @@ export class ContextEngineer {
 
   async _getDeviceMemory() {
     try {
-      if (Platform.OS === "ios") {
-        return NativeModules.DeviceInfo?.getTotalMemory?.() || 2000;
-      } else {
-        return NativeModules.DeviceInfo?.totalMemory?.() || 2000;
-      }
+      return getDeviceProfile().totalMemory;
     } catch {
       return 2000;
     }
@@ -419,22 +412,7 @@ export class ContextEngineer {
 
   async _getDeviceProfile() {
     try {
-      const totalMemory =
-        Platform.OS === "ios"
-          ? NativeModules.DeviceInfo?.getTotalMemory?.()
-          : NativeModules.DeviceInfo?.totalMemory?.() || 2000;
-
-      let tier = "low";
-      if (totalMemory >= 6000) {
-        tier = "high";
-      } else if (totalMemory >= 3000) {
-        tier = "mid";
-      }
-
-      return {
-        tier,
-        totalMemory,
-      };
+      return getDeviceProfile();
     } catch {
       return {
         tier: "low",
