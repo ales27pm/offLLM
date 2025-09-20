@@ -1,5 +1,16 @@
-#!/bin/bash
+#!/usr/bin/env bash
 set -euo pipefail
+
+if [ -z "${BASH_VERSINFO:-}" ]; then
+  printf 'patch-mlx-metal-cxx17: this script must be executed with bash.\n' >&2
+  exit 1
+fi
+
+if [ "${BASH_VERSINFO[0]}" -lt 3 ]; then
+  printf 'patch-mlx-metal-cxx17: bash 3.0 or newer is required (found %s.%s).\n' \
+    "${BASH_VERSINFO[0]}" "${BASH_VERSINFO[1]-0}" >&2
+  exit 1
+fi
 
 log() {
   printf '[patch-mlx-metal-cxx17] %s\n' "$1"
@@ -157,6 +168,38 @@ array_contains() {
 }
 
 declare -a candidate_roots=()
+declare -a temp_files=()
+
+cleanup() {
+  if [ "${#temp_files[@]}" -eq 0 ]; then
+    return
+  fi
+
+  for tmp in "${temp_files[@]}"; do
+    if [ -n "$tmp" ]; then
+      rm -f "$tmp" || true
+    fi
+  done
+}
+
+trap cleanup EXIT
+
+make_tmp_file() {
+  local tmp
+
+  if tmp="$(mktemp 2>/dev/null)"; then
+    printf '%s\n' "$tmp"
+    return 0
+  fi
+
+  local dir="${TMPDIR:-/tmp}"
+  if [ ! -d "$dir" ]; then
+    dir="/tmp"
+  fi
+
+  tmp="$(mktemp "${dir%/}/patch-mlx-metal-cxx17.XXXXXX" 2>/dev/null)" || return 1
+  printf '%s\n' "$tmp"
+}
 
 maybe_add_variations "${PROJECT_DIR:-}" 3
 maybe_add_variations "${SRCROOT:-}" 3
@@ -187,10 +230,29 @@ fi
 patched_any=false
 
 for root in "${roots[@]}"; do
+  tmp_file="$(make_tmp_file 2>/dev/null || true)"
+  if [ -z "$tmp_file" ]; then
+    log "Unable to allocate temporary file for ${root}; skipping"
+    continue
+  fi
+
+  temp_files+=("$tmp_file")
+
+  if ! find "$root" -maxdepth 15 \
+    -path '*/mlx-swift/Source/Cmlx/mlx-generated/metal/steel/attn/kernels/steel_attention.h' \
+    -print0 2>/dev/null >"$tmp_file"; then
+    log "Failed to scan ${root} for mlx-swift headers"
+    continue
+  fi
+
+  if [ ! -s "$tmp_file" ]; then
+    continue
+  fi
+
   while IFS= read -r -d '' file; do
     apply_patch "$file"
     patched_any=true
-  done < <(find "$root" -maxdepth 15 -path '*/mlx-swift/Source/Cmlx/mlx-generated/metal/steel/attn/kernels/steel_attention.h' -print0 2>/dev/null || true)
+  done < "$tmp_file"
 done
 
 if [ "$patched_any" = false ]; then
