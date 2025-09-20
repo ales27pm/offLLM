@@ -1,6 +1,7 @@
 import LLMService from "../services/llmService";
 import { toolRegistry } from "./tools/ToolRegistry";
 import MemoryManager from "./memory/MemoryManager";
+import SessionNoteManager from "./memory/SessionNoteManager";
 import PluginSystem from "./plugins/PluginSystem";
 import PromptBuilder from "./prompt/PromptBuilder";
 import ToolHandler from "./tools/ToolHandler";
@@ -28,6 +29,7 @@ export class AgentOrchestrator {
   constructor() {
     this.llm = LLMService;
     this.memory = new MemoryManager();
+    this.sessionNotes = new SessionNoteManager();
     this.promptBuilder = new PromptBuilder(toolRegistry);
     this.toolHandler = new ToolHandler(toolRegistry);
     this.plugins = new PluginSystem();
@@ -42,6 +44,14 @@ export class AgentOrchestrator {
     });
 
     try {
+      const sessionNoteEntries = await tracer.withStep(
+        "retrieveSessionNotes",
+        () => this.sessionNotes.getContextEntries(),
+        {
+          successData: (entries) => ({ records: entries.length }),
+        },
+      );
+
       const longMem = await tracer.withStep(
         "retrieveLongTermMemory",
         () => this.memory.retrieve(prompt),
@@ -59,8 +69,9 @@ export class AgentOrchestrator {
         },
       );
 
-      const fullCtx = [...longMem, ...shortMem];
+      const fullCtx = [...sessionNoteEntries, ...longMem, ...shortMem];
       tracer.debug("Context assembled", {
+        notes: sessionNoteEntries.length,
         longTerm: longMem.length,
         shortTerm: shortMem.length,
         total: fullCtx.length,
@@ -185,6 +196,10 @@ export class AgentOrchestrator {
       return finalText;
     } catch (error) {
       tracer.fail(error, { promptLength: promptLength(prompt) });
+      await this.sessionNotes.recordError(error, {
+        source: WORKFLOW_NAME,
+        promptLength: promptLength(prompt),
+      });
       throw error;
     }
   }

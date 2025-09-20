@@ -9,6 +9,7 @@
 ## Memory and Context Management
 
 - `MemoryManager` couples a vector indexer, retriever, and bounded conversation history so that every interaction is embedded, added to the vector store, and made available for future context retrieval during orchestration.【F:src/core/memory/MemoryManager.js†L1-L37】
+- `SessionNoteManager` pulls encrypted session notes from the persistent store and injects them into the prompt so recurring failures (like oversized shell output) ship with proven mitigations before the agent acts again.【F:src/core/memory/SessionNoteManager.js†L1-L66】【F:src/memory/SessionNotesStore.ts†L1-L195】【F:src/core/AgentOrchestrator.js†L28-L118】
 - `VectorIndexer`, `Retriever`, and `HistoryService` handle the respective responsibilities of embedding new content, fetching similarity matches (with sparse-attention re-ranking), and tracking the sliding conversational window.【F:src/core/memory/services/VectorIndexer.js†L1-L26】【F:src/core/memory/services/Retriever.js†L1-L37】【F:src/core/memory/services/HistoryService.js†L1-L17】
 - `ContextEngineer` provides higher-level context planning features such as hierarchical attention, sparse retrieval fallbacks, device-aware token budgeting, and adaptive summarization so the agent can scale prompts across device tiers.【F:src/services/contextEngineer.js†L1-L409】
 
