@@ -6,6 +6,11 @@ import {
 
 const DEVICE_PROFILE_KEY = "deviceProfile";
 
+const fallbackWarningState = {
+  memory: false,
+  cores: false,
+};
+
 function toPositiveInteger(value) {
   if (typeof value !== "number" || !Number.isFinite(value)) {
     return undefined;
@@ -75,6 +80,8 @@ function buildDeviceProfile() {
 
   let totalMemory;
   let processorCores;
+  let usedFallbackForMemory = false;
+  let usedFallbackForCores = false;
 
   if (Platform.OS === "ios") {
     const nativeMemory = toPositiveInteger(
@@ -83,6 +90,7 @@ function buildDeviceProfile() {
     if (nativeMemory) {
       totalMemory = nativeMemory;
       sources.add("native");
+      fallbackWarningState.memory = false;
     }
     const nativeCores = toPositiveInteger(
       NativeModules.DeviceInfo?.getProcessorCount?.(),
@@ -90,6 +98,7 @@ function buildDeviceProfile() {
     if (nativeCores) {
       processorCores = nativeCores;
       sources.add("native");
+      fallbackWarningState.cores = false;
     }
   } else {
     const nativeMemory = toPositiveInteger(
@@ -98,6 +107,7 @@ function buildDeviceProfile() {
     if (nativeMemory) {
       totalMemory = nativeMemory;
       sources.add("native");
+      fallbackWarningState.memory = false;
     }
     const nativeCores = toPositiveInteger(
       NativeModules.DeviceInfo?.processorCores?.(),
@@ -105,6 +115,7 @@ function buildDeviceProfile() {
     if (nativeCores) {
       processorCores = nativeCores;
       sources.add("native");
+      fallbackWarningState.cores = false;
     }
   }
 
@@ -113,24 +124,34 @@ function buildDeviceProfile() {
     if (!totalMemory && nodeHardware.totalMemory) {
       totalMemory = nodeHardware.totalMemory;
       sources.add("node");
+      fallbackWarningState.memory = false;
     }
     if (!processorCores && nodeHardware.processorCores) {
       processorCores = nodeHardware.processorCores;
       sources.add("node");
+      fallbackWarningState.cores = false;
     }
   }
 
   if (!totalMemory) {
-    console.warn(
-      "[DeviceProfile] hardware memory probe unavailable, using fallback value 4000MB",
-    );
+    if (!fallbackWarningState.memory) {
+      console.warn(
+        "[DeviceProfile] hardware memory probe unavailable, using fallback value 4000MB",
+      );
+    }
+    fallbackWarningState.memory = true;
+    usedFallbackForMemory = true;
     totalMemory = 4000;
     sources.add("fallback");
   }
   if (!processorCores) {
-    console.warn(
-      "[DeviceProfile] hardware core probe unavailable, using fallback value 4 cores",
-    );
+    if (!fallbackWarningState.cores) {
+      console.warn(
+        "[DeviceProfile] hardware core probe unavailable, using fallback value 4 cores",
+      );
+    }
+    fallbackWarningState.cores = true;
+    usedFallbackForCores = true;
     processorCores = 4;
     sources.add("fallback");
   }
@@ -139,7 +160,7 @@ function buildDeviceProfile() {
   const detectionMethod =
     sources.size > 0 ? Array.from(sources).sort().join("+") : "unknown";
 
-  return {
+  const profile = {
     tier,
     totalMemory,
     processorCores,
@@ -148,20 +169,57 @@ function buildDeviceProfile() {
     isQuantized: totalMemory < 4000,
     detectionMethod,
   };
+
+  if (!usedFallbackForMemory) {
+    fallbackWarningState.memory = false;
+  }
+
+  if (!usedFallbackForCores) {
+    fallbackWarningState.cores = false;
+  }
+
+  return profile;
 }
 
-export function getDeviceProfile() {
+function isFallbackProfile(profile) {
+  if (!profile) {
+    return false;
+  }
+
+  const detection = profile.detectionMethod;
+  if (typeof detection !== "string") {
+    return false;
+  }
+
+  return detection.split("+").includes("fallback");
+}
+
+export function getDeviceProfile(options = {}) {
+  const { forceRefresh = false } = options ?? {};
+
   const cachedProfile = getRuntimeConfigValue(DEVICE_PROFILE_KEY);
-  if (cachedProfile) {
+  const hasValidCachedProfile =
+    cachedProfile && !isFallbackProfile(cachedProfile);
+
+  if (hasValidCachedProfile && !forceRefresh) {
     return cachedProfile;
+  }
+
+  if (cachedProfile && !hasValidCachedProfile) {
+    setRuntimeConfigValue(DEVICE_PROFILE_KEY, undefined);
   }
 
   try {
     const profile = buildDeviceProfile();
-    setRuntimeConfigValue(DEVICE_PROFILE_KEY, profile);
+    if (!isFallbackProfile(profile)) {
+      setRuntimeConfigValue(DEVICE_PROFILE_KEY, profile);
+    }
     return profile;
   } catch (error) {
     console.error("Failed to get device profile:", error);
+    if (hasValidCachedProfile) {
+      return cachedProfile;
+    }
     const fallbackProfile = {
       tier: "low",
       totalMemory: 2000,
@@ -171,7 +229,6 @@ export function getDeviceProfile() {
       isQuantized: true,
       detectionMethod: "fallback",
     };
-    setRuntimeConfigValue(DEVICE_PROFILE_KEY, fallbackProfile);
     return fallbackProfile;
   }
 }
