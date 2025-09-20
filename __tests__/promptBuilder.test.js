@@ -30,7 +30,7 @@ const createTool = ({ name, description, parameters, execute }) => ({
 });
 
 describe("PromptBuilder", () => {
-  it("lists available tools and retrieved context in order", () => {
+  it("lists available tools alphabetically and preserves context order", () => {
     const searchTool = createTool({
       name: "search",
       description: "web search",
@@ -53,6 +53,7 @@ describe("PromptBuilder", () => {
     const registry = new InMemoryToolRegistry([searchTool, codeTool]);
     const builder = new PromptBuilder(registry);
     const context = [
+      "string context entry",
       { content: "previous conversation" },
       { content: "system note" },
     ];
@@ -66,7 +67,8 @@ describe("PromptBuilder", () => {
     const searchIndex = prompt.indexOf(`Tool: ${searchTool.name}`);
     const codeIndex = prompt.indexOf(`Tool: ${codeTool.name}`);
     expect(searchIndex).toBeGreaterThanOrEqual(0);
-    expect(codeIndex).toBeGreaterThan(searchIndex);
+    expect(codeIndex).toBeGreaterThanOrEqual(0);
+    expect(codeIndex).toBeLessThan(searchIndex);
     expect(prompt).toContain(
       `(Params: ${JSON.stringify(searchTool.parameters)})`,
     );
@@ -77,10 +79,12 @@ describe("PromptBuilder", () => {
       `(Params: ${JSON.stringify(codeTool.parameters)})`,
     );
 
-    const firstContextIndex = prompt.indexOf(context[0].content);
+    const firstContextIndex = prompt.indexOf(context[0]);
     const secondContextIndex = prompt.indexOf(context[1].content);
+    const thirdContextIndex = prompt.indexOf(context[2].content);
     expect(firstContextIndex).toBeGreaterThanOrEqual(0);
     expect(secondContextIndex).toBeGreaterThan(firstContextIndex);
+    expect(thirdContextIndex).toBeGreaterThan(secondContextIndex);
   });
 
   it("handles empty tool and context lists", () => {

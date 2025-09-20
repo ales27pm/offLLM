@@ -12,8 +12,17 @@ const normalizeParameters = (parameters) => {
   return {};
 };
 
-const normalizeContextEntry = (entry) =>
-  entry && typeof entry.content === "string" ? entry.content : "";
+const normalizeContextEntry = (entry) => {
+  if (typeof entry === "string") {
+    return entry;
+  }
+
+  if (entry && typeof entry.content === "string") {
+    return entry.content;
+  }
+
+  return "";
+};
 
 export default class PromptBuilder {
   constructor(toolRegistry) {
@@ -22,8 +31,20 @@ export default class PromptBuilder {
 
   build(userPrompt, context = []) {
     const contextStr = context.map(normalizeContextEntry).join("\n");
-    const toolsStr = this.toolRegistry
-      .getAvailableTools()
+    const tools = this.toolRegistry.getAvailableTools();
+    const toolsStr = (Array.isArray(tools) ? [...tools] : [])
+      .sort((toolA, toolB) => {
+        const nameA =
+          toolA && typeof toolA.name === "string"
+            ? toolA.name.trim().toLowerCase()
+            : "";
+        const nameB =
+          toolB && typeof toolB.name === "string"
+            ? toolB.name.trim().toLowerCase()
+            : "";
+
+        return nameA.localeCompare(nameB);
+      })
       .filter(
         (tool) =>
           tool &&
