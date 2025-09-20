@@ -121,6 +121,7 @@ jobs:
             -derivedDataPath ../build/DerivedData \
             CODE_SIGNING_ALLOWED=NO \
             CODE_SIGNING_REQUIRED=NO \
+            OTHER_LDFLAGS="-v" \
             clean build | xcpretty && exit ${PIPESTATUS[0]}
         shell: bash
 
@@ -248,6 +249,7 @@ jobs:
             -derivedDataPath ../build/DerivedData \
             CODE_SIGNING_ALLOWED=NO \
             CODE_SIGNING_REQUIRED=NO \
+            OTHER_LDFLAGS="-v" \
             archive -archivePath "$ARCHIVE_PATH" | xcpretty && exit ${PIPESTATUS[0]}
 
       - name: Remove temporary module cache
