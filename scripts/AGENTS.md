@@ -24,3 +24,6 @@
 - 2025-02 – `ios_doctor.sh` now fails fast when CocoaPods workspaces are missing and exports the workspace path for downstream jobs—preserve that discovery loop when editing pod-install logic.【F:scripts/ios_doctor.sh†L1-L39】
 - 2025-02 – The doctor workflow strips Hermes "Replace Hermes" phases, flags sandboxed `[CP]` scripts, and logs deployment-target drift, which prevented opaque Xcode errors during CI triage; keep those heuristics intact when refactoring.【F:scripts/dev/doctor.sh†L233-L318】【F:report_agent.md†L6-L10】
 - 2025-02 – `commit-reports.sh` enforces clean working trees and can archive entire runs, stopping teams from losing diagnostics during shared investigations—do not relax those guards without a replacement plan.【F:scripts/dev/commit-reports.sh†L22-L77】
+
+### Session reflection
+- Before ending the session, save the current run's successes and errors so the next session can build on what worked and avoid repeating mistakes.

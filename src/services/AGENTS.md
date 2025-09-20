@@ -23,3 +23,6 @@
 ### Living history
 - 2025-02 – Switching `performSearchWithContentExtraction` to `extractFromUrl` fixed downstream crashes when the deprecated `extract` API was missing—do not regress that call path.【F:src/services/webSearchService.js†L21-L64】
 - 2025-02 – Adaptive quantisation relies on averaged inference time and memory metrics; keep those counters accurate or you lose the self-tuning benefits.【F:src/services/llmService.js†L153-L350】
+
+### Session reflection
+- Before ending the session, save the current run's successes and errors so the next session can build on what worked and avoid repeating mistakes.

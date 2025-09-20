@@ -21,3 +21,6 @@
 ### Living history
 - 2025-02 – Structured tracing around `executeTools` exposed mis-registered tool names; maintain the tracer hand-offs when refactoring to preserve that signal.【F:src/core/AgentOrchestrator.js†L125-L183】
 - 2025-02 – `_parseArgs` validation prevented silent prompt corruption during prompt experiments—keep new tool syntaxes compatible with the existing parser or expand it with focused tests before rollout.【F:src/core/tools/ToolHandler.js†L31-L109】【F:__tests__/toolHandler.test.js†L27-L90】
+
+### Session reflection
+- Before ending the session, save the current run's successes and errors so the next session can build on what worked and avoid repeating mistakes.

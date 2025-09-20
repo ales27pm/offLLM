@@ -20,3 +20,6 @@
 ### Living history
 - 2025-02 – The xcresult parser’s legacy-flag detection prevented CI regressions when Xcode removed `--legacy` support on certain runners; maintain the retry ordering and failure-selection logic when refactoring.【F:tools/xcresult-parser.js†L22-L133】
 - 2025-02 – Structured shell wrappers in `util.mjs` surfaced non-zero exit codes during earlier investigations—reuse and extend them instead of shelling out ad hoc.【F:tools/util.mjs†L3-L17】
+
+### Session reflection
+- Before ending the session, save the current run's successes and errors so the next session can build on what worked and avoid repeating mistakes.

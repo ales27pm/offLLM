@@ -17,3 +17,6 @@
 - 2025-02 – The architecture guide now captures the orchestrator → plugin → service flow and must be revisited whenever tool registration or plugin overrides shift.【F:docs/agent-architecture.md†L3-L58】
 - 2025-02 – The native recovery playbook documents the Swift 6 concurrency fixes applied to `MLXEvents.swift` and `MLXModule.swift`; reference those annotations before introducing alternative solutions.【F:Steps.md†L12-L28】
 - 2025-02 – Generated doctor reports flagged Hermes replacement scripts and sandboxed `[CP]` phases; the linked remediation steps should stay in sync with future CI adjustments.【F:report_agent.md†L6-L10】
+
+### Session reflection
+- Before ending the session, save the current run's successes and errors so the next session can build on what worked and avoid repeating mistakes.

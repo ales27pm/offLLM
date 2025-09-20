@@ -16,3 +16,6 @@
 ### Living history
 - 2025-02 – Development builds previously lost persisted data when the encryption key rotated; setting `MEMORY_ENCRYPTION_KEY` resolved the issue—do not rely on the ephemeral fallback outside local testing.【F:src/memory/VectorMemory.ts†L23-L37】
 - 2025-02 – Tightening `_enforceLimits` to trim the oldest entries kept encrypted blobs under quota without data corruption; retain that LRU-style loop when adjusting limits.【F:src/memory/VectorMemory.ts†L120-L135】
+
+### Session reflection
+- Before ending the session, save the current run's successes and errors so the next session can build on what worked and avoid repeating mistakes.

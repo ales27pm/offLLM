@@ -22,4 +22,7 @@
 - 2025-02 – Parser coverage in `toolHandler.test.js` caught malformed argument strings and ensured `_parseArgs` rejects invalid payloads—extend those cases when evolving the prompt grammar.【F:__tests__/toolHandler.test.js†L27-L90】
 - 2025-02 – The persistent memory suite verified encryption-at-rest and migration bumps, preventing plaintext leaks when storage limits tightened.【F:__tests__/vectorMemory.test.js†L19-L43】
 - 2025-02 – Workflow tracer tests confirmed that success and error paths emit structured logs, making orchestration regressions easier to diagnose with saved traces.【F:__tests__/workflowTracer.test.js†L24-L56】
+ 
+### Session reflection
+- Before ending the session, save the current run's successes and errors so the next session can build on what worked and avoid repeating mistakes.
 <!-- prettier-ignore-end -->
