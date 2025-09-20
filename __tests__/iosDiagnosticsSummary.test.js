@@ -49,6 +49,11 @@ describe("emit_ios_diagnostics_summary", () => {
       "archive_result_sample.json",
     );
 
+    // The script writes to GITHUB_STEP_SUMMARY when it is defined, so clear it to
+    // keep stdout assertions deterministic across environments.
+    const childEnv = { ...process.env, PYTHONUTF8: "1" };
+    delete childEnv.GITHUB_STEP_SUMMARY;
+
     const result = spawnSync(
       "python3",
       [
@@ -75,7 +80,7 @@ describe("emit_ios_diagnostics_summary", () => {
       {
         encoding: "utf8",
         cwd: path.join(__dirname, ".."),
-        env: { ...process.env, PYTHONUTF8: "1" },
+        env: childEnv,
       },
     );
 
