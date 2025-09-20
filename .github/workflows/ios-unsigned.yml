@@ -127,6 +127,7 @@ jobs:
             -resultBundlePath "${RESULT_BUNDLE_SIM}" \
             CODE_SIGNING_ALLOWED=NO \
             CODE_SIGNING_REQUIRED=NO \
+            OTHER_LDFLAGS="-v" \
             clean build | xcpretty && exit ${PIPESTATUS[0]}
 
       - name: Summarize simulator xcresult
@@ -266,6 +267,7 @@ jobs:
             -resultBundlePath "${RESULT_BUNDLE_DEV}" \
             CODE_SIGNING_ALLOWED=NO \
             CODE_SIGNING_REQUIRED=NO \
+            OTHER_LDFLAGS="-v" \
             clean build archive | xcpretty && exit ${PIPESTATUS[0]}
 
       - name: Summarize device xcresult

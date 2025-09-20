@@ -372,6 +372,7 @@ jobs:
             -configuration Release \
             -destination generic/platform=iOS \
             CODE_SIGNING_ALLOWED=NO CODE_SIGNING_REQUIRED=NO \
+            OTHER_LDFLAGS="-v" \
             -derivedDataPath "$DERIVED_DATA" \
             -resultBundlePath "$RB_ARCHIVE" \
             -archivePath "$ARCHIVE_PATH" \
