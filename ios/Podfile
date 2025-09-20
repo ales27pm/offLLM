@@ -529,7 +529,10 @@ post_install do |installer|
     end
   end
 
+  preserved_legacy_module_maps = [legacy_module_map_disk].compact
   Dir.glob(File.join(installer.sandbox.root.to_s, '**', 'RCTDeprecation.modulemap')).each do |stray_module_map|
+    next if preserved_legacy_module_maps.include?(stray_module_map)
+
     Pod::UI.puts "[Podfile] Removing stray legacy module map at #{stray_module_map}"
     FileUtils.rm_f(stray_module_map)
   end
