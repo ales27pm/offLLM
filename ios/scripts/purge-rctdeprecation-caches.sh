@@ -88,7 +88,7 @@ remove_matches() {
       echo "[purge-rctdeprecation] Removing $description file $path"
       rm -f "$path"
     fi
-  done
+  done || :
 }
 
 for root in "${candidate_roots[@]}"; do
