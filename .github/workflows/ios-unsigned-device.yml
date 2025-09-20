@@ -366,12 +366,25 @@ jobs:
           rm -rf "$ARCHIVE_PATH" "$RB_ARCHIVE"
           LOG_FILE="build-log.txt"
           rm -f "$LOG_FILE"
+          LINK_MAP_DIR="${RUNNER_TEMP:-/tmp}"
+          LINK_MAP_PATH="${LINK_MAP_DIR}/link-map-device-archive-$(date +%s).map"
+          EXTRA_OTHER_LDFLAGS="-v -Xlinker -map -Xlinker ${LINK_MAP_PATH}"
+          BASE_OTHER_LDFLAGS="${OTHER_LDFLAGS:-}"
+          if [[ "${BASE_OTHER_LDFLAGS}" != *"\$(inherited)"* ]]; then
+            if [ -n "${BASE_OTHER_LDFLAGS}" ]; then
+              BASE_OTHER_LDFLAGS="\$(inherited) ${BASE_OTHER_LDFLAGS}"
+            else
+              BASE_OTHER_LDFLAGS="\$(inherited)"
+            fi
+          fi
+          OTHER_LDFLAGS="${BASE_OTHER_LDFLAGS} ${EXTRA_OTHER_LDFLAGS}"
           xcodebuild archive \
             -${XCODE_CONTAINER_TYPE} "$XCODE_CONTAINER" \
             -scheme "$SCHEME" \
             -configuration Release \
             -destination generic/platform=iOS \
             CODE_SIGNING_ALLOWED=NO CODE_SIGNING_REQUIRED=NO \
+            OTHER_LDFLAGS="$OTHER_LDFLAGS" \
             -derivedDataPath "$DERIVED_DATA" \
             -resultBundlePath "$RB_ARCHIVE" \
             -archivePath "$ARCHIVE_PATH" \

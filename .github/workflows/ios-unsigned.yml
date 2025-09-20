@@ -117,6 +117,18 @@ jobs:
         run: |
           set -euo pipefail
           mkdir -p "$(dirname "$RESULT_BUNDLE_SIM")"
+          LINK_MAP_DIR="${RUNNER_TEMP:-/tmp}"
+          LINK_MAP_PATH="${LINK_MAP_DIR}/link-map-simulator-build-$(date +%s).map"
+          EXTRA_OTHER_LDFLAGS="-v -Xlinker -map -Xlinker ${LINK_MAP_PATH}"
+          BASE_OTHER_LDFLAGS="${OTHER_LDFLAGS:-}"
+          if [[ "${BASE_OTHER_LDFLAGS}" != *"\$(inherited)"* ]]; then
+            if [ -n "${BASE_OTHER_LDFLAGS}" ]; then
+              BASE_OTHER_LDFLAGS="\$(inherited) ${BASE_OTHER_LDFLAGS}"
+            else
+              BASE_OTHER_LDFLAGS="\$(inherited)"
+            fi
+          fi
+          OTHER_LDFLAGS="${BASE_OTHER_LDFLAGS} ${EXTRA_OTHER_LDFLAGS}"
           xcodebuild \
             -workspace "${WORKSPACE}" \
             -scheme "${SCHEME}" \
@@ -127,6 +139,7 @@ jobs:
             -resultBundlePath "${RESULT_BUNDLE_SIM}" \
             CODE_SIGNING_ALLOWED=NO \
             CODE_SIGNING_REQUIRED=NO \
+            OTHER_LDFLAGS="${OTHER_LDFLAGS}" \
             clean build | xcpretty && exit ${PIPESTATUS[0]}
 
       - name: Summarize simulator xcresult
@@ -257,6 +270,18 @@ jobs:
         run: |
           set -euo pipefail
           mkdir -p "$(dirname "$RESULT_BUNDLE_DEV")"
+          LINK_MAP_DIR="${RUNNER_TEMP:-/tmp}"
+          LINK_MAP_PATH="${LINK_MAP_DIR}/link-map-device-archive-$(date +%s).map"
+          EXTRA_OTHER_LDFLAGS="-v -Xlinker -map -Xlinker ${LINK_MAP_PATH}"
+          BASE_OTHER_LDFLAGS="${OTHER_LDFLAGS:-}"
+          if [[ "${BASE_OTHER_LDFLAGS}" != *"\$(inherited)"* ]]; then
+            if [ -n "${BASE_OTHER_LDFLAGS}" ]; then
+              BASE_OTHER_LDFLAGS="\$(inherited) ${BASE_OTHER_LDFLAGS}"
+            else
+              BASE_OTHER_LDFLAGS="\$(inherited)"
+            fi
+          fi
+          OTHER_LDFLAGS="${BASE_OTHER_LDFLAGS} ${EXTRA_OTHER_LDFLAGS}"
           xcodebuild \
             -workspace "${WORKSPACE}" \
             -scheme "${SCHEME}" \
@@ -266,6 +291,7 @@ jobs:
             -resultBundlePath "${RESULT_BUNDLE_DEV}" \
             CODE_SIGNING_ALLOWED=NO \
             CODE_SIGNING_REQUIRED=NO \
+            OTHER_LDFLAGS="${OTHER_LDFLAGS}" \
             clean build archive | xcpretty && exit ${PIPESTATUS[0]}
 
       - name: Summarize device xcresult
