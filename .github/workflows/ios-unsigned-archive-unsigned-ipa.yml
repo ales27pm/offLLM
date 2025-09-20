@@ -38,25 +38,8 @@ jobs:
           node-version: ${{ env.NODE_VERSION }}
           cache: "npm"
 
-      - name: Cache Pods
-        uses: actions/cache@v4
-        with:
-          path: ios/Pods
-          key: pods-${{ runner.os }}-${{ hashFiles('ios/Podfile.lock') }}
-          restore-keys: pods-${{ runner.os }}-
-
       - name: Install JS deps
         run: npm ci
-
-      - name: Install CocoaPods
-        run: |
-          set -euo pipefail
-          cd ios
-          pod --version
-          pod deintegrate || true
-          rm -rf Pods Podfile.lock
-          pod repo update
-          pod install --repo-update
 
       - name: Install xcresultparser
         run: |
@@ -67,13 +50,58 @@ jobs:
       - name: Verify RN/Hermes versions
         run: python3 scripts/verify-ios-rn-versions.py
 
-      - name: Clean DerivedData & Xcode caches
+      - name: Clean caches (global + repo-local) and set fresh module cache
         run: |
-          rm -rf "$DERIVED_DATA"
-          rm -rf "$DERIVED_DATA/ModuleCache.noindex"
           rm -rf ~/Library/Developer/Xcode/DerivedData
-          rm -rf ~/Library/Developer/Xcode/DerivedData/SourcePackages
           rm -rf ~/Library/Caches/com.apple.dt.Xcode
+          rm -rf build/DerivedData
+          rm -rf build/DerivedData/ModuleCache.noindex
+          rm -rf build/DerivedData/Build/Intermediates.noindex/ArchiveIntermediates
+          rm -rf build/DerivedData/Build/Intermediates.noindex/PrecompiledHeaders
+          MODULE_CACHE_DIR="$(mktemp -d)"
+          echo "CLANG_MODULE_CACHE_PATH=${MODULE_CACHE_DIR}" >> $GITHUB_ENV
+
+      - name: Force fresh Pods (ensures Podfile post_install runs)
+        run: |
+          set -euo pipefail
+          rm -rf ios/Pods ios/Podfile.lock
+          cd ios
+          bundle install || true
+          bundle exec pod repo update
+          bundle exec pod install --repo-update --clean-install
+
+      - name: React Native Codegen (generate specs)
+        run: |
+          set -euo pipefail
+          npx react-native --version || true
+          npx react-native codegen || true
+
+      - name: Validate Codegen headers exist (FBReactNativeSpec & LLMSpec)
+        run: |
+          set -euo pipefail
+          FOUND=0
+          for H in \
+            "ios/Pods/Headers/Public/FBReactNativeSpec/FBReactNativeSpec/FBReactNativeSpec.h" \
+            "ios/Pods/Headers/Public/FBReactNativeSpec/FBReactNativeSpec.h" \
+            "ios/Pods/Headers/Public/FBReactNativeSpec/AppSpec.h" \
+            "ios/Pods/Headers/Public/AppSpec/LLMSpec.h" \
+            "ios/Pods/Headers/Public/AppSpecs/LLMSpec.h" \
+            "ios/Pods/Headers/Public/LLMSpec.h" \
+          ; do
+            if [ -f "$H" ]; then echo "found: $H"; FOUND=1; fi
+          done
+          if [ $FOUND -eq 0 ]; then
+            echo "::error::No codegen spec headers found. Did 'pod install' run and RN codegen execute?"
+            exit 64
+          fi
+
+      - name: Purge RCTDeprecation module caches (defensive)
+        run: |
+          bash ios/scripts/purge-rctdeprecation-caches.sh || true
+
+      - name: Ensure legacy RCTDeprecation.modulemap exists
+        run: |
+          bash ios/scripts/ensure-rctdeprecation-legacy.sh
 
       - name: Debug — list schemes & settings
         run: |
@@ -81,10 +109,6 @@ jobs:
           xcodebuild -list -workspace "${WORKSPACE}" > build/xcodebuild-list.txt || true
           xcodebuild -showBuildSettings -workspace "${WORKSPACE}" -scheme "${SCHEME}" > build/build-settings.txt || true
 
-      - name: Archive — Generic iOS Device (unsigned)
-        env:
-          RCT_NEW_ARCH_ENABLED: "1"
-        run: |
       - name: Install xcpretty
         run: gem install xcpretty
 

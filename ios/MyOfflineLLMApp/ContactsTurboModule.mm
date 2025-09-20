@@ -1,5 +1,20 @@
 #import <React/RCTBridgeModule.h>
+#import <React/RCTLog.h>
 #import <Contacts/Contacts.h>
+
+static NSString *const ContactsTurboModuleErrorDomain = @"ContactsTurboModule";
+
+static NSError *ContactsTurboModuleError(NSInteger code, NSString *message, NSError *underlyingError)
+{
+  NSMutableDictionary *userInfo = [NSMutableDictionary dictionary];
+  if (message != nil && message.length > 0) {
+    userInfo[NSLocalizedDescriptionKey] = message;
+  }
+  if (underlyingError != nil) {
+    userInfo[NSUnderlyingErrorKey] = underlyingError;
+  }
+  return [NSError errorWithDomain:ContactsTurboModuleErrorDomain code:code userInfo:userInfo];
+}
 
 @interface ContactsTurboModule : NSObject <RCTBridgeModule>
 @end
@@ -8,88 +23,173 @@
 
 RCT_EXPORT_MODULE();
 
-RCT_EXPORT_METHOD(findContact:(NSString *)query resolver:(RCTPromiseResolveBlock)resolve rejecter:(RCTPromiseRejectBlock)reject) {
+RCT_EXPORT_METHOD(findContact:(NSString *)query
+                  resolver:(RCTPromiseResolveBlock)resolve
+                  rejecter:(RCTPromiseRejectBlock)reject)
+{
+  NSString *trimmedQuery = [[query ?: @"" stringByTrimmingCharactersInSet:[NSCharacterSet whitespaceAndNewlineCharacterSet]] copy];
+  if (trimmedQuery.length == 0) {
+    RCTLogInfo(@"ContactsTurboModule/findContact called with empty query; returning empty array.");
+    resolve(@[]);
+    return;
+  }
+
   CNContactStore *store = [[CNContactStore alloc] init];
-  [store requestAccessForEntityType:CNEntityTypeContacts completionHandler:^(BOOL granted, NSError *error) {
+  [store requestAccessForEntityType:CNEntityTypeContacts completionHandler:^(BOOL granted, NSError *accessError) {
     if (!granted) {
-      reject(@"permission_denied", @"Contacts access denied", error);
+      NSError *deniedError = accessError ?: ContactsTurboModuleError(1, @"Contacts access denied", nil);
+      RCTLogError(@"ContactsTurboModule/findContact permission denied: %@", deniedError);
+      dispatch_async(dispatch_get_main_queue(), ^{
+        reject(@"permission_denied", @"Contacts access denied", deniedError);
+      });
       return;
     }
-    NSPredicate *predicate = [CNContact predicateForContactsMatchingName:query];
-    NSArray *keys = @[CNContactGivenNameKey, CNContactFamilyNameKey, CNContactPhoneNumbersKey, CNContactEmailAddressesKey];
-    NSArray *contacts = [store unifiedContactsMatchingPredicate:predicate keysToFetch:keys error:&error];
-    if (error) {
-      reject(@"search_error", error.localizedDescription, error);
+
+    NSArray<CNKeyDescriptor *> *keys = @[CNContactGivenNameKey,
+                                         CNContactFamilyNameKey,
+                                         CNContactPhoneNumbersKey,
+                                         CNContactEmailAddressesKey];
+    NSPredicate *predicate = [CNContact predicateForContactsMatchingName:trimmedQuery];
+    NSError *fetchError = nil;
+    NSArray<CNContact *> *contacts = [store unifiedContactsMatchingPredicate:predicate
+                                                                keysToFetch:keys
+                                                                      error:&fetchError];
+    if (fetchError != nil) {
+      RCTLogError(@"ContactsTurboModule/findContact failed: %@", fetchError);
+      dispatch_async(dispatch_get_main_queue(), ^{
+        reject(@"search_error",
+               fetchError.localizedDescription ?: @"Failed to search contacts",
+               fetchError);
+      });
       return;
     }
-    NSMutableArray *result = [NSMutableArray array];
+
+    NSMutableArray<NSDictionary *> *results = [NSMutableArray arrayWithCapacity:contacts.count];
+    NSPredicate *nonEmptyPredicate = [NSPredicate predicateWithFormat:@"length > 0"];
+
     for (CNContact *contact in contacts) {
-      NSMutableArray *phones = [NSMutableArray array];
-      for (CNLabeledValue *phone in contact.phoneNumbers) {
-        [phones addObject:((CNPhoneNumber *)phone.value).stringValue];
+      NSMutableArray<NSString *> *phones = [NSMutableArray arrayWithCapacity:contact.phoneNumbers.count];
+      for (CNLabeledValue<CNPhoneNumber *> *phone in contact.phoneNumbers) {
+        NSString *number = phone.value.stringValue;
+        if (number.length > 0) {
+          [phones addObject:number];
+        }
       }
-      NSMutableArray *emails = [NSMutableArray array];
-      for (CNLabeledValue *email in contact.emailAddresses) {
-        [emails addObject:email.value];
+
+      NSMutableArray<NSString *> *emails = [NSMutableArray arrayWithCapacity:contact.emailAddresses.count];
+      for (CNLabeledValue<NSString *> *emailValue in contact.emailAddresses) {
+        NSString *emailAddress = emailValue.value;
+        if (emailAddress.length > 0) {
+          [emails addObject:emailAddress];
+        }
       }
-      [result addObject:@{
-        @"name": [NSString stringWithFormat:@"%@ %@", contact.givenName, contact.familyName],
-        @"phones": phones,
-        @"emails": emails
-      }];
+
+      NSArray<NSString *> *nameComponents = @[
+        contact.givenName ?: @"",
+        contact.middleName ?: @"",
+        contact.familyName ?: @""
+      ];
+      NSString *composedName = [[nameComponents filteredArrayUsingPredicate:nonEmptyPredicate]
+                                   componentsJoinedByString:@" "];
+
+      NSMutableDictionary *entry = [NSMutableDictionary dictionary];
+      entry[@"name"] = composedName.length > 0 ? composedName : (contact.organizationName ?: @"");
+      entry[@"phones"] = phones;
+      entry[@"emails"] = emails;
+      entry[@"identifier"] = contact.identifier ?: @"";
+
+      [results addObject:entry];
     }
-    resolve(result);
+
+    dispatch_async(dispatch_get_main_queue(), ^{
+      resolve(results);
+    });
   }];
 }
 
-RCT_EXPORT_METHOD(addContact:(NSString *)name phone:(NSString *)phone email:(NSString *)email resolver:(RCTPromiseResolveBlock)resolve rejecter:(RCTPromiseRejectBlock)reject) {
+RCT_EXPORT_METHOD(addContact:(NSDictionary *)payload
+                  resolver:(RCTPromiseResolveBlock)resolve
+                  rejecter:(RCTPromiseRejectBlock)reject)
+{
+  if (![payload isKindOfClass:[NSDictionary class]]) {
+    NSError *error = ContactsTurboModuleError(2, @"Expected payload dictionary", nil);
+    reject(@"invalid_payload", error.localizedDescription, error);
+    return;
+  }
+
+  NSString *rawName = [payload objectForKey:@"name"];
+  if (![rawName isKindOfClass:[NSString class]] || rawName.length == 0) {
+    NSError *error = ContactsTurboModuleError(3, @"Missing contact name", nil);
+    reject(@"invalid_name", error.localizedDescription, error);
+    return;
+  }
+
+  NSString *phoneValue = nil;
+  id phoneCandidate = [payload objectForKey:@"phone"];
+  if ([phoneCandidate isKindOfClass:[NSString class]]) {
+    phoneValue = [phoneCandidate stringByTrimmingCharactersInSet:[NSCharacterSet whitespaceAndNewlineCharacterSet]];
+  }
+
+  NSString *emailValue = nil;
+  id emailCandidate = [payload objectForKey:@"email"];
+  if ([emailCandidate isKindOfClass:[NSString class]]) {
+    emailValue = [emailCandidate stringByTrimmingCharactersInSet:[NSCharacterSet whitespaceAndNewlineCharacterSet]];
+  }
+
   CNContactStore *store = [[CNContactStore alloc] init];
-  [store requestAccessForEntityType:CNEntityTypeContacts completionHandler:^(BOOL granted, NSError *error) {
+  [store requestAccessForEntityType:CNEntityTypeContacts completionHandler:^(BOOL granted, NSError *accessError) {
     if (!granted) {
-      reject(@"permission_denied", @"Contacts access denied", error);
+      NSError *deniedError = accessError ?: ContactsTurboModuleError(4, @"Contacts access denied", nil);
+      RCTLogError(@"ContactsTurboModule/addContact permission denied: %@", deniedError);
+      dispatch_async(dispatch_get_main_queue(), ^{
+        reject(@"permission_denied", @"Contacts access denied", deniedError);
+      });
       return;
     }
+
+    NSArray<NSString *> *nameParts = [[rawName componentsSeparatedByCharactersInSet:[NSCharacterSet whitespaceAndNewlineCharacterSet]]
+      filteredArrayUsingPredicate:[NSPredicate predicateWithFormat:@"length > 0"]];
+
     CNMutableContact *contact = [[CNMutableContact alloc] init];
-    // Improved name parsing: handle given, middle, and family names
-    NSString *givenName = @"";
-    NSString *middleName = @"";
-    NSString *familyName = @"";
-
-    NSArray *nameParts = [name componentsSeparatedByCharactersInSet:[NSCharacterSet whitespaceCharacterSet]];
-    nameParts = [nameParts filteredArrayUsingPredicate:[NSPredicate predicateWithFormat:@"length > 0"]];
-
-    if ([nameParts count] == 1) {
-      givenName = nameParts[0];
-    } else if ([nameParts count] == 2) {
-      givenName = nameParts[0];
-      familyName = nameParts[1];
-    } else if ([nameParts count] > 2) {
-      givenName = nameParts[0];
-      familyName = nameParts.lastObject;
+    if (nameParts.count > 0) {
+      contact.givenName = nameParts.firstObject;
+    }
+    if (nameParts.count > 2) {
       NSRange middleRange = NSMakeRange(1, nameParts.count - 2);
-      middleName = [[nameParts subarrayWithRange:middleRange] componentsJoinedByString:@" "];
+      contact.middleName = [[nameParts subarrayWithRange:middleRange] componentsJoinedByString:@" "];
+    }
+    if (nameParts.count >= 2) {
+      contact.familyName = nameParts.lastObject;
     }
 
-    contact.givenName = givenName;
-    contact.middleName = middleName;
-    contact.familyName = familyName;
-    if (phone) {
-      CNPhoneNumber *phoneNumber = [CNPhoneNumber phoneNumberWithStringValue:phone];
+    if (phoneValue.length > 0) {
+      CNPhoneNumber *phoneNumber = [CNPhoneNumber phoneNumberWithStringValue:phoneValue];
       contact.phoneNumbers = @[[CNLabeledValue labeledValueWithLabel:CNLabelPhoneNumberMobile value:phoneNumber]];
     }
-    if (email) {
-      contact.emailAddresses = @[[CNLabeledValue labeledValueWithLabel:CNLabelHome value:email]];
+
+    if (emailValue.length > 0) {
+      contact.emailAddresses = @[[CNLabeledValue labeledValueWithLabel:CNLabelHome value:emailValue]];
     }
+
     CNSaveRequest *request = [[CNSaveRequest alloc] init];
     [request addContact:contact toContainerWithIdentifier:nil];
-    [store executeSaveRequest:request error:&error];
-    if (error) {
-      reject(@"save_error", error.localizedDescription, error);
-    } else {
-      resolve(@{ @"success": @YES });
+
+    NSError *saveError = nil;
+    if (![store executeSaveRequest:request error:&saveError]) {
+      NSError *wrappedError = ContactsTurboModuleError(5, saveError.localizedDescription ?: @"Failed to save contact", saveError);
+      RCTLogError(@"ContactsTurboModule/addContact failed: %@", wrappedError);
+      dispatch_async(dispatch_get_main_queue(), ^{
+        reject(@"save_error", wrappedError.localizedDescription, wrappedError);
+      });
+      return;
     }
+
+    NSDictionary *result = @{ @"success": @YES, @"identifier": contact.identifier ?: @"" };
+    RCTLogInfo(@"ContactsTurboModule/addContact saved contact %@", contact.identifier ?: @"<unknown>");
+    dispatch_async(dispatch_get_main_queue(), ^{
+      resolve(result);
+    });
   }];
 }
 
 @end
-
