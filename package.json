@@ -13,7 +13,7 @@
     "lint:ci": "eslint . --max-warnings=0",
     "format:check": "prettier --check .",
     "build:android": "cd android && ./gradlew assembleRelease",
-    "build:ios": "(cd ios && xcodegen generate && bundle install) && BUNDLE_GEMFILE=ios/Gemfile bundle exec pod install --deployment --project-directory=ios && env -u SWIFT_DEBUG_INFORMATION_FORMAT -u SWIFT_DEBUG_INFORMATION_VERSION xcodebuild -workspace ios/monGARS.xcworkspace -scheme monGARS -configuration Release -destination 'generic/platform=iOS Simulator' CODE_SIGN_IDENTITY='' CODE_SIGNING_REQUIRED=NO CODE_SIGNING_ALLOWED=NO",
+    "build:ios": "(cd ios && xcodegen generate && bundle install) && BUNDLE_GEMFILE=ios/Gemfile bundle exec pod install --deployment --project-directory=ios && bash -lc \"set -euo pipefail; source scripts/lib/xcode_env.sh; sanitize_xcode_env; xcodebuild -workspace ios/monGARS.xcworkspace -scheme monGARS -configuration Release -destination 'generic/platform=iOS Simulator' CODE_SIGN_IDENTITY='' CODE_SIGNING_REQUIRED=NO CODE_SIGNING_ALLOWED=NO\"",
     "bundle:android": "react-native bundle --platform android --dev false --entry-file index.js --bundle-output android/app/src/main/assets/index.android.bundle --assets-dest android/app/src/main/res",
     "bundle:ios": "react-native bundle --platform ios --dev false --entry-file index.js --bundle-output ios/main.jsbundle --assets-dest ios",
     "codegen:ios": "RCT_NEW_ARCH_ENABLED=1 node node_modules/react-native/scripts/generate-codegen-artifacts.js --path . --targetPlatform ios --outputPath ios",

@@ -15,7 +15,7 @@ fi
 sanitize_xcode_env() {
   local var
   for var in SWIFT_DEBUG_INFORMATION_FORMAT SWIFT_DEBUG_INFORMATION_VERSION; do
-    if [[ -v $var ]]; then
+    if [ -n "${!var+x}" ]; then
       printf 'info: unsetting %s to avoid Xcode warnings\n' "$var" >&2
       unset "$var"
     fi

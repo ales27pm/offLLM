@@ -111,8 +111,9 @@ jobs:
           CLANG_MODULE_CACHE_PATH: ${{ env.CLANG_MODULE_CACHE_PATH }}
         run: |
           set -euo pipefail
-          unset SWIFT_DEBUG_INFORMATION_FORMAT
-          unset SWIFT_DEBUG_INFORMATION_VERSION
+          XCODE_ENV_HELPER="${GITHUB_WORKSPACE}/scripts/lib/xcode_env.sh"
+          source "${XCODE_ENV_HELPER}"
+          sanitize_xcode_env
           mkdir -p ../build/DerivedData
           LINK_MAP_DIR="${RUNNER_TEMP:-/tmp}"
           LINK_MAP_PATH="${LINK_MAP_DIR}/link-map-${SDK}-build-$(date +%s).map"
@@ -253,8 +254,9 @@ jobs:
           CLANG_MODULE_CACHE_PATH: ${{ env.CLANG_MODULE_CACHE_PATH }}
         run: |
           set -euo pipefail
-          unset SWIFT_DEBUG_INFORMATION_FORMAT
-          unset SWIFT_DEBUG_INFORMATION_VERSION
+          XCODE_ENV_HELPER="${GITHUB_WORKSPACE}/scripts/lib/xcode_env.sh"
+          source "${XCODE_ENV_HELPER}"
+          sanitize_xcode_env
           mkdir -p ../build/DerivedData "$(dirname "$ARCHIVE_PATH")"
           LINK_MAP_DIR="${RUNNER_TEMP:-/tmp}"
           LINK_MAP_PATH="${LINK_MAP_DIR}/link-map-${SDK}-archive-$(date +%s).map"
