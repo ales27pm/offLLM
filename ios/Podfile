@@ -32,11 +32,30 @@ def materialize_tokens(tokens, preference)
   preference == :array ? filtered : filtered.join(' ')
 end
 
+def token_equals?(token, candidate)
+  return false if token.nil? || candidate.nil?
+
+  normalized = token.to_s.strip
+
+  loop do
+    original = normalized
+    normalized = normalized.sub(/\A\\?["']/, '')
+    normalized = normalized.sub(/\\?["']\z/, '')
+    break if normalized == original
+  end
+
+  normalized == candidate
+end
+
+def tokens_include_flag?(tokens, flag)
+  tokens.any? { |token| token_equals?(token, flag) }
+end
+
 def append_flag(value, flag)
   return ['$(inherited)', flag] if value.nil?
 
   tokens, preference = normalize_tokens(value)
-  return materialize_tokens(tokens, preference) if tokens.include?(flag)
+  return materialize_tokens(tokens, preference) if tokens_include_flag?(tokens, flag)
 
   tokens << flag
   materialize_tokens(tokens, preference)
@@ -49,7 +68,7 @@ end
 def remove_flag(value, flag)
   tokens, preference = normalize_tokens(value)
   original = tokens.dup
-  tokens.reject! { |token| token == flag }
+  tokens.reject! { |token| token_equals?(token, flag) }
   [materialize_tokens(tokens, preference), tokens != original]
 end
 
@@ -57,7 +76,9 @@ def swift_flag_pair?(value, flag)
   return false if flag.nil?
 
   tokens, _ = normalize_tokens(value)
-  tokens.each_cons(2).any? { |first, second| first == '-Xcc' && second == flag }
+  tokens.each_cons(2).any? do |first, second|
+    token_equals?(first, '-Xcc') && token_equals?(second, flag)
+  end
 end
 
 def sanitize_module_map_settings(config, header_search_fix:, module_map_flags:, module_map_path:, legacy_module_map_flag:, force_tokens: false, enforce_module_map: false, enforce_defines_module: false)
@@ -66,13 +87,13 @@ def sanitize_module_map_settings(config, header_search_fix:, module_map_flags:, 
 
   existing_c_flags = config.build_settings['OTHER_CFLAGS']
   c_tokens, _ = normalize_tokens(existing_c_flags)
-  contains_legacy_c_flag = c_tokens.include?(legacy_module_map_flag)
-  contains_canonical_c_flag = module_flag ? c_tokens.include?(module_flag) : false
+  contains_legacy_c_flag = tokens_include_flag?(c_tokens, legacy_module_map_flag)
+  contains_canonical_c_flag = module_flag ? tokens_include_flag?(c_tokens, module_flag) : false
 
   existing_cpp_flags = config.build_settings['OTHER_CPLUSPLUSFLAGS']
   cpp_tokens, _ = normalize_tokens(existing_cpp_flags)
-  contains_legacy_cpp_flag = cpp_tokens.include?(legacy_module_map_flag)
-  contains_canonical_cpp_flag = module_flag ? cpp_tokens.include?(module_flag) : false
+  contains_legacy_cpp_flag = tokens_include_flag?(cpp_tokens, legacy_module_map_flag)
+  contains_canonical_cpp_flag = module_flag ? tokens_include_flag?(cpp_tokens, module_flag) : false
 
   existing_swift_flags = config.build_settings['OTHER_SWIFT_FLAGS']
   contains_legacy_swift = swift_flag_pair?(existing_swift_flags, legacy_module_map_flag)
@@ -157,11 +178,13 @@ def ensure_swift_module_flags(swift_flags, module_map_flags, forbidden_flags: []
 
   forbidden_flags.each do |flag|
     before = tokens.length
-    tokens.reject! { |token| token == flag }
+    tokens.reject! { |token| token_equals?(token, flag) }
     changed ||= tokens.length != before
 
     loop do
-      entry = tokens.each_cons(2).with_index.find { |(first, second), _i| first == '-Xcc' && second == flag }
+      entry = tokens.each_cons(2).with_index.find do |(first, second), _i|
+        token_equals?(first, '-Xcc') && token_equals?(second, flag)
+      end
       break unless entry
 
       _, removal_index = entry
@@ -176,10 +199,10 @@ def ensure_swift_module_flags(swift_flags, module_map_flags, forbidden_flags: []
   while index < tokens.length
     token = tokens[index]
 
-    if token == '-Xcc'
+    if token_equals?(token, '-Xcc')
       next_token = tokens[index + 1]
 
-      if next_token.nil? || next_token == '-Xcc'
+      if next_token.nil? || token_equals?(next_token, '-Xcc')
         changed = true
         index += 1
         next
@@ -201,7 +224,9 @@ def ensure_swift_module_flags(swift_flags, module_map_flags, forbidden_flags: []
   end
 
   module_map_flags.each do |flag|
-    has_pair = tokens.each_cons(2).any? { |first, second| first == '-Xcc' && second == flag }
+    has_pair = tokens.each_cons(2).any? do |first, second|
+      token_equals?(first, '-Xcc') && token_equals?(second, flag)
+    end
     next if has_pair
 
     tokens << '-Xcc'
