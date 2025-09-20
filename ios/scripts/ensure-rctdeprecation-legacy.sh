@@ -6,7 +6,7 @@ LEGACY="${SCRIPT_DIR}/../Pods/Headers/Public/RCTDeprecation/RCTDeprecation.modul
 
 if [ -f "${CANON}" ]; then
   if [ ! -e "${LEGACY}" ]; then
-    ln -sf "module.modulemap" "${LEGACY}" 2>/dev/null || cp "${CANON}" "${LEGACY}"
+    ln -sf "${CANON}" "${LEGACY}" 2>/dev/null || cp "${CANON}" "${LEGACY}"
     echo "[ensure] Created legacy RCTDeprecation.modulemap"
   fi
 else

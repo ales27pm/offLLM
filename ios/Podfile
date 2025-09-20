@@ -414,7 +414,7 @@ post_install do |installer|
   end
 
   begin
-    FileUtils.ln_sf('module.modulemap', legacy_module_map_disk)
+    FileUtils.ln_sf(module_map_disk, legacy_module_map_disk)
     Pod::UI.puts "[Podfile] Linked legacy module map to #{legacy_module_map_disk}"
   rescue => e
     FileUtils.cp(module_map_disk, legacy_module_map_disk)

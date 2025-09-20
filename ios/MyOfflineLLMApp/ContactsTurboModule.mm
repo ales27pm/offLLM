@@ -16,6 +16,31 @@ static NSError *ContactsTurboModuleError(NSInteger code, NSString *message, NSEr
   return [NSError errorWithDomain:ContactsTurboModuleErrorDomain code:code userInfo:userInfo];
 }
 
+static void ContactsTurboResolveOnMain(RCTPromiseResolveBlock resolve, id value)
+{
+  if (!resolve) {
+    return;
+  }
+
+  dispatch_async(dispatch_get_main_queue(), ^{
+    resolve(value);
+  });
+}
+
+static void ContactsTurboRejectOnMain(RCTPromiseRejectBlock reject,
+                                      NSString *code,
+                                      NSString *message,
+                                      NSError *error)
+{
+  if (!reject) {
+    return;
+  }
+
+  dispatch_async(dispatch_get_main_queue(), ^{
+    reject(code, message, error);
+  });
+}
+
 @interface ContactsTurboModule : NSObject <RCTBridgeModule>
 @end
 
@@ -30,7 +55,7 @@ RCT_EXPORT_METHOD(findContact:(NSString *)query
   NSString *trimmedQuery = [[query ?: @"" stringByTrimmingCharactersInSet:[NSCharacterSet whitespaceAndNewlineCharacterSet]] copy];
   if (trimmedQuery.length == 0) {
     RCTLogInfo(@"ContactsTurboModule/findContact called with empty query; returning empty array.");
-    resolve(@[]);
+    ContactsTurboResolveOnMain(resolve, @[]);
     return;
   }
 
@@ -39,9 +64,7 @@ RCT_EXPORT_METHOD(findContact:(NSString *)query
     if (!granted) {
       NSError *deniedError = accessError ?: ContactsTurboModuleError(1, @"Contacts access denied", nil);
       RCTLogError(@"ContactsTurboModule/findContact permission denied: %@", deniedError);
-      dispatch_async(dispatch_get_main_queue(), ^{
-        reject(@"permission_denied", @"Contacts access denied", deniedError);
-      });
+      ContactsTurboRejectOnMain(reject, @"permission_denied", @"Contacts access denied", deniedError);
       return;
     }
 
@@ -56,11 +79,10 @@ RCT_EXPORT_METHOD(findContact:(NSString *)query
                                                                       error:&fetchError];
     if (fetchError != nil) {
       RCTLogError(@"ContactsTurboModule/findContact failed: %@", fetchError);
-      dispatch_async(dispatch_get_main_queue(), ^{
-        reject(@"search_error",
-               fetchError.localizedDescription ?: @"Failed to search contacts",
-               fetchError);
-      });
+      ContactsTurboRejectOnMain(reject,
+                                @"search_error",
+                                fetchError.localizedDescription ?: @"Failed to search contacts",
+                                fetchError);
       return;
     }
 
@@ -101,9 +123,7 @@ RCT_EXPORT_METHOD(findContact:(NSString *)query
       [results addObject:entry];
     }
 
-    dispatch_async(dispatch_get_main_queue(), ^{
-      resolve(results);
-    });
+    ContactsTurboResolveOnMain(resolve, results);
   }];
 }
 
@@ -113,14 +133,14 @@ RCT_EXPORT_METHOD(addContact:(NSDictionary *)payload
 {
   if (![payload isKindOfClass:[NSDictionary class]]) {
     NSError *error = ContactsTurboModuleError(2, @"Expected payload dictionary", nil);
-    reject(@"invalid_payload", error.localizedDescription, error);
+    ContactsTurboRejectOnMain(reject, @"invalid_payload", error.localizedDescription, error);
     return;
   }
 
   NSString *rawName = [payload objectForKey:@"name"];
   if (![rawName isKindOfClass:[NSString class]] || rawName.length == 0) {
     NSError *error = ContactsTurboModuleError(3, @"Missing contact name", nil);
-    reject(@"invalid_name", error.localizedDescription, error);
+    ContactsTurboRejectOnMain(reject, @"invalid_name", error.localizedDescription, error);
     return;
   }
 
@@ -141,9 +161,7 @@ RCT_EXPORT_METHOD(addContact:(NSDictionary *)payload
     if (!granted) {
       NSError *deniedError = accessError ?: ContactsTurboModuleError(4, @"Contacts access denied", nil);
       RCTLogError(@"ContactsTurboModule/addContact permission denied: %@", deniedError);
-      dispatch_async(dispatch_get_main_queue(), ^{
-        reject(@"permission_denied", @"Contacts access denied", deniedError);
-      });
+      ContactsTurboRejectOnMain(reject, @"permission_denied", @"Contacts access denied", deniedError);
       return;
     }
 
@@ -178,17 +196,13 @@ RCT_EXPORT_METHOD(addContact:(NSDictionary *)payload
     if (![store executeSaveRequest:request error:&saveError]) {
       NSError *wrappedError = ContactsTurboModuleError(5, saveError.localizedDescription ?: @"Failed to save contact", saveError);
       RCTLogError(@"ContactsTurboModule/addContact failed: %@", wrappedError);
-      dispatch_async(dispatch_get_main_queue(), ^{
-        reject(@"save_error", wrappedError.localizedDescription, wrappedError);
-      });
+      ContactsTurboRejectOnMain(reject, @"save_error", wrappedError.localizedDescription, wrappedError);
       return;
     }
 
     NSDictionary *result = @{ @"success": @YES, @"identifier": contact.identifier ?: @"" };
     RCTLogInfo(@"ContactsTurboModule/addContact saved contact %@", contact.identifier ?: @"<unknown>");
-    dispatch_async(dispatch_get_main_queue(), ^{
-      resolve(result);
-    });
+    ContactsTurboResolveOnMain(resolve, result);
   }];
 }
 
