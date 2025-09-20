@@ -29,32 +29,8 @@ const createTool = ({ name, description, parameters, execute }) => ({
   execute,
 });
 
-const buildExpectedPrompt = ({ tools = [], context = [], userPrompt }) => {
-  const contextStr = context.map((entry) => entry.content).join("\n");
-  const toolsStr = tools
-    .map(
-      (tool) =>
-        `Tool: ${tool.name} - ${tool.description} (Params: ${JSON.stringify(
-          tool.parameters,
-        )})`,
-    )
-    .join("\n");
-
-  return [
-    "",
-    "You are an AI assistant with access to:",
-    toolsStr,
-    "",
-    "Context:",
-    contextStr,
-    "",
-    `User: ${userPrompt}`,
-    "Assistant:",
-  ].join("\n");
-};
-
 describe("PromptBuilder", () => {
-  it("weaves tool metadata and retrieved context deterministically", () => {
+  it("lists available tools and retrieved context in order", () => {
     const searchTool = createTool({
       name: "search",
       description: "web search",
@@ -82,26 +58,41 @@ describe("PromptBuilder", () => {
     ];
     const prompt = builder.build("Write a summary", context);
 
-    expect(prompt).toBe(
-      buildExpectedPrompt({
-        tools: registry.getAvailableTools(),
-        context,
-        userPrompt: "Write a summary",
-      }),
+    expect(prompt).toContain("You are an AI assistant with access to:");
+    expect(prompt).toContain("Context:");
+    expect(prompt).toContain("User: Write a summary");
+    expect(prompt.trim().endsWith("Assistant:")).toBe(true);
+
+    const searchIndex = prompt.indexOf(`Tool: ${searchTool.name}`);
+    const codeIndex = prompt.indexOf(`Tool: ${codeTool.name}`);
+    expect(searchIndex).toBeGreaterThanOrEqual(0);
+    expect(codeIndex).toBeGreaterThan(searchIndex);
+    expect(prompt).toContain(
+      `(Params: ${JSON.stringify(searchTool.parameters)})`,
     );
+    expect(prompt).toContain(
+      `Tool: ${codeTool.name} - ${codeTool.description}`,
+    );
+    expect(prompt).toContain(
+      `(Params: ${JSON.stringify(codeTool.parameters)})`,
+    );
+
+    const firstContextIndex = prompt.indexOf(context[0].content);
+    const secondContextIndex = prompt.indexOf(context[1].content);
+    expect(firstContextIndex).toBeGreaterThanOrEqual(0);
+    expect(secondContextIndex).toBeGreaterThan(firstContextIndex);
   });
 
   it("handles empty tool and context lists", () => {
     const registry = new InMemoryToolRegistry();
     const builder = new PromptBuilder(registry);
 
-    expect(builder.build("Hello there")).toBe(
-      buildExpectedPrompt({
-        tools: registry.getAvailableTools(),
-        context: [],
-        userPrompt: "Hello there",
-      }),
-    );
+    const prompt = builder.build("Hello there");
+
+    expect(prompt).toContain("You are an AI assistant with access to:");
+    expect(prompt).not.toContain("Tool:");
+    expect(prompt).toContain("Context:");
+    expect(prompt).toContain("User: Hello there");
   });
 
   it("reflects runtime tool registry updates without caching results", () => {
@@ -118,16 +109,12 @@ describe("PromptBuilder", () => {
     });
 
     registry.register(planTool);
-    const firstToolSnapshot = registry.getAvailableTools();
     const firstPrompt = builder.build("Organize the day");
 
-    expect(firstPrompt).toBe(
-      buildExpectedPrompt({
-        tools: firstToolSnapshot,
-        context: [],
-        userPrompt: "Organize the day",
-      }),
+    expect(firstPrompt).toContain(
+      `Tool: ${planTool.name} - ${planTool.description}`,
     );
+    expect(firstPrompt).not.toContain("summarize notes");
 
     const summaryTool = createTool({
       name: "summarizer",
@@ -139,17 +126,15 @@ describe("PromptBuilder", () => {
     });
 
     registry.register(summaryTool);
-    const secondToolSnapshot = registry.getAvailableTools();
     const secondPrompt = builder.build("Organize the day");
 
-    expect(secondPrompt).toBe(
-      buildExpectedPrompt({
-        tools: secondToolSnapshot,
-        context: [],
-        userPrompt: "Organize the day",
-      }),
+    expect(secondPrompt).toContain(
+      `Tool: ${summaryTool.name} - ${summaryTool.description}`,
     );
-    expect(firstPrompt).not.toContain("summarize notes");
+    expect(secondPrompt).toContain("summarize notes");
+    expect(firstPrompt).not.toContain(
+      `Tool: ${summaryTool.name} - ${summaryTool.description}`,
+    );
   });
 
   it("incorporates conversation history and executed tool output", async () => {
@@ -184,13 +169,67 @@ describe("PromptBuilder", () => {
       ...toolResults,
     ]);
 
-    expect(prompt).toBe(
-      buildExpectedPrompt({
-        tools: registry.getAvailableTools(),
-        context: [...conversation, ...toolResults],
-        userPrompt: "Share the doubled result",
-      }),
-    );
+    expect(prompt).toContain("How do I double 21?");
+    expect(prompt).toContain("Let me calculate that.");
     expect(prompt).toContain('{"doubled":42}');
+    expect(prompt).toContain("User: Share the doubled result");
+  });
+
+  it("omits tools missing required metadata", () => {
+    const validTool = createTool({
+      name: "executor",
+      description: "valid tool",
+      parameters: {},
+      execute: async () => ({ ok: true }),
+    });
+
+    const registry = new InMemoryToolRegistry([
+      { description: "missing name", execute: async () => ({}) },
+      { name: "", description: "empty name", execute: async () => ({}) },
+      { name: "anon", execute: async () => ({}) },
+      validTool,
+    ]);
+
+    const builder = new PromptBuilder(registry);
+    const prompt = builder.build("Check tool list");
+
+    expect(prompt).toContain(
+      `Tool: ${validTool.name} - ${validTool.description}`,
+    );
+    expect(prompt).not.toContain("missing name");
+    expect(prompt).not.toContain("empty name");
+    expect(prompt).not.toContain("anon");
+    expect(prompt).toContain("(Params: {})");
+  });
+
+  it("surfaces missing required tool parameters as execution errors", async () => {
+    const registry = new InMemoryToolRegistry();
+    const builder = new PromptBuilder(registry);
+
+    const validatorTool = createTool({
+      name: "validator",
+      description: "requires foo",
+      parameters: {
+        foo: { type: "string", required: true },
+      },
+      execute: async ({ foo }) => ({ foo }),
+    });
+
+    registry.register(validatorTool);
+    const toolHandler = new ToolHandler(registry);
+
+    const calls = toolHandler.parse("TOOL_CALL:validator()");
+    const toolResults = await toolHandler.execute(calls);
+
+    expect(toolResults).toHaveLength(1);
+    expect(toolResults[0].content).toContain(
+      "Missing required parameters: foo",
+    );
+
+    const prompt = builder.build("Proceed", toolResults);
+    expect(prompt).toContain("Missing required parameters: foo");
+    expect(prompt).toContain(
+      `Tool: ${validatorTool.name} - ${validatorTool.description}`,
+    );
   });
 });

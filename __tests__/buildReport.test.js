@@ -1,94 +1,28 @@
 const fs = require("fs");
-const os = require("os");
-const path = require("path");
-const { spawnSync } = require("child_process");
-
-const SCRIPT_PATH = path.join(
-  __dirname,
-  "..",
-  "scripts",
-  "ci",
-  "build_report.py",
-);
+const {
+  createBuildReportFixture,
+} = require("../test-utils/buildReportFixture");
 
 describe("build_report.py", () => {
-  const tempDirs = [];
+  let fixture;
+
+  beforeEach(() => {
+    fixture = createBuildReportFixture();
+  });
 
   afterEach(() => {
-    while (tempDirs.length) {
-      const dir = tempDirs.pop();
-      try {
-        fs.rmSync(dir, { recursive: true, force: true });
-      } catch {
-        // best effort cleanup
-      }
+    if (fixture) {
+      fixture.cleanup();
     }
   });
 
-  const createTempDir = (prefix) => {
-    const dir = fs.mkdtempSync(path.join(os.tmpdir(), `${prefix}-`));
-    tempDirs.push(dir);
-    return dir;
-  };
-
-  const writeExecutable = (filePath, contents) => {
-    fs.writeFileSync(filePath, contents);
-    fs.chmodSync(filePath, 0o755);
-  };
-
-  const runScript = ({
-    logContent = "",
-    xcresultContent = "{}",
-    stubScript,
-  }) => {
-    const tmp = createTempDir("build-report");
-    const binDir = path.join(tmp, "bin");
-    fs.mkdirSync(binDir);
-    const stubPath = path.join(binDir, "xcrun");
-    writeExecutable(stubPath, stubScript);
-
-    const logPath = path.join(tmp, "xcodebuild.log");
-    fs.writeFileSync(logPath, logContent, "utf8");
-
-    const xcresultPath = path.join(tmp, "monGARS.xcresult");
-    fs.writeFileSync(xcresultPath, xcresultContent, "utf8");
-
-    const reportPath = path.join(tmp, "REPORT.md");
-    const agentPath = path.join(tmp, "report_agent.md");
-
-    const env = {
-      ...process.env,
-      PATH: `${binDir}${path.delimiter}${process.env.PATH || ""}`,
-      PYTHONUTF8: "1",
-    };
-
-    const result = spawnSync(
-      "python3",
-      [
-        SCRIPT_PATH,
-        "--log",
-        logPath,
-        "--xcresult",
-        xcresultPath,
-        "--out",
-        reportPath,
-        "--agent",
-        agentPath,
-      ],
-      {
-        cwd: path.join(__dirname, ".."),
-        env,
-        encoding: "utf8",
-      },
-    );
-
-    return {
-      result,
-      reportPath,
-      agentPath,
-      logPath,
-      xcresultPath,
-    };
+  const runWithStub = (options) => {
+    const { result, paths } = fixture.run(options);
+    if (result.stderr) {
+      // Aid debugging on CI by surfacing stderr output.
+      console.error(result.stderr);
+    }
+    return { result, paths };
   };
 
   test("summarizes log diagnostics and xcresult issues when legacy flag is supported", () => {
@@ -109,26 +43,21 @@ fi
 exit 1
 `;
 
-    const { result, reportPath, agentPath } = runScript({
-      logContent: "error: Provisioning failed\nwarning: Swift deprecated API\n",
+    const { result, paths } = runWithStub({
       stubScript,
+      logContent: "error: Provisioning failed\nwarning: Swift deprecated API\n",
     });
-
-    if (result.stderr) {
-      // Aid debugging on CI by surfacing stderr output.
-      console.error(result.stderr);
-    }
 
     expect(result.status).toBe(0);
     expect(result.stdout).toContain("✅ Reports generated");
 
-    const humanReport = fs.readFileSync(reportPath, "utf8");
+    const humanReport = fs.readFileSync(paths.reportPath, "utf8");
     expect(humanReport).toContain("- Workflow log:");
     expect(humanReport).toContain("error: Provisioning failed");
     expect(humanReport).toContain("warning: Swift deprecated API");
     expect(humanReport).toContain("CodeSign failure detected");
 
-    const agentReport = fs.readFileSync(agentPath, "utf8");
+    const agentReport = fs.readFileSync(paths.agentPath, "utf8");
     expect(agentReport).toContain("errors_count=1");
     expect(agentReport).toContain("warnings_count=1");
     expect(agentReport).toContain("xcresult_issues_count=1");
@@ -160,22 +89,18 @@ fi
 exit 1
 `;
 
-    const { result, reportPath, agentPath } = runScript({
-      logContent: "warning: Legacy flag removed\n",
+    const { result, paths } = runWithStub({
       stubScript,
+      logContent: "warning: Legacy flag removed\n",
     });
-
-    if (result.stderr) {
-      console.error(result.stderr);
-    }
 
     expect(result.status).toBe(0);
     expect(result.stdout).toContain("✅ Reports generated");
 
-    const humanReport = fs.readFileSync(reportPath, "utf8");
+    const humanReport = fs.readFileSync(paths.reportPath, "utf8");
     expect(humanReport).toContain("Simulator fallback succeeded");
 
-    const agentReport = fs.readFileSync(agentPath, "utf8");
+    const agentReport = fs.readFileSync(paths.agentPath, "utf8");
     expect(agentReport).toContain("xcresult_issues_count=1");
     expect(agentReport).toContain(
       "first_xcresult_issue=Simulator fallback succeeded",
@@ -205,27 +130,85 @@ fi
 exit 1
 `;
 
-    const { result, reportPath, agentPath } = runScript({
-      logContent: "",
+    const { result, paths } = runWithStub({
       stubScript,
     });
-
-    if (result.stderr) {
-      console.error(result.stderr);
-    }
 
     expect(result.status).toBe(0);
     expect(result.stdout).toContain("✅ Reports generated");
 
-    const humanReport = fs.readFileSync(reportPath, "utf8");
+    const humanReport = fs.readFileSync(paths.reportPath, "utf8");
     expect(humanReport).toContain(
       "(xcresult parse failed: xcresulttool crashed)",
     );
 
-    const agentReport = fs.readFileSync(agentPath, "utf8");
+    const agentReport = fs.readFileSync(paths.agentPath, "utf8");
     expect(agentReport).toContain("xcresult_issues_count=1");
     expect(agentReport).toContain(
       "first_xcresult_issue=(xcresult parse failed: xcresulttool crashed)",
+    );
+  });
+
+  test("records parse failures when xcresult output is empty", () => {
+    const stubScript = `#!/usr/bin/env bash
+set -euo pipefail
+
+if [[ "\${2:-}" == "get" ]]; then
+  echo ''
+  exit 0
+fi
+
+>&2 echo "unexpected invocation: $*"
+exit 1
+`;
+
+    const { result, paths } = runWithStub({
+      stubScript,
+      xcresultContent: "",
+    });
+
+    expect(result.status).toBe(0);
+    expect(result.stdout).toContain("✅ Reports generated");
+
+    const humanReport = fs.readFileSync(paths.reportPath, "utf8");
+    expect(humanReport).toContain("(xcresult parse failed: Expecting value");
+
+    const agentReport = fs.readFileSync(paths.agentPath, "utf8");
+    expect(agentReport).toContain("xcresult_issues_count=1");
+    expect(agentReport).toMatch(
+      /first_xcresult_issue=\(xcresult parse failed: Expecting value/,
+    );
+  });
+
+  test("records parse failures when xcresult output is malformed JSON", () => {
+    const stubScript = `#!/usr/bin/env bash
+set -euo pipefail
+
+if [[ "\${2:-}" == "get" ]]; then
+  echo '{invalid json'
+  exit 0
+fi
+
+>&2 echo "unexpected invocation: $*"
+exit 1
+`;
+
+    const { result, paths } = runWithStub({
+      stubScript,
+    });
+
+    expect(result.status).toBe(0);
+    expect(result.stdout).toContain("✅ Reports generated");
+
+    const humanReport = fs.readFileSync(paths.reportPath, "utf8");
+    expect(humanReport).toContain(
+      "(xcresult parse failed: Expecting property name enclosed in double quotes",
+    );
+
+    const agentReport = fs.readFileSync(paths.agentPath, "utf8");
+    expect(agentReport).toContain("xcresult_issues_count=1");
+    expect(agentReport).toMatch(
+      /first_xcresult_issue=\(xcresult parse failed: Expecting property name enclosed in double quotes/,
     );
   });
 });

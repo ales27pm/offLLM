@@ -3,6 +3,24 @@ import logger from "../../utils/logger";
 const getArgKeys = (args) =>
   args && typeof args === "object" ? Object.keys(args) : [];
 
+const isPlainObject = (value) =>
+  value !== null && typeof value === "object" && !Array.isArray(value);
+
+const validateRequiredParameters = (tool, args) => {
+  if (!isPlainObject(tool.parameters)) {
+    return;
+  }
+
+  const missing = Object.entries(tool.parameters)
+    .filter(([, schema]) => isPlainObject(schema) && schema.required)
+    .map(([name]) => name)
+    .filter((name) => !Object.prototype.hasOwnProperty.call(args, name));
+
+  if (missing.length > 0) {
+    throw new Error(`Missing required parameters: ${missing.join(", ")}`);
+  }
+};
+
 export default class ToolHandler {
   constructor(toolRegistry) {
     this.toolRegistry = toolRegistry;
@@ -123,15 +141,18 @@ export default class ToolHandler {
         });
         continue;
       }
+      const callArgs = args || {};
+      const argKeys = getArgKeys(callArgs);
       const step =
         tracer && typeof tracer.startStep === "function"
           ? tracer.startStep(`tool:${name}`, {
               tool: name,
-              argKeys: getArgKeys(args),
+              argKeys,
             })
           : null;
       try {
-        const res = await tool.execute(args);
+        validateRequiredParameters(tool, callArgs);
+        const res = await tool.execute(callArgs);
         if (step && tracer && typeof tracer.endStep === "function") {
           tracer.endStep(step, {
             tool: name,
@@ -145,7 +166,7 @@ export default class ToolHandler {
         }
         logger.error("ToolHandler", `Tool ${name} execution failed`, error, {
           tool: name,
-          argKeys: getArgKeys(args),
+          argKeys,
         });
         results.push({
           role: "tool",
