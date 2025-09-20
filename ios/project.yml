@@ -80,6 +80,11 @@ targets:
           DEBUG_INFORMATION_FORMAT: dwarf-with-dsym
 
     scripts:
+      - name: Purge legacy RCTDeprecation caches
+        script: |
+          bash "${PROJECT_DIR}/scripts/purge-rctdeprecation-caches.sh"
+        runOnlyForDeploymentPostprocessing: false
+        alwaysOutOfDate: true
       - name: Patch MLX metal headers for C++17 warnings
         script: |
           bash "${PROJECT_DIR}/scripts/patch-mlx-metal-cxx17.sh"
@@ -97,6 +102,10 @@ targets:
     scheme:
       testTargets: []
       preActions:
+        - name: Purge legacy RCTDeprecation caches
+          settingsTarget: monGARS
+          script: |
+            bash "${PROJECT_DIR}/scripts/purge-rctdeprecation-caches.sh"
         - name: Patch MLX metal headers
           settingsTarget: monGARS
           script: |

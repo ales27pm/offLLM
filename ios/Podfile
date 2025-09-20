@@ -212,101 +212,6 @@ def ensure_swift_module_flags(swift_flags, module_map_flags, forbidden_flags: []
   [materialize_tokens(tokens, preference), changed]
 end
 
-def dedupe_existing_directories(paths)
-  seen = {}
-  paths.each_with_object([]) do |raw, acc|
-    next if raw.nil?
-
-    trimmed = raw.to_s.strip
-    next if trimmed.empty?
-
-    expanded = File.expand_path(trimmed)
-    next unless Dir.exist?(expanded)
-    next if seen[expanded]
-
-    seen[expanded] = true
-    acc << expanded
-  end
-end
-
-def purge_legacy_rctdeprecation_artifacts(project_dir, module_name:, legacy_module_map_name:, app_target:)
-  project_dir = File.expand_path(project_dir)
-  project_root = File.expand_path('..', project_dir)
-  home_dir = if Dir.respond_to?(:home)
-               Dir.home
-             else
-               ENV['HOME']
-             end
-
-  candidate_roots = [
-    ENV['DERIVED_DATA_DIR'],
-    ENV['OBJROOT'],
-    ENV['SYMROOT'],
-    File.join(project_root, 'build', 'DerivedData')
-  ]
-  candidate_roots << File.join(home_dir, 'Library', 'Developer', 'Xcode', 'DerivedData') if home_dir && !home_dir.empty?
-
-  roots = dedupe_existing_directories(candidate_roots)
-  return if roots.empty?
-
-  roots.each do |root|
-    begin
-      bridging_patterns = [
-        File.join(root, 'PrecompiledHeaders', "#{app_target}-Bridging-Header-swift*.pch"),
-        File.join(root, 'Build', 'Intermediates.noindex', 'PrecompiledHeaders', "#{app_target}-Bridging-Header-swift*.pch"),
-        File.join(root, '*', 'Build', 'Intermediates.noindex', 'PrecompiledHeaders', "#{app_target}-Bridging-Header-swift*.pch")
-      ]
-
-      bridging_patterns.each do |pattern|
-        Dir.glob(pattern).each do |pch_path|
-          next unless File.file?(pch_path)
-
-          Pod::UI.puts "[Podfile] Removing cached bridging header PCH at #{pch_path}"
-          FileUtils.rm_f(pch_path)
-        rescue => e
-          Pod::UI.warn("[Podfile] Failed to remove bridging header PCH at #{pch_path}: #{e.message}")
-        end
-      end
-
-      module_cache_patterns = [
-        File.join(root, 'ModuleCache.noindex', "*#{module_name}*"),
-        File.join(root, '*', 'ModuleCache.noindex', "*#{module_name}*"),
-        File.join(root, '*', 'Build', 'Intermediates.noindex', 'ModuleCache.noindex', "*#{module_name}*")
-      ]
-
-      module_cache_patterns.each do |pattern|
-        Dir.glob(pattern).each do |entry|
-          next unless File.exist?(entry)
-
-          Pod::UI.puts "[Podfile] Removing cached module cache entry #{entry}"
-          FileUtils.rm_rf(entry)
-        rescue => e
-          Pod::UI.warn("[Podfile] Failed to purge module cache entry #{entry}: #{e.message}")
-        end
-      end
-
-      legacy_patterns = [
-        File.join(root, legacy_module_map_name),
-        File.join(root, 'Build', '**', legacy_module_map_name),
-        File.join(root, 'SourcePackages', '**', legacy_module_map_name)
-      ]
-
-      legacy_patterns.each do |pattern|
-        Dir.glob(pattern).each do |legacy_path|
-          next unless File.exist?(legacy_path)
-
-          Pod::UI.puts "[Podfile] Removing cached legacy module map at #{legacy_path}"
-          FileUtils.rm_f(legacy_path)
-        rescue => e
-          Pod::UI.warn("[Podfile] Failed to delete cached legacy module map #{legacy_path}: #{e.message}")
-        end
-      end
-    rescue Errno::EACCES => e
-      Pod::UI.warn("[Podfile] Skipped derived data root #{root} due to #{e.message}")
-    end
-  end
-end
-
 install! 'cocoapods', :disable_input_output_paths => true
 
 # --- Auto-detect the .xcodeproj near this Podfile ---
@@ -559,12 +464,33 @@ post_install do |installer|
     FileUtils.rm_f(stray_module_map)
   end
 
-  purge_legacy_rctdeprecation_artifacts(
-    __dir__,
-    :module_name => 'RCTDeprecation',
-    :legacy_module_map_name => 'RCTDeprecation.modulemap',
-    :app_target => 'monGARS'
-  )
+  purge_script = File.join(__dir__, 'scripts', 'purge-rctdeprecation-caches.sh')
+  if File.exist?(purge_script)
+    env = {
+      'PROJECT_DIR' => __dir__,
+      'APP_TARGET' => 'monGARS',
+      'MODULE_NAME' => 'RCTDeprecation',
+      'LEGACY_MODULE_MAP_NAME' => 'RCTDeprecation.modulemap'
+    }
+
+    stdout_str, stderr_str, status = Open3.capture3(env, 'bash', purge_script)
+
+    stdout_str.each_line do |line|
+      line = line.strip
+      Pod::UI.puts("[Podfile] #{line}") unless line.empty?
+    end
+
+    stderr_str.each_line do |line|
+      line = line.strip
+      Pod::UI.warn("[Podfile] STDERR: #{line}") unless line.empty?
+    end
+
+    unless status.success?
+      Pod::UI.warn('[Podfile] Failed to purge legacy RCTDeprecation caches; manual cleanup may be required.')
+    end
+  else
+    Pod::UI.warn('[Podfile] Missing ios/scripts/purge-rctdeprecation-caches.sh; derived data may still reference legacy module maps.')
+  end
 
   mlx_patch_script = File.join(__dir__, 'scripts', 'patch-mlx-metal-cxx17.sh')
   if File.exist?(mlx_patch_script)
