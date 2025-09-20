@@ -27,7 +27,7 @@ end
 
 def materialize_tokens(tokens, preference)
   filtered = tokens.compact
-  return nil if filtered.empty?
+  return preference == :array ? [] : '' if filtered.empty?
 
   preference == :array ? filtered : filtered.join(' ')
 end
@@ -75,6 +75,36 @@ def ensure_swift_module_flags(swift_flags, module_map_flags, forbidden_flags: []
       tokens.slice!(removal_index, 2)
       changed = true
     end
+  end
+
+  original_tokens = tokens.dup
+  cleaned_tokens = []
+  index = 0
+  while index < tokens.length
+    token = tokens[index]
+
+    if token == '-Xcc'
+      next_token = tokens[index + 1]
+
+      if next_token.nil? || next_token == '-Xcc'
+        changed = true
+        index += 1
+        next
+      end
+
+      cleaned_tokens << token
+      cleaned_tokens << next_token
+      index += 2
+      next
+    end
+
+    cleaned_tokens << token
+    index += 1
+  end
+
+  if cleaned_tokens != original_tokens
+    tokens = cleaned_tokens
+    changed = true
   end
 
   module_map_flags.each do |flag|
@@ -209,6 +239,10 @@ post_install do |installer|
   legacy_module_map_path = '$(PODS_ROOT)/Headers/Public/RCTDeprecation/RCTDeprecation.modulemap'
   module_map_flag = "-fmodule-map-file=#{module_map_path}"
   legacy_module_map_flag = "-fmodule-map-file=#{legacy_module_map_path}"
+  legacy_module_map_flag_pattern = /(?<!\S)#{Regexp.escape(legacy_module_map_flag)}(?!\S)/
+  legacy_module_map_path_pattern = /(?<!\S)#{Regexp.escape(legacy_module_map_path)}(?!\S)/
+  legacy_module_map_flag_quoted_pattern = /"#{Regexp.escape(legacy_module_map_flag)}"/
+  legacy_module_map_path_quoted_pattern = /"#{Regexp.escape(legacy_module_map_path)}"/
   # Keep the legacy module map on disk for older toolchains that still probe for
   # `RCTDeprecation.modulemap`, but avoid feeding it directly to clang.
   # Xcode 16's clang treats duplicate `-fmodule-map-file` entries defining the
@@ -406,10 +440,10 @@ post_install do |installer|
   if Dir.exist?(support_files_root)
     Dir.glob(File.join(support_files_root, '**', '*.xcconfig')).each do |xcconfig_path|
       original = File.read(xcconfig_path)
-      replaced = original.gsub(legacy_module_map_flag, module_map_flag)
-      replaced = replaced.gsub(legacy_module_map_path, module_map_path)
-      replaced = replaced.gsub("\"#{legacy_module_map_flag}\"", "\"#{module_map_flag}\"")
-      replaced = replaced.gsub("\"#{legacy_module_map_path}\"", "\"#{module_map_path}\"")
+      replaced = original.gsub(legacy_module_map_flag_pattern, module_map_flag)
+      replaced = replaced.gsub(legacy_module_map_path_pattern, module_map_path)
+      replaced = replaced.gsub(legacy_module_map_flag_quoted_pattern, "\"#{module_map_flag}\"")
+      replaced = replaced.gsub(legacy_module_map_path_quoted_pattern, "\"#{module_map_path}\"")
 
       next if replaced == original
 
