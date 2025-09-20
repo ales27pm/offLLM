@@ -118,7 +118,7 @@ jobs:
           set -euo pipefail
           mkdir -p "$(dirname "$RESULT_BUNDLE_SIM")"
           LINK_MAP_DIR="${RUNNER_TEMP:-/tmp}"
-          LINK_MAP_PATH="${LINK_MAP_DIR}/link-map-simulator-build-$(date +%s).map"
+          LINK_MAP_PATH="${LINK_MAP_DIR}/link-map-simulator-build-$(date +%s)-\$(TARGET_NAME)-\$(CURRENT_ARCH).map"
           EXTRA_OTHER_LDFLAGS="-v -Xlinker -map -Xlinker ${LINK_MAP_PATH}"
           BASE_OTHER_LDFLAGS="${OTHER_LDFLAGS:-}"
           if [[ "${BASE_OTHER_LDFLAGS}" != *"\$(inherited)"* ]]; then
@@ -271,7 +271,7 @@ jobs:
           set -euo pipefail
           mkdir -p "$(dirname "$RESULT_BUNDLE_DEV")"
           LINK_MAP_DIR="${RUNNER_TEMP:-/tmp}"
-          LINK_MAP_PATH="${LINK_MAP_DIR}/link-map-device-archive-$(date +%s).map"
+          LINK_MAP_PATH="${LINK_MAP_DIR}/link-map-device-archive-$(date +%s)-\$(TARGET_NAME)-\$(CURRENT_ARCH).map"
           EXTRA_OTHER_LDFLAGS="-v -Xlinker -map -Xlinker ${LINK_MAP_PATH}"
           BASE_OTHER_LDFLAGS="${OTHER_LDFLAGS:-}"
           if [[ "${BASE_OTHER_LDFLAGS}" != *"\$(inherited)"* ]]; then
