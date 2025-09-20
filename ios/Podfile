@@ -117,6 +117,64 @@ def swift_flag_pair?(value, flag)
   tokens_include_flag_pair?(tokens, '-Xcc', flag)
 end
 
+def remove_framework_link_flags(value, framework_name)
+  tokens, preference = normalize_tokens(value)
+  frameworks = [framework_name, "#{framework_name}.framework"].uniq
+  changed = false
+
+  frameworks.each do |framework|
+    changed ||= remove_flag_pair!(tokens, '-framework', framework)
+    changed ||= remove_flag_pair!(tokens, '-weak_framework', framework)
+  end
+
+  [materialize_tokens(tokens, preference), changed]
+end
+
+def sanitize_build_setting_ldflags(config, frameworks)
+  value = config.build_settings['OTHER_LDFLAGS']
+  sanitized_value = value
+  changed_any = false
+
+  frameworks.each do |framework|
+    sanitized_value, changed = remove_framework_link_flags(sanitized_value, framework)
+    changed_any ||= changed
+  end
+
+  return false unless changed_any
+
+  if sanitized_value.respond_to?(:empty?) && sanitized_value.empty?
+    config.build_settings.delete('OTHER_LDFLAGS')
+  else
+    config.build_settings['OTHER_LDFLAGS'] = sanitized_value
+  end
+
+  true
+end
+
+def sanitize_ldflags_value(value, frameworks)
+  sanitized_value = value
+  changed_any = false
+
+  frameworks.each do |framework|
+    sanitized_value, changed = remove_framework_link_flags(sanitized_value, framework)
+    changed_any ||= changed
+  end
+
+  return [value, false] unless changed_any
+
+  sanitized_value =
+    if sanitized_value.is_a?(Array)
+      sanitized_value.join(' ')
+    else
+      sanitized_value.to_s
+    end
+
+  sanitized_value = sanitized_value.strip
+  sanitized_value = '$(inherited)' if sanitized_value.empty?
+
+  [sanitized_value, true]
+end
+
 def sanitize_module_map_settings(config, header_search_fix:, module_map_flags:, module_map_path:, legacy_module_map_flag:, force_tokens: false, enforce_module_map: false, enforce_defines_module: false)
   updated = false
   module_flag = module_map_flags.first
@@ -350,12 +408,48 @@ end
 post_install do |installer|
   react_native_post_install(installer)
 
+  forbidden_frameworks = ['CoreAudioTypes']
+  forbidden_framework_refs = forbidden_frameworks.flat_map do |framework|
+    ["#{framework}.framework", "#{framework}.tbd"]
+  end.uniq
+  pods_project_modified = false
+
   # Unconditionally disable I/O path analysis to avoid flaky .xcfilelist issues
   installer.pods_project.targets.each do |t|
+    target_name = t.respond_to?(:name) ? t.name.to_s : ''
+
     t.build_configurations.each do |c|
       c.build_settings['DISABLE_INPUT_OUTPUT_PATHS'] = 'YES'
       c.build_settings['CLANG_CXX_LANGUAGE_STANDARD'] = 'c++20'
       c.build_settings['CLANG_CXX_LIBRARY'] = 'libc++'
+
+      if sanitize_build_setting_ldflags(c, forbidden_frameworks)
+        Pod::UI.puts "[Podfile] Removed #{forbidden_frameworks.join(', ')} from OTHER_LDFLAGS for #{target_name} (#{c.name})"
+        pods_project_modified = true
+      end
+    end
+
+    frameworks_phase = t.respond_to?(:frameworks_build_phase) ? t.frameworks_build_phase : nil
+    next unless frameworks_phase && frameworks_phase.respond_to?(:files)
+
+    frameworks_phase.files.to_a.dup.each do |build_file|
+      file_ref = build_file.respond_to?(:file_ref) ? build_file.file_ref : nil
+      next unless file_ref
+
+      display_name =
+        if file_ref.respond_to?(:display_name)
+          file_ref.display_name.to_s
+        elsif file_ref.respond_to?(:path)
+          file_ref.path.to_s
+        else
+          ''
+        end
+
+      next unless forbidden_framework_refs.include?(display_name)
+
+      frameworks_phase.remove_build_file(build_file)
+      Pod::UI.puts "[Podfile] Removed #{display_name} from #{target_name}'s Frameworks phase"
+      pods_project_modified = true
     end
   end
 
@@ -421,7 +515,6 @@ post_install do |installer|
     Pod::UI.puts "[Podfile] Copied canonical module map to legacy path at #{legacy_module_map_disk} (symlink failed: #{e})"
   end
 
-  pods_project_modified = false
   installer.pods_project.targets.each do |target|
     removed = remove_hermes_phase.call(target, 'pods')
     if removed > 0
@@ -489,6 +582,34 @@ post_install do |installer|
         )
 
         project_modified ||= updated
+
+        if sanitize_build_setting_ldflags(config, forbidden_frameworks)
+          Pod::UI.puts "[Podfile] Removed #{forbidden_frameworks.join(', ')} from OTHER_LDFLAGS for #{target.name} (#{config.name})"
+          project_modified = true
+        end
+      end
+
+      frameworks_phase = target.respond_to?(:frameworks_build_phase) ? target.frameworks_build_phase : nil
+      next unless frameworks_phase && frameworks_phase.respond_to?(:files)
+
+      frameworks_phase.files.to_a.dup.each do |build_file|
+        file_ref = build_file.respond_to?(:file_ref) ? build_file.file_ref : nil
+        next unless file_ref
+
+        display_name =
+          if file_ref.respond_to?(:display_name)
+            file_ref.display_name.to_s
+          elsif file_ref.respond_to?(:path)
+            file_ref.path.to_s
+          else
+            ''
+          end
+
+        next unless forbidden_framework_refs.include?(display_name)
+
+        frameworks_phase.remove_build_file(build_file)
+        Pod::UI.puts "[Podfile] Removed #{display_name} from #{target.name}'s Frameworks phase"
+        project_modified = true
       end
     end
 
@@ -504,10 +625,42 @@ post_install do |installer|
       replaced = replaced.gsub(legacy_module_map_flag_quoted_pattern, "\"#{module_map_flag}\"")
       replaced = replaced.gsub(legacy_module_map_path_quoted_pattern, "\"#{module_map_path}\"")
 
-      next if replaced == original
+      module_map_updated = replaced != original
+      frameworks_updated = false
 
-      Pod::UI.puts "[Podfile] Updated #{xcconfig_path} to prefer module.modulemap"
-      File.write(xcconfig_path, replaced)
+      sanitized_lines = replaced.each_line.map do |line|
+        if line =~ /^(\s*OTHER_LDFLAGS\s*=\s*)(.+)$/
+          prefix = Regexp.last_match(1)
+          value = Regexp.last_match(2)
+          newline = line.end_with?("\n") ? "\n" : ''
+
+          sanitized_value, changed = sanitize_ldflags_value(value.strip, forbidden_frameworks)
+          if changed
+            frameworks_updated = true
+            "#{prefix}#{sanitized_value}#{newline}"
+          else
+            line
+          end
+        else
+          line
+        end
+      end
+
+      sanitized_content = sanitized_lines.join
+
+      next if sanitized_content == original
+
+      messages = []
+      messages << 'prefer module.modulemap' if module_map_updated
+      messages << "remove #{forbidden_frameworks.join(', ')} from OTHER_LDFLAGS" if frameworks_updated
+
+      if messages.empty?
+        Pod::UI.puts "[Podfile] Updated #{xcconfig_path}"
+      else
+        Pod::UI.puts "[Podfile] Updated #{xcconfig_path} to #{messages.join(' and ')}"
+      end
+
+      File.write(xcconfig_path, sanitized_content)
     end
   end
 
