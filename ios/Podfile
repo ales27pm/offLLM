@@ -413,17 +413,12 @@ post_install do |installer|
     File.write(module_map_disk, desired_module_map)
   end
 
-  if File.exist?(legacy_module_map_disk) || File.symlink?(legacy_module_map_disk)
-    Pod::UI.puts "[Podfile] Removing legacy module map at #{legacy_module_map_disk}"
-    FileUtils.rm_f(legacy_module_map_disk)
-  end
-
   begin
     FileUtils.ln_sf(module_map_disk, legacy_module_map_disk)
     Pod::UI.puts "[Podfile] Linked legacy module map to #{legacy_module_map_disk}"
   rescue => e
     FileUtils.cp(module_map_disk, legacy_module_map_disk)
-    Pod::UI.warn "[Podfile] Symlink failed (#{e}); copied canonical module map to legacy path"
+    Pod::UI.puts "[Podfile] Copied canonical module map to legacy path at #{legacy_module_map_disk} (symlink failed: #{e})"
   end
 
   pods_project_modified = false

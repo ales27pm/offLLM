@@ -38,25 +38,8 @@ jobs:
           node-version: ${{ env.NODE_VERSION }}
           cache: "npm"
 
-      - name: Cache Pods
-        uses: actions/cache@v4
-        with:
-          path: ios/Pods
-          key: pods-${{ runner.os }}-${{ hashFiles('ios/Podfile.lock') }}
-          restore-keys: pods-${{ runner.os }}-
-
       - name: Install JS deps
         run: npm ci
-
-      - name: Install CocoaPods
-        run: |
-          set -euo pipefail
-          cd ios
-          pod --version
-          pod deintegrate || true
-          rm -rf Pods Podfile.lock
-          pod repo update
-          pod install --repo-update
 
       - name: Install xcresultparser
         run: |
@@ -67,13 +50,8 @@ jobs:
       - name: Verify RN/Hermes versions
         run: python3 scripts/verify-ios-rn-versions.py
 
-      - name: Clean DerivedData & Xcode caches
-        run: |
-          rm -rf "$DERIVED_DATA"
-          rm -rf "$DERIVED_DATA/ModuleCache.noindex"
-          rm -rf ~/Library/Developer/Xcode/DerivedData
-          rm -rf ~/Library/Developer/Xcode/DerivedData/SourcePackages
-          rm -rf ~/Library/Caches/com.apple.dt.Xcode
+      - name: Prepare iOS archive prerequisites
+        run: scripts/ci/prep-ios-unsigned-archive.sh
 
       - name: Debug — list schemes & settings
         run: |
@@ -81,10 +59,6 @@ jobs:
           xcodebuild -list -workspace "${WORKSPACE}" > build/xcodebuild-list.txt || true
           xcodebuild -showBuildSettings -workspace "${WORKSPACE}" -scheme "${SCHEME}" > build/build-settings.txt || true
 
-      - name: Archive — Generic iOS Device (unsigned)
-        env:
-          RCT_NEW_ARCH_ENABLED: "1"
-        run: |
       - name: Install xcpretty
         run: gem install xcpretty
 
