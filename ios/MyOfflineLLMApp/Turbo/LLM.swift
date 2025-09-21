@@ -194,6 +194,7 @@ public final class LLM: NSObject, LLMSpec {
   private let maxCacheEntries = 50
   private var messageBoundaries: [Date] = []
 
+  @objc(loadModel:options:resolve:reject:)
   public func loadModel(_ path: String,
                         options: [AnyHashable: Any]?,
                         resolve: @escaping RCTPromiseResolveBlock,
@@ -210,6 +211,7 @@ public final class LLM: NSObject, LLMSpec {
     resolve(true)
   }
 
+  @objc(unloadModel:resolve:reject:)
   public func unloadModel(_ resolve: @escaping RCTPromiseResolveBlock,
                           reject: @escaping RCTPromiseRejectBlock) {
     loadedModelURL = nil
@@ -217,6 +219,7 @@ public final class LLM: NSObject, LLMSpec {
     resolve(true)
   }
 
+  @objc(generate:options:resolve:reject:)
   public func generate(_ prompt: String,
                        options: [AnyHashable: Any]?,
                        resolve: @escaping RCTPromiseResolveBlock,
@@ -244,6 +247,7 @@ public final class LLM: NSObject, LLMSpec {
     resolve(summary.text)
   }
 
+  @objc(embed:resolve:reject:)
   public func embed(_ text: String,
                     resolve: @escaping RCTPromiseResolveBlock,
                     reject: @escaping RCTPromiseRejectBlock) {
@@ -253,6 +257,7 @@ public final class LLM: NSObject, LLMSpec {
     resolve(vector)
   }
 
+  @objc(getPerformanceMetrics:reject:)
   public func getPerformanceMetrics(_ resolve: @escaping RCTPromiseResolveBlock,
                                     reject: @escaping RCTPromiseRejectBlock) {
     var info = mach_task_basic_info()
@@ -279,28 +284,33 @@ public final class LLM: NSObject, LLMSpec {
     resolve(metrics)
   }
 
+  @objc(getKVCacheSize:reject:)
   public func getKVCacheSize(_ resolve: @escaping RCTPromiseResolveBlock,
                              reject: @escaping RCTPromiseRejectBlock) {
     resolve(cache.count)
   }
 
+  @objc(getKVCacheMaxSize:reject:)
   public func getKVCacheMaxSize(_ resolve: @escaping RCTPromiseResolveBlock,
                                 reject: @escaping RCTPromiseRejectBlock) {
     resolve(maxCacheEntries)
   }
 
+  @objc(clearKVCache:reject:)
   public func clearKVCache(_ resolve: @escaping RCTPromiseResolveBlock,
                            reject: @escaping RCTPromiseRejectBlock) {
     cache.removeAll()
     resolve(NSNull())
   }
 
+  @objc(addMessageBoundary:reject:)
   public func addMessageBoundary(_ resolve: @escaping RCTPromiseResolveBlock,
                                  reject: @escaping RCTPromiseRejectBlock) {
     messageBoundaries.append(Date())
     resolve(NSNull())
   }
 
+  @objc(adjustPerformanceMode:resolve:reject:)
   public func adjustPerformanceMode(_ mode: String,
                                     resolve: @escaping RCTPromiseResolveBlock,
                                     reject: @escaping RCTPromiseRejectBlock) {
