@@ -195,6 +195,13 @@ public final class LLM: NSObject, LLMSpec {
     resolve(true)
   }
 
+  public func unloadModel(_ resolve: @escaping RCTPromiseResolveBlock,
+                          reject: @escaping RCTPromiseRejectBlock) {
+    loadedModelURL = nil
+    cache.removeAll()
+    resolve(true)
+  }
+
   public func generate(_ prompt: String,
                        options: [AnyHashable: Any]?,
                        resolve: @escaping RCTPromiseResolveBlock,
@@ -216,13 +223,6 @@ public final class LLM: NSObject, LLMSpec {
     let summary = synthesiseSummary(prompt: prompt, options: normalizedOptions, startedAt: start)
     storeSummary(summary, for: key)
     resolve(summary.text)
-  }
-
-  public func unloadModel(_ resolve: @escaping RCTPromiseResolveBlock,
-                          reject: @escaping RCTPromiseRejectBlock) {
-    loadedModelURL = nil
-    cache.removeAll()
-    resolve(true)
   }
 
   public func embed(_ text: String,
