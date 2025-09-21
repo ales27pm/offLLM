@@ -46,7 +46,7 @@
 - `LLMService` prefers the generated TurboModule surface (`NativeLLM`) and falls back to legacy `NativeModules`, enabling the same agent loop to run on web, iOS, or Android without code changes while still routing through plugin management and KV-cache bookkeeping.【F:src/services/llmService.js†L1-L187】
 - `registerTurboModules.ts` invokes `TurboModuleRegistry.get` so React Native codegen keeps the LLM interface active, and `MLXModule.ts` wraps the iOS bridge with explicit error messages when the Swift/ObjC implementation is missing.【F:src/registerTurboModules.ts†L1-L15】【F:src/native/MLXModule.ts†L1-L25】
 - On Android, `MonGarsPackage` registers every TurboModule with the bridge, `LlamaTurboModule` exposes the llama.cpp controls to JavaScript, and the JNI layer in `llama_jni.cpp` enforces context/thread limits while providing generation, embedding, and cache maintenance hooks.【F:android/app/src/main/java/com/mongars/MonGarsPackage.java†L11-L45】【F:android/app/src/main/java/com/mongars/LlamaTurboModule.java†L14-L199】【F:android/app/src/main/cpp/llama_jni.cpp†L241-L404】
-- iOS mirrors the pattern: `LLM.swift` defines the TurboModule protocol and implementation, ensuring every method the JS agent expects—model lifecycle, inference, embeddings, cache control—bridges cleanly into Swift.【F:ios/MyOfflineLLMApp/Turbo/LLM.swift†L6-L200】
+- iOS mirrors the pattern: `LLM.swift` now drives an MLX-backed runtime that loads model containers, streams tokens through `MLXEvents`, surfaces embeddings, reports CPU/memory metrics, and manages KV-cache boundaries so the TurboModule matches Android’s surface while staying fully on-device.【F:ios/MyOfflineLLMApp/Turbo/LLM.swift†L53-L610】
 
 ## Extending the Agent
 
