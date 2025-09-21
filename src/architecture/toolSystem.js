@@ -1,412 +1,39 @@
 import { searchService } from "../services/webSearchService";
 import { validate as validateSearchApiKeys } from "../services/utils/apiKeys";
+import {
+  DEFAULT_MAX_RESULTS,
+  DEFAULT_PROVIDER,
+  DEFAULT_SAFE_SEARCH,
+  DEFAULT_TIME_RANGE,
+  MAX_RESULTS_CAP,
+  SUPPORTED_PROVIDERS,
+  SUPPORTED_TIME_RANGES,
+  normalizeMaxResults,
+  normalizeProvider,
+  normalizeSafeSearch,
+  normalizeSearchResults,
+  normalizeTimeRange,
+} from "../utils/normalizeUtils";
+import {
+  applyParameterDefaults,
+  extractResultAnalytics,
+  hasOwn,
+  resolveOptionValue,
+  validateParameters,
+} from "../utils/paramUtils";
+import {
+  ensureDirectoryExists,
+  getNodeFs,
+  getPathStats,
+  isDirectoryStat,
+  listNodeDirectory,
+  normalizeDirectoryEntriesFromRN,
+  pathExists,
+  resolveSafePath,
+  getReactNativeFs,
+} from "../utils/fsUtils";
 
-const DEFAULT_PROVIDER = "google";
-const DEFAULT_TIME_RANGE = "any";
-const DEFAULT_MAX_RESULTS = 5;
-const MAX_RESULTS_CAP = 20;
-const DEFAULT_SAFE_SEARCH = true;
-const SUPPORTED_PROVIDERS = new Set(["google", "bing", "duckduckgo", "brave"]);
-const SUPPORTED_TIME_RANGES = new Set(["day", "week", "month", "year", "any"]);
-
-const isReactNative =
-  typeof navigator !== "undefined" && navigator.product === "ReactNative";
-
-let RNFS = null;
-let nodeFs = null;
-let nodePath = null;
-let nodeModulesLoaded = false;
-let nodeFsWarningLogged = false;
-
-if (isReactNative) {
-  try {
-    RNFS = require("react-native-fs");
-  } catch (error) {
-    console.warn(
-      "[toolSystem] Failed to load react-native-fs; file system operations will be limited.",
-      error,
-    );
-    RNFS = null;
-  }
-}
-
-const FS_MODULE_ID = ["f", "s"].join("");
-const PATH_MODULE_ID = ["p", "a", "t", "h"].join("");
-
-const resolveNodeRequire = () => {
-  if (typeof globalThis === "object") {
-    const nonWebpackRequire = globalThis.__non_webpack_require__;
-    if (typeof nonWebpackRequire === "function") {
-      return nonWebpackRequire;
-    }
-  }
-
-  if (typeof module !== "undefined" && typeof module.require === "function") {
-    return module.require.bind(module);
-  }
-
-  if (typeof require === "function") {
-    return require;
-  }
-
-  try {
-    return Function("return require")();
-  } catch {
-    return null;
-  }
-};
-
-const logNodeFsUnavailable = (error) => {
-  if (!nodeFsWarningLogged) {
-    console.warn(
-      "[toolSystem] Node fs.promises is unavailable; file system tool cannot access the local disk.",
-      error,
-    );
-    nodeFsWarningLogged = true;
-  }
-};
-
-const loadNodeModulesIfNeeded = () => {
-  if (nodeModulesLoaded) {
-    return;
-  }
-  nodeModulesLoaded = true;
-
-  if (isReactNative) {
-    nodeFs = null;
-    nodePath = null;
-    return;
-  }
-
-  const requireFn = resolveNodeRequire();
-  if (!requireFn) {
-    nodeFs = null;
-    nodePath = null;
-    logNodeFsUnavailable();
-    return;
-  }
-
-  try {
-    const fsModule = requireFn(FS_MODULE_ID);
-    nodeFs = fsModule && fsModule.promises ? fsModule.promises : null;
-    if (!nodeFs) {
-      logNodeFsUnavailable();
-    }
-  } catch (error) {
-    nodeFs = null;
-    logNodeFsUnavailable(error);
-  }
-
-  try {
-    nodePath = requireFn(PATH_MODULE_ID) || null;
-  } catch {
-    nodePath = null;
-  }
-};
-
-const getNodeFs = () => {
-  loadNodeModulesIfNeeded();
-  return nodeFs;
-};
-
-const getNodePath = () => {
-  loadNodeModulesIfNeeded();
-  return nodePath;
-};
-
-const hasOwn = (object, key) =>
-  object != null && Object.prototype.hasOwnProperty.call(object, key);
-
-const toTrimmedString = (value) =>
-  typeof value === "string" ? value.trim() : "";
-
-const toIsoDateString = (value) => {
-  if (!value) {
-    return null;
-  }
-  const date =
-    value instanceof Date
-      ? value
-      : typeof value === "number" || typeof value === "string"
-        ? new Date(value)
-        : null;
-  if (date && !Number.isNaN(date.getTime())) {
-    return date.toISOString();
-  }
-  return null;
-};
-
-const pathDirname = (targetPath) => {
-  if (!targetPath) {
-    return "";
-  }
-  const nodePathModule = getNodePath();
-  if (nodePathModule) {
-    return nodePathModule.dirname(targetPath);
-  }
-  const normalised = targetPath.replace(/\\+/g, "/");
-  const index = normalised.lastIndexOf("/");
-  if (index <= 0) {
-    return normalised.startsWith("/") ? "/" : "";
-  }
-  return normalised.slice(0, index);
-};
-
-const joinPath = (base, segment) => {
-  const nodePathModule = getNodePath();
-  if (nodePathModule) {
-    return nodePathModule.join(base, segment);
-  }
-  if (!base) {
-    return segment;
-  }
-  const trimmed = base.replace(/[\\/]+$/, "");
-  return `${trimmed}/${segment}`;
-};
-
-const ensureDirectoryExists = async (filePath) => {
-  const directory = pathDirname(filePath);
-  if (
-    !directory ||
-    directory === "." ||
-    directory === filePath ||
-    directory === "/"
-  ) {
-    return;
-  }
-  if (RNFS) {
-    const exists = await RNFS.exists(directory);
-    if (!exists) {
-      await RNFS.mkdir(directory);
-    }
-    return;
-  }
-  const nodeFsModule = getNodeFs();
-  if (nodeFsModule) {
-    await nodeFsModule.mkdir(directory, { recursive: true });
-  }
-};
-
-const getPathStats = async (targetPath) => {
-  if (RNFS) {
-    try {
-      return await RNFS.stat(targetPath);
-    } catch {
-      return null;
-    }
-  }
-
-  const nodeFsModule = getNodeFs();
-  if (nodeFsModule) {
-    try {
-      return await nodeFsModule.stat(targetPath);
-    } catch {
-      return null;
-    }
-  }
-
-  return null;
-};
-
-const pathExists = async (targetPath) =>
-  Boolean(await getPathStats(targetPath));
-
-const isDirectoryStat = (stats) => {
-  if (!stats) {
-    return false;
-  }
-  if (typeof stats.isDirectory === "function") {
-    return stats.isDirectory();
-  }
-  if (typeof stats.isDirectory === "boolean") {
-    return stats.isDirectory;
-  }
-  return false;
-};
-
-const resolveOptionValue = (
-  key,
-  {
-    originalParameters = {},
-    contextOptions = {},
-    parameterValues = {},
-    fallback,
-  },
-) => {
-  if (hasOwn(parameterValues, key)) {
-    return parameterValues[key];
-  }
-  if (hasOwn(contextOptions, key)) {
-    return contextOptions[key];
-  }
-  if (hasOwn(originalParameters, key)) {
-    return originalParameters[key];
-  }
-  return fallback;
-};
-
-const matchesType = (expectedType, value) => {
-  switch (expectedType) {
-    case "string":
-      return typeof value === "string";
-    case "number":
-      return typeof value === "number" && !Number.isNaN(value);
-    case "boolean":
-      return typeof value === "boolean";
-    case "array":
-      return Array.isArray(value);
-    case "object":
-      return (
-        value !== null && typeof value === "object" && !Array.isArray(value)
-      );
-    default:
-      return true;
-  }
-};
-
-const normalizeProvider = (value) => {
-  if (typeof value !== "string") {
-    return DEFAULT_PROVIDER;
-  }
-  const normalised = value.trim().toLowerCase();
-  if (SUPPORTED_PROVIDERS.has(normalised)) {
-    return normalised;
-  }
-  return DEFAULT_PROVIDER;
-};
-
-const normalizeTimeRange = (value) => {
-  if (typeof value !== "string") {
-    return DEFAULT_TIME_RANGE;
-  }
-  const normalised = value.trim().toLowerCase();
-  if (SUPPORTED_TIME_RANGES.has(normalised)) {
-    return normalised;
-  }
-  return DEFAULT_TIME_RANGE;
-};
-
-const normalizeSafeSearch = (value) => {
-  if (typeof value === "boolean") {
-    return value;
-  }
-  if (typeof value === "string") {
-    const trimmed = value.trim().toLowerCase();
-    if (trimmed === "true") {
-      return true;
-    }
-    if (trimmed === "false") {
-      return false;
-    }
-  }
-  if (typeof value === "number") {
-    return value !== 0;
-  }
-  return DEFAULT_SAFE_SEARCH;
-};
-
-const normalizeMaxResults = (value) => {
-  const numeric =
-    typeof value === "number" && !Number.isNaN(value)
-      ? value
-      : typeof value === "string" && value.trim() !== ""
-        ? Number(value)
-        : DEFAULT_MAX_RESULTS;
-  if (!Number.isFinite(numeric)) {
-    return DEFAULT_MAX_RESULTS;
-  }
-  const integer = Math.floor(numeric);
-  if (integer < 1) {
-    return 1;
-  }
-  if (integer > MAX_RESULTS_CAP) {
-    return MAX_RESULTS_CAP;
-  }
-  return integer;
-};
-
-const normalizeSearchResults = (results, limit) => {
-  if (!Array.isArray(results)) {
-    return [];
-  }
-
-  return results
-    .map((item) => {
-      if (!item || typeof item !== "object") {
-        return null;
-      }
-      const title =
-        toTrimmedString(item.title) ||
-        toTrimmedString(item.name) ||
-        toTrimmedString(item.url);
-      const url = toTrimmedString(item.url);
-      const snippet =
-        toTrimmedString(item.snippet) ||
-        toTrimmedString(item.description) ||
-        toTrimmedString(item.content);
-
-      if (!title && !url && !snippet) {
-        return null;
-      }
-
-      return {
-        title,
-        url,
-        snippet,
-      };
-    })
-    .filter(Boolean)
-    .slice(0, limit);
-};
-
-const normalizeDirectoryEntriesFromRN = (entries) =>
-  entries.map((entry) => ({
-    name: entry.name,
-    path: entry.path,
-    isFile:
-      typeof entry.isFile === "function"
-        ? entry.isFile()
-        : Boolean(entry.isFile),
-    isDirectory:
-      typeof entry.isDirectory === "function"
-        ? entry.isDirectory()
-        : Boolean(entry.isDirectory),
-    size:
-      typeof entry.size === "number" && Number.isFinite(entry.size)
-        ? entry.size
-        : null,
-    modifiedAt: toIsoDateString(entry.mtime),
-  }));
-
-const listNodeDirectory = async (directoryPath) => {
-  const nodeFsModule = getNodeFs();
-  if (!nodeFsModule) {
-    throw new Error("Node file system is not available");
-  }
-  const dirents = await nodeFsModule.readdir(directoryPath, {
-    withFileTypes: true,
-  });
-  const entries = await Promise.all(
-    dirents.map(async (dirent) => {
-      const entryPath = joinPath(directoryPath, dirent.name);
-      let stats = null;
-      try {
-        stats = await nodeFsModule.stat(entryPath);
-      } catch {
-        stats = null;
-      }
-      return {
-        name: dirent.name,
-        path: entryPath,
-        isFile: dirent.isFile(),
-        isDirectory: dirent.isDirectory(),
-        size: stats ? stats.size : null,
-        modifiedAt: stats ? toIsoDateString(stats.mtime) : null,
-      };
-    }),
-  );
-  return entries;
-};
+const RNFS = getReactNativeFs();
 
 export class ToolRegistry {
   constructor() {
@@ -436,14 +63,14 @@ export class ToolRegistry {
       throw new Error(`Tool ${toolName} not found`);
     }
 
-    const normalizedParameters = this.applyParameterDefaults(
+    const normalizedParameters = applyParameterDefaults(
       tool,
       parameters && typeof parameters === "object" ? parameters : {},
     );
 
     try {
       // Validate parameters
-      this.validateParameters(tool, normalizedParameters);
+      validateParameters(tool, normalizedParameters);
 
       // Execute the tool
       const executionContext =
@@ -489,7 +116,7 @@ export class ToolRegistry {
         result: summarize(result),
         timestamp: new Date(),
         success: true,
-        ...(this.extractResultAnalytics(result) || {}),
+        ...(extractResultAnalytics(result) || {}),
       });
 
       return result;
@@ -503,69 +130,6 @@ export class ToolRegistry {
       });
 
       throw error;
-    }
-  }
-
-  applyParameterDefaults(tool, parameters = {}) {
-    if (!tool.parameters) {
-      return { ...parameters };
-    }
-
-    const resolved = { ...parameters };
-    for (const [paramName, paramConfig] of Object.entries(tool.parameters)) {
-      if (resolved[paramName] === undefined && hasOwn(paramConfig, "default")) {
-        resolved[paramName] =
-          typeof paramConfig.default === "function"
-            ? paramConfig.default()
-            : paramConfig.default;
-      }
-    }
-    return resolved;
-  }
-
-  extractResultAnalytics(result) {
-    if (!result || typeof result !== "object") {
-      return null;
-    }
-    if (Array.isArray(result.results)) {
-      return { resultCount: result.results.length };
-    }
-    if (Array.isArray(result.entries)) {
-      return { resultCount: result.entries.length };
-    }
-    return null;
-  }
-
-  validateParameters(tool, parameters = {}) {
-    if (tool.parameters) {
-      for (const [paramName, paramConfig] of Object.entries(tool.parameters)) {
-        const hasValue = hasOwn(parameters, paramName);
-        if (paramConfig.required && !hasValue) {
-          throw new Error(`Missing required parameter: ${paramName}`);
-        }
-
-        if (!hasValue) {
-          continue;
-        }
-
-        const value = parameters[paramName];
-
-        if (paramConfig.type && !matchesType(paramConfig.type, value)) {
-          throw new Error(
-            `Invalid type for parameter ${paramName}: expected ${paramConfig.type}`,
-          );
-        }
-
-        if (paramConfig.enum && !paramConfig.enum.includes(value)) {
-          throw new Error(
-            `Invalid value for parameter: ${paramName}. Expected one of ${paramConfig.enum.join(", ")}`,
-          );
-        }
-
-        if (paramConfig.validate && !paramConfig.validate(value)) {
-          throw new Error(`Invalid value for parameter: ${paramName}`);
-        }
-      }
     }
   }
 
@@ -967,35 +531,31 @@ export const builtInTools = {
       const nodeFsModule = getNodeFs();
 
       try {
-        if (!targetPath || typeof targetPath !== "string") {
-          throw new Error(
-            "A valid path is required for file system operations",
-          );
-        }
+        const { absolutePath } = resolveSafePath(targetPath);
 
         switch (operation) {
           case "read": {
-            if (!(await pathExists(targetPath))) {
-              throw new Error(`File not found at ${targetPath}`);
+            if (!(await pathExists(absolutePath))) {
+              throw new Error(`File not found at ${absolutePath}`);
             }
 
             if (RNFS) {
-              const data = await RNFS.readFile(targetPath, "utf8");
+              const data = await RNFS.readFile(absolutePath, "utf8");
               return {
                 success: true,
                 operation,
-                path: targetPath,
+                path: absolutePath,
                 content: data,
                 bytesRead: typeof data === "string" ? data.length : undefined,
               };
             }
 
             if (nodeFsModule) {
-              const data = await nodeFsModule.readFile(targetPath, "utf8");
+              const data = await nodeFsModule.readFile(absolutePath, "utf8");
               return {
                 success: true,
                 operation,
-                path: targetPath,
+                path: absolutePath,
                 content: data,
                 bytesRead: typeof data === "string" ? data.length : undefined,
               };
@@ -1007,18 +567,18 @@ export const builtInTools = {
             if (content === undefined || content === null) {
               throw new Error("Content is required for write operations");
             }
+            if (typeof content !== "string") {
+              throw new Error(
+                "Only string content is supported for write operations",
+              );
+            }
 
-            const dataToWrite =
-              typeof content === "string"
-                ? content
-                : JSON.stringify(content, null, 2);
-
-            await ensureDirectoryExists(targetPath);
+            await ensureDirectoryExists(absolutePath);
 
             if (RNFS) {
-              await RNFS.writeFile(targetPath, dataToWrite, "utf8");
+              await RNFS.writeFile(absolutePath, content, "utf8");
             } else if (nodeFsModule) {
-              await nodeFsModule.writeFile(targetPath, dataToWrite, "utf8");
+              await nodeFsModule.writeFile(absolutePath, content, "utf8");
             } else {
               throw new Error("No file system implementation available");
             }
@@ -1026,38 +586,35 @@ export const builtInTools = {
             return {
               success: true,
               operation,
-              path: targetPath,
-              bytesWritten:
-                typeof dataToWrite === "string"
-                  ? dataToWrite.length
-                  : undefined,
+              path: absolutePath,
+              bytesWritten: content.length,
             };
           }
           case "list": {
-            const stats = await getPathStats(targetPath);
+            const stats = await getPathStats(absolutePath);
             if (!stats) {
-              throw new Error(`Path not found at ${targetPath}`);
+              throw new Error(`Path not found at ${absolutePath}`);
             }
             if (!isDirectoryStat(stats)) {
-              throw new Error(`Path is not a directory: ${targetPath}`);
+              throw new Error(`Path is not a directory: ${absolutePath}`);
             }
 
             if (RNFS) {
-              const entries = await RNFS.readDir(targetPath);
+              const entries = await RNFS.readDir(absolutePath);
               return {
                 success: true,
                 operation,
-                path: targetPath,
+                path: absolutePath,
                 entries: normalizeDirectoryEntriesFromRN(entries),
               };
             }
 
             if (nodeFsModule) {
-              const entries = await listNodeDirectory(targetPath);
+              const entries = await listNodeDirectory(absolutePath);
               return {
                 success: true,
                 operation,
-                path: targetPath,
+                path: absolutePath,
                 entries,
               };
             }
