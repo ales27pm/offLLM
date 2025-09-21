@@ -321,8 +321,7 @@ public final class LLM: NSObject, LLMSpec {
   private func synthesiseSummary(prompt: String,
                                  options: GenerationOptions,
                                  startedAt: Date) -> GenerationSummary {
-    let trimmedPrompt = prompt.trimmingCharacters(in: .whitespacesAndNewlines)
-    let reversed = String(trimmedPrompt.reversed())
+    let reversed = String(prompt.reversed())
     var candidate = String(reversed.prefix(options.maxTokens))
     var finishReason = candidate.count < reversed.count ? "length" : "stop"
 
@@ -337,7 +336,7 @@ public final class LLM: NSObject, LLMSpec {
 
     let decorated = decorateResponse(with: candidate, temperature: options.temperature)
     let usage = GenerationSummary.Usage(
-      promptTokens: max(1, estimateTokens(for: trimmedPrompt)),
+      promptTokens: max(1, estimateTokens(for: prompt)),
       completionTokens: max(1, estimateTokens(for: decorated))
     )
     let duration = max(Date().timeIntervalSince(startedAt), 0)
