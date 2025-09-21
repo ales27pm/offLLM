@@ -2,9 +2,6 @@ import { searchService } from "../services/webSearchService";
 import { validate as validateSearchApiKeys } from "../services/utils/apiKeys";
 import {
   DEFAULT_MAX_RESULTS,
-  DEFAULT_PROVIDER,
-  DEFAULT_SAFE_SEARCH,
-  DEFAULT_TIME_RANGE,
   MAX_RESULTS_CAP,
   SUPPORTED_PROVIDERS,
   SUPPORTED_TIME_RANGES,
@@ -18,22 +15,8 @@ import {
   applyParameterDefaults,
   extractResultAnalytics,
   hasOwn,
-  resolveOptionValue,
   validateParameters,
 } from "../utils/paramUtils";
-import {
-  ensureDirectoryExists,
-  getNodeFs,
-  getPathStats,
-  isDirectoryStat,
-  listNodeDirectory,
-  normalizeDirectoryEntriesFromRN,
-  pathExists,
-  resolveSafePath,
-  getReactNativeFs,
-} from "../utils/fsUtils";
-
-const RNFS = getReactNativeFs();
 
 export class ToolRegistry {
   constructor() {
@@ -178,220 +161,31 @@ export const builtInTools = {
         description: "Enable safe search filtering",
       },
     },
-    execute: async (parameters, context = {}) => {
-      const originalParameters =
-        context && typeof context.originalParameters === "object"
-          ? context.originalParameters
-          : {};
-      const contextOptions =
-        context && typeof context.webSearch === "object"
-          ? context.webSearch
-          : {};
-
-      const provider = normalizeProvider(
-        resolveOptionValue("provider", {
-          originalParameters,
-          contextOptions,
-          parameterValues: parameters,
-          fallback: DEFAULT_PROVIDER,
-        }),
-      );
-
-      const timeRange = normalizeTimeRange(
-        resolveOptionValue("timeRange", {
-          originalParameters,
-          contextOptions,
-          parameterValues: parameters,
-          fallback: DEFAULT_TIME_RANGE,
-        }),
-      );
-
-      const safeSearch = normalizeSafeSearch(
-        resolveOptionValue("safeSearch", {
-          originalParameters,
-          contextOptions,
-          parameterValues: parameters,
-          fallback: DEFAULT_SAFE_SEARCH,
-        }),
-      );
-
-      const maxResults = normalizeMaxResults(
-        resolveOptionValue("maxResults", {
-          originalParameters,
-          contextOptions,
-          parameterValues: parameters,
-          fallback: DEFAULT_MAX_RESULTS,
-        }),
-      );
+    execute: async (parameters, _context) => {
+      const { query, maxResults, provider, timeRange, safeSearch } = parameters;
+      const normalizedMaxResults = normalizeMaxResults(maxResults);
+      const normalizedProvider = normalizeProvider(provider);
+      const normalizedTimeRange = normalizeTimeRange(timeRange);
+      const normalizedSafeSearch = normalizeSafeSearch(safeSearch);
 
       try {
-        const hasValidKey = await validateSearchApiKeys(provider);
-        if (!hasValidKey) {
-          throw new Error(`API key not configured for ${provider} search`);
-        }
-
-        const searchResults = await searchService.performSearch(
-          provider,
-          parameters.query,
-          maxResults,
-          timeRange,
-          safeSearch,
-        );
-
-        const normalizedResults = normalizeSearchResults(
-          searchResults,
-          maxResults,
-        );
+        await validateSearchApiKeys();
+        const results = await searchService.search({
+          query,
+          maxResults: normalizedMaxResults,
+          provider: normalizedProvider,
+          timeRange: normalizedTimeRange,
+          safeSearch: normalizedSafeSearch,
+        });
 
         return {
+          results: normalizeSearchResults(results),
           success: true,
-          provider,
-          query: parameters.query,
-          timeRange,
-          safeSearch,
-          resultCount: normalizedResults.length,
-          results: normalizedResults,
         };
       } catch (error) {
-        console.error("Web search failed:", error);
         return {
-          success: false,
-          provider,
-          query: parameters.query,
-          timeRange,
-          safeSearch,
           error: error.message,
-        };
-      }
-    },
-  },
-
-  fileSystem: {
-    name: "fileSystem",
-    description: "Perform file system operations (read, write, list)",
-    parameters: {
-      operation: {
-        type: "string",
-        required: true,
-        description: "Operation to perform (read, write, list)",
-        enum: ["read", "write", "list"],
-      },
-      path: {
-        type: "string",
-        required: true,
-        description: "Path to the file or directory",
-      },
-      content: {
-        type: "string",
-        required: false,
-        description: "Content to write (for write operations)",
-      },
-    },
-    execute: async (parameters) => {
-      const { operation, path: targetPath, content } = parameters;
-      const nodeFsModule = getNodeFs();
-
-      try {
-        const { absolutePath } = resolveSafePath(targetPath);
-
-        switch (operation) {
-          case "read": {
-            if (!(await pathExists(absolutePath))) {
-              throw new Error(`File not found at ${absolutePath}`);
-            }
-
-            if (RNFS) {
-              const data = await RNFS.readFile(absolutePath, "utf8");
-              return {
-                success: true,
-                operation,
-                path: absolutePath,
-                content: data,
-                bytesRead: typeof data === "string" ? data.length : undefined,
-              };
-            }
-
-            if (nodeFsModule) {
-              const data = await nodeFsModule.readFile(absolutePath, "utf8");
-              return {
-                success: true,
-                operation,
-                path: absolutePath,
-                content: data,
-                bytesRead: typeof data === "string" ? data.length : undefined,
-              };
-            }
-
-            throw new Error("No file system implementation available");
-          }
-          case "write": {
-            if (content === undefined || content === null) {
-              throw new Error("Content is required for write operations");
-            }
-            if (typeof content !== "string") {
-              throw new Error(
-                "Only string content is supported for write operations",
-              );
-            }
-
-            await ensureDirectoryExists(absolutePath);
-
-            if (RNFS) {
-              await RNFS.writeFile(absolutePath, content, "utf8");
-            } else if (nodeFsModule) {
-              await nodeFsModule.writeFile(absolutePath, content, "utf8");
-            } else {
-              throw new Error("No file system implementation available");
-            }
-
-            return {
-              success: true,
-              operation,
-              path: absolutePath,
-              bytesWritten: content.length,
-            };
-          }
-          case "list": {
-            const stats = await getPathStats(absolutePath);
-            if (!stats) {
-              throw new Error(`Path not found at ${absolutePath}`);
-            }
-            if (!isDirectoryStat(stats)) {
-              throw new Error(`Path is not a directory: ${absolutePath}`);
-            }
-
-            if (RNFS) {
-              const entries = await RNFS.readDir(absolutePath);
-              return {
-                success: true,
-                operation,
-                path: absolutePath,
-                entries: normalizeDirectoryEntriesFromRN(entries),
-              };
-            }
-
-            if (nodeFsModule) {
-              const entries = await listNodeDirectory(absolutePath);
-              return {
-                success: true,
-                operation,
-                path: absolutePath,
-                entries,
-              };
-            }
-
-            throw new Error("No file system implementation available");
-          }
-          default:
-            throw new Error(`Unsupported file system operation: ${operation}`);
-        }
-      } catch (error) {
-        console.error("File system operation failed:", error);
-        return {
           success: false,
-          operation,
-          path: targetPath,
-          error: error.message,
         };
       }
     },

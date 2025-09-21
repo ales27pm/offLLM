@@ -34,26 +34,17 @@ import React
 
   @objc(getKVCacheSize:reject:)
   func getKVCacheSize(_ resolve: @escaping RCTPromiseResolveBlock,
-                      reject: @escaping RCTPromiseRejectBlock)
-
-  @objc(getKVCacheMaxSize:reject:)
-  func getKVCacheMaxSize(_ resolve: @escaping RCTPromiseResolveBlock,
-                         reject: @escaping RCTPromiseRejectBlock)
-
-  @objc(clearKVCache:reject:)
-  func clearKVCache(_ resolve: @escaping RCTPromiseResolveBlock,
-                    reject: @escaping RCTPromiseRejectBlock)
-
-  @objc(addMessageBoundary:reject:)
-  func addMessageBoundary(_ resolve: @escaping RCTPromiseResolveBlock,
-                          reject: @escaping RCTPromiseRejectBlock)
-
-  @objc(adjustPerformanceMode:resolve:reject:)
-  func adjustPerformanceMode(_ mode: String,
-                             resolve: @escaping RCTPromiseResolveBlock,
-                             reject: @escaping RCTPromiseRejectBlock)
+                     reject: @escaping RCTPromiseRejectBlock)
 }
 
+/// The concrete implementation of our LLM TurboModule.  This class
+/// conforms to the `LLMSpec` protocol defined above and exposes
+/// asynchronous methods to JavaScript.  The methods here are
+/// intentionally simple placeholders: `loadModel` checks that a
+/// directory exists on disk, `generate` echoes its prompt back, and
+/// various getter methods return stubbed metrics.  The real
+/// functionality can be filled in later once the native ML model
+/// integration is ready.
 @MainActor
 @objc(LLM)
 public final class LLM: NSObject, LLMSpec {
@@ -265,30 +256,6 @@ public final class LLM: NSObject, LLMSpec {
     resolve(cache.count)
   }
 
-  public func getKVCacheMaxSize(_ resolve: @escaping RCTPromiseResolveBlock,
-                                reject: @escaping RCTPromiseRejectBlock) {
-    resolve(maxCacheEntries)
-  }
-
-  public func clearKVCache(_ resolve: @escaping RCTPromiseResolveBlock,
-                           reject: @escaping RCTPromiseRejectBlock) {
-    cache.removeAll()
-    resolve(NSNull())
-  }
-
-  public func addMessageBoundary(_ resolve: @escaping RCTPromiseResolveBlock,
-                                 reject: @escaping RCTPromiseRejectBlock) {
-    messageBoundaries.append(Date())
-    resolve(NSNull())
-  }
-
-  public func adjustPerformanceMode(_ mode: String,
-                                   resolve: @escaping RCTPromiseResolveBlock,
-                                   reject: @escaping RCTPromiseRejectBlock) {
-    let validModes: Set<String> = ["high_quality", "balanced", "low_power"]
-    resolve(validModes.contains(mode))
-  }
-
   private func resolveModelURL(from path: String) -> URL? {
     let url = URL(fileURLWithPath: path)
     var isDirectory: ObjCBool = false
@@ -338,7 +305,7 @@ public final class LLM: NSObject, LLMSpec {
     default:
       band = "Creative"
     }
-    return "(\(band)) Echo: \(text)"
+    return "\(band) Echo: \(text)"
   }
 
   private func applyStopSequences(to text: String, stops: [String]) -> (String, Bool) {
