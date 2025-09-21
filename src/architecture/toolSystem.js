@@ -42,22 +42,17 @@ export class ToolRegistry {
     this.executionHistory = [];
   }
 
-  registerTool(toolName, toolDefinition, category = "general") {
-    if (!this.toolCategories.has(category)) {
-      this.toolCategories.set(category, new Set());
+  registerTool(toolName, tool, category) {
+    this.tools.set(toolName, tool);
+    if (category) {
+      if (!this.toolCategories.has(category)) {
+        this.toolCategories.set(category, new Set());
+      }
+      this.toolCategories.get(category).add(toolName);
     }
-
-    this.tools.set(toolName, {
-      ...toolDefinition,
-      category,
-      lastUsed: null,
-      usageCount: 0,
-    });
-
-    this.toolCategories.get(category).add(toolName);
   }
 
-  async executeTool(toolName, parameters, context = {}) {
+  async executeTool(toolName, parameters, context) {
     const tool = this.tools.get(toolName);
     if (!tool) {
       throw new Error(`Tool ${toolName} not found`);
@@ -69,10 +64,8 @@ export class ToolRegistry {
     );
 
     try {
-      // Validate parameters
       validateParameters(tool, normalizedParameters);
 
-      // Execute the tool
       const executionContext =
         context && typeof context === "object" ? { ...context } : {};
       if (!hasOwn(executionContext, "originalParameters")) {
@@ -82,7 +75,6 @@ export class ToolRegistry {
 
       const result = await tool.execute(normalizedParameters, executionContext);
 
-      // Update tool usage statistics
       tool.lastUsed = new Date();
       tool.usageCount = (tool.usageCount || 0) + 1;
 
@@ -109,7 +101,6 @@ export class ToolRegistry {
         return summary;
       };
 
-      // Log execution
       this.executionHistory.push({
         tool: toolName,
         parameters: normalizedParameters,
@@ -128,7 +119,6 @@ export class ToolRegistry {
         timestamp: new Date(),
         success: false,
       });
-
       throw error;
     }
   }
@@ -139,253 +129,23 @@ export class ToolRegistry {
     );
   }
 
-  getMostUsedTools(limit = 10) {
-    return Array.from(this.tools.values())
-      .sort((a, b) => (b.usageCount || 0) - (a.usageCount || 0))
-      .slice(0, limit);
+  getTool(toolName) {
+    return this.tools.get(toolName);
   }
 
-  suggestTools(query) {
-    // Simple tool suggestion based on name and description matching
-    const queryLower = query.toLowerCase();
+  getAllTools() {
+    return Array.from(this.tools.values());
+  }
 
-    return Array.from(this.tools.entries())
-      .map(([name, tool]) => {
-        let score = 0;
-
-        // Name match
-        if (name.toLowerCase().includes(queryLower)) {
-          score += 3;
-        }
-
-        // Description match
-        if (
-          tool.description &&
-          tool.description.toLowerCase().includes(queryLower)
-        ) {
-          score += 2;
-        }
-
-        // Category match
-        if (tool.category && tool.category.toLowerCase().includes(queryLower)) {
-          score += 1;
-        }
-
-        // Recent usage bonus
-        if (tool.lastUsed && Date.now() - tool.lastUsed < 24 * 60 * 60 * 1000) {
-          score += 0.5;
-        }
-
-        return { name, tool, score };
-      })
-      .filter((item) => item.score > 0)
-      .sort((a, b) => b.score - a.score)
-      .map((item) => item.name);
+  getExecutionHistory() {
+    return this.executionHistory;
   }
 }
 
-export class MCPClient {
-  constructor(serverUrl, options = {}) {
-    this.serverUrl = serverUrl;
-    this.options = {
-      timeout: 30000,
-      autoReconnect: true,
-      reconnectDelay: 2000,
-      maxReconnectAttempts: 5,
-      ...options,
-    };
-    this.connected = false;
-    this.reconnectAttempts = 0;
-    this.messageId = 0;
-    this.pendingRequests = new Map();
-    this.ws = null;
-    this.messageQueue = [];
-  }
-
-  async connect() {
-    return new Promise((resolve, reject) => {
-      if (this.connected) {
-        resolve();
-        return;
-      }
-
-      try {
-        this.ws = new WebSocket(this.serverUrl);
-
-        this.ws.onopen = () => {
-          this.connected = true;
-          this.reconnectAttempts = 0;
-          console.log("MCP client connected to:", this.serverUrl);
-
-          // Process any queued messages
-          this.processMessageQueue();
-
-          resolve();
-        };
-
-        this.ws.onmessage = (event) => {
-          try {
-            const response = JSON.parse(event.data);
-            this.handleResponse(response);
-          } catch (error) {
-            console.error("Failed to parse MCP response:", error);
-          }
-        };
-
-        this.ws.onclose = (event) => {
-          this.connected = false;
-          console.log("MCP connection closed:", event.code, event.reason);
-
-          if (
-            this.options.autoReconnect &&
-            this.reconnectAttempts < this.options.maxReconnectAttempts
-          ) {
-            setTimeout(() => {
-              this.reconnectAttempts++;
-              console.log(`Reconnecting attempt ${this.reconnectAttempts}...`);
-              this.connect().catch(console.error);
-            }, this.options.reconnectDelay);
-          }
-        };
-
-        this.ws.onerror = (error) => {
-          console.error("MCP WebSocket error:", error);
-          reject(error);
-        };
-      } catch (error) {
-        console.error("MCP connection failed:", error);
-        reject(error);
-      }
-    });
-  }
-
-  async callTool(toolName, parameters) {
-    if (!this.connected) {
-      await this.connect();
-    }
-
-    const messageId = this.messageId++;
-    const request = {
-      jsonrpc: "2.0",
-      id: messageId,
-      method: "tools/call",
-      params: {
-        name: toolName,
-        arguments: parameters,
-      },
-    };
-
-    return new Promise((resolve, reject) => {
-      const timeout = setTimeout(() => {
-        this.pendingRequests.delete(messageId);
-        reject(new Error("MCP request timeout"));
-      }, this.options.timeout);
-
-      this.pendingRequests.set(messageId, { resolve, reject, timeout });
-
-      this.sendRequest(request);
-    });
-  }
-
-  async listTools() {
-    if (!this.connected) {
-      await this.connect();
-    }
-
-    const messageId = this.messageId++;
-    const request = {
-      jsonrpc: "2.0",
-      id: messageId,
-      method: "tools/list",
-    };
-
-    return new Promise((resolve, reject) => {
-      const timeout = setTimeout(() => {
-        this.pendingRequests.delete(messageId);
-        reject(new Error("MCP request timeout"));
-      }, this.options.timeout);
-
-      this.pendingRequests.set(messageId, { resolve, reject, timeout });
-      this.sendRequest(request);
-    });
-  }
-
-  sendRequest(request) {
-    if (this.connected && this.ws && this.ws.readyState === WebSocket.OPEN) {
-      this.ws.send(JSON.stringify(request));
-    } else {
-      // Queue the message if not connected
-      this.messageQueue.push(request);
-      if (!this.connected) {
-        this.connect().catch(console.error);
-      }
-    }
-  }
-
-  processMessageQueue() {
-    while (this.messageQueue.length > 0 && this.connected) {
-      const request = this.messageQueue.shift();
-      this.ws.send(JSON.stringify(request));
-    }
-  }
-
-  handleResponse(response) {
-    const pending = this.pendingRequests.get(response.id);
-    if (!pending) return;
-
-    clearTimeout(pending.timeout);
-    this.pendingRequests.delete(response.id);
-
-    if (response.error) {
-      pending.reject(new Error(response.error.message || "MCP error"));
-    } else {
-      pending.resolve(response.result);
-    }
-  }
-
-  disconnect() {
-    this.options.autoReconnect = false;
-    if (this.ws) {
-      this.ws.close();
-      this.ws = null;
-    }
-    this.connected = false;
-
-    // Reject all pending requests
-    for (const [_id, pending] of this.pendingRequests) {
-      clearTimeout(pending.timeout);
-      pending.reject(new Error("MCP connection closed"));
-    }
-    this.pendingRequests.clear();
-  }
-}
-
-// Example tool implementations
 export const builtInTools = {
-  calculator: {
-    description: "Perform mathematical calculations",
-    parameters: {
-      expression: {
-        type: "string",
-        required: true,
-        description: "Mathematical expression to evaluate",
-      },
-    },
-    execute: async (parameters) => {
-      try {
-        // Safe evaluation of mathematical expressions
-        const result = eval(
-          parameters.expression.replace(/[^0-9+\-*/().]/g, ""),
-        );
-        return { result, success: true };
-      } catch (error) {
-        return { error: error.message, success: false };
-      }
-    },
-  },
-
   webSearch: {
-    description: "Search the web for information",
+    name: "webSearch",
+    description: "Perform a web search using a specified provider",
     parameters: {
       query: {
         type: "string",
@@ -507,23 +267,24 @@ export const builtInTools = {
   },
 
   fileSystem: {
-    description: "Read from and write to the file system",
+    name: "fileSystem",
+    description: "Perform file system operations (read, write, list)",
     parameters: {
       operation: {
         type: "string",
         required: true,
+        description: "Operation to perform (read, write, list)",
         enum: ["read", "write", "list"],
-        description: "File system operation to perform",
       },
       path: {
         type: "string",
         required: true,
-        description: "File or directory path",
+        description: "Path to the file or directory",
       },
       content: {
         type: "string",
         required: false,
-        description: "Content to write (for write operations )",
+        description: "Content to write (for write operations)",
       },
     },
     execute: async (parameters) => {

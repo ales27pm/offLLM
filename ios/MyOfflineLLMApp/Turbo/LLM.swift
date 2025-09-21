@@ -13,15 +13,15 @@ import React
                  resolve: @escaping RCTPromiseResolveBlock,
                  reject: @escaping RCTPromiseRejectBlock)
 
-  @objc(unloadModel:reject:)
-  func unloadModel(_ resolve: @escaping RCTPromiseResolveBlock,
-                   reject: @escaping RCTPromiseRejectBlock)
-
   @objc(generate:options:resolve:reject:)
   func generate(_ prompt: String,
                 options: [AnyHashable: Any]?,
                 resolve: @escaping RCTPromiseResolveBlock,
                 reject: @escaping RCTPromiseRejectBlock)
+
+  @objc(unloadModel:resolve:reject:)
+  func unloadModel(_ resolve: @escaping RCTPromiseResolveBlock,
+                   reject: @escaping RCTPromiseRejectBlock)
 
   @objc(embed:resolve:reject:)
   func embed(_ text: String,
@@ -30,7 +30,7 @@ import React
 
   @objc(getPerformanceMetrics:reject:)
   func getPerformanceMetrics(_ resolve: @escaping RCTPromiseResolveBlock,
-                             reject: @escaping RCTPromiseRejectBlock)
+                            reject: @escaping RCTPromiseRejectBlock)
 
   @objc(getKVCacheSize:reject:)
   func getKVCacheSize(_ resolve: @escaping RCTPromiseResolveBlock,
@@ -195,13 +195,6 @@ public final class LLM: NSObject, LLMSpec {
     resolve(true)
   }
 
-  public func unloadModel(_ resolve: @escaping RCTPromiseResolveBlock,
-                          reject: @escaping RCTPromiseRejectBlock) {
-    loadedModelURL = nil
-    cache.removeAll()
-    resolve(true)
-  }
-
   public func generate(_ prompt: String,
                        options: [AnyHashable: Any]?,
                        resolve: @escaping RCTPromiseResolveBlock,
@@ -225,6 +218,13 @@ public final class LLM: NSObject, LLMSpec {
     resolve(summary.text)
   }
 
+  public func unloadModel(_ resolve: @escaping RCTPromiseResolveBlock,
+                          reject: @escaping RCTPromiseRejectBlock) {
+    loadedModelURL = nil
+    cache.removeAll()
+    resolve(true)
+  }
+
   public func embed(_ text: String,
                     resolve: @escaping RCTPromiseResolveBlock,
                     reject: @escaping RCTPromiseRejectBlock) {
@@ -235,7 +235,7 @@ public final class LLM: NSObject, LLMSpec {
   }
 
   public func getPerformanceMetrics(_ resolve: @escaping RCTPromiseResolveBlock,
-                                    reject: @escaping RCTPromiseRejectBlock) {
+                                   reject: @escaping RCTPromiseRejectBlock) {
     var info = mach_task_basic_info()
     var count = mach_msg_type_number_t(MemoryLayout<mach_task_basic_info>.size) / 4
     let kern = withUnsafeMutablePointer(to: &info) {
@@ -283,8 +283,8 @@ public final class LLM: NSObject, LLMSpec {
   }
 
   public func adjustPerformanceMode(_ mode: String,
-                                    resolve: @escaping RCTPromiseResolveBlock,
-                                    reject: @escaping RCTPromiseRejectBlock) {
+                                   resolve: @escaping RCTPromiseResolveBlock,
+                                   reject: @escaping RCTPromiseRejectBlock) {
     let validModes: Set<String> = ["high_quality", "balanced", "low_power"]
     resolve(validModes.contains(mode))
   }
@@ -338,7 +338,7 @@ public final class LLM: NSObject, LLMSpec {
     default:
       band = "Creative"
     }
-    return "\(band) Echo: \(text)"
+    return "(\(band)) Echo: \(text)"
   }
 
   private func applyStopSequences(to text: String, stops: [String]) -> (String, Bool) {
