@@ -1,7 +1,7 @@
 # Build Tooling Guide
 
 ## Scope & responsibilities
-- Utilities in this directory back the doctor workflow and CI reports. They expose small ESM modules—`util.mjs` for structured shell execution and `xcresult-parser.js` for xcresult inspection—that scripts import to normalise subprocess handling and diagnostics.【F:tools/util.mjs†L1-L27】【F:tools/xcresult-parser.js†L1-L175】
+- Utilities in this directory back the doctor workflow and CI diagnostics. They expose small ESM modules—`util.mjs` for structured shell execution and `xcresult-parser.js` for xcresult inspection—that scripts import to normalise subprocess handling and diagnostics.【F:tools/util.mjs†L1-L27】【F:tools/xcresult-parser.js†L1-L175】
 - Keep modules side-effect free so they can be required from CLI entry points and unit tests. Any executable behaviour should stay behind the `process.argv` guard at the bottom of the file, mirroring the xcresult parser’s pattern.【F:tools/xcresult-parser.js†L133-L185】
 
 ## Authoring guidance
@@ -14,7 +14,7 @@
 - Keep exports ESM-friendly (named exports, no CommonJS interop) so Node 18+ runners and Jest can consume them without extra tooling.【F:tools/xcresult-parser.js†L1-L175】
 
 ## Dynamic feedback loop
-- Capture xcresult schema changes or parsing edge cases in the generated reports (`REPORT.md`, `report_agent.md`) and reflect the distilled lesson in the living history below; cite the timestamped report in your commit message for easy tracing.【F:REPORT.md†L1-L13】【F:report_agent.md†L1-L10】
+- Capture xcresult schema changes or parsing edge cases in this guide’s living history (and reference the PR or log that proved it) so the lesson is easy to trace without relying on the retired report pipeline.【F:tools/xcresult-parser.js†L1-L175】【F:Steps.md†L1-L108】
 - When new diagnostics consumers appear (dashboards, CI comments, etc.), document how they ingest parser output and update both this guide and the calling scripts so downstream expectations stay aligned.【F:scripts/AGENTS.md†L1-L54】
 
 ### Living history

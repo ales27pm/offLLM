@@ -17,7 +17,7 @@
 - `TreeOfThoughtReasoner` implements multi-branch reasoning with candidate generation, scoring, and path selection, delegating all generation/evaluation to `llmService.generate`. Update both sides when you change return signatures or heuristics.【F:src/services/treeOfThought.js†L1-L191】【F:src/services/llmService.js†L116-L208】
 
 ## Dynamic feedback loop
-- Capture performance heuristics (KV cache pressure, inference time, quantisation switches) in the generated reports when they inform service-level changes, and mirror key takeaways in the living history below.【F:report_agent.md†L1-L10】
+- Capture performance heuristics (KV cache pressure, inference time, quantisation switches) in your PR or engineering notes when they inform service-level changes, and mirror key takeaways in the living history below; the legacy report pipeline no longer runs automatically.【F:Steps.md†L1-L108】
 - After introducing a new provider, plugin-aware service, or reasoning primitive, refresh `docs/agent-architecture.md` and extend the relevant tests so the behaviour stays discoverable.【F:docs/agent-architecture.md†L26-L78】【F:__tests__/AGENTS.md†L1-L37】
 
 ### Living history

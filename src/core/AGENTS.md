@@ -15,7 +15,7 @@
 - Finish each change by running the baseline quality gates (`npm test`, `npm run lint`, `npm run format:check`) and any targeted builds for native changes.【F:package.json†L10-L18】 Use `WorkflowTracer` output when diagnosing regressions and keep the key insights in the living history below.【F:src/core/workflows/WorkflowTracer.js†L24-L115】
 
 ## Dynamic feedback loop
-- Record new tool parsing bugs, orchestration regressions, or memory anomalies in `report_agent.md`/`REPORT.md` and echo the distilled lesson in this guide so future contributors start with context.【F:report_agent.md†L1-L10】【F:REPORT.md†L1-L13】
+- Record new tool parsing bugs, orchestration regressions, or memory anomalies in your PR notes (or `Steps.md`) and echo the distilled lesson in this guide so future contributors start with context; the legacy markdown reports are now archival only.【F:Steps.md†L1-L108】
 - When you add or rename tools, update both the runtime registry and the platform-specific exports, then mirror the change in the documentation and tests to avoid drift.【F:src/core/tools/ToolRegistry.js†L5-L39】【F:src/tools/iosTools.js†L1-L200】【F:src/tools/androidTools.js†L1-L15】
 
 ### Living history

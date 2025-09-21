@@ -15,8 +15,8 @@
 - When tests depend on diagnostics, prefer stubbing filesystem reads or logger output instead of asserting on real report files; the logger suite shows how to mock persistent storage safely.【F:__tests__/logger.test.ts†L30-L48】
 
 ## Dynamic feedback loop
-- When CI fails, capture the reproduction in a focused test, cite the triggering diagnostic (`report_agent.md`, `REPORT.md`, or `CI-REPORT.md`) in the test description or comments, and record the summary in the living history below.【F:report_agent.md†L1-L10】【F:REPORT.md†L1-L13】【F:CI-REPORT.md†L1-L12】
-- After updating or adding tests that neutralise a failure mode, regenerate doctor reports if applicable and commit them via `npm run reports:commit` so future readers can follow the evidence trail.【F:package.json†L25-L29】【F:scripts/dev/commit-reports.sh†L52-L77】
+- When CI fails, capture the reproduction in a focused test, cite the triggering log or PR comment in the test description or comments, and record the summary in the living history below so future contributors can trace the evidence quickly.【F:Steps.md†L1-L108】
+- After updating or adding tests that neutralise a failure mode, link to the relevant logs or PR discussion instead of regenerating doctor reports; the automated reporting pipeline has been retired.【F:scripts/dev/doctor.sh†L277-L339】
 
 ### Living history
 - 2025-02 – Parser coverage in `toolHandler.test.js` caught malformed argument strings and ensured `_parseArgs` rejects invalid payloads—extend those cases when evolving the prompt grammar.【F:__tests__/toolHandler.test.js†L27-L90】
