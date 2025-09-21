@@ -193,11 +193,6 @@ public final class LLM: NSObject, LLMSpec {
   private var cache: [CacheKey: GenerationSummary] = [:]
   private let maxCacheEntries = 50
   private var messageBoundaries: [Date] = []
-  private let supportedPerformanceModes: Set<String> = [
-    "high_quality",
-    "balanced",
-    "low_power",
-  ]
 
   public func loadModel(_ path: String,
                         options: [AnyHashable: Any]?,
@@ -206,14 +201,12 @@ public final class LLM: NSObject, LLMSpec {
     guard let url = resolveModelURL(from: path) else {
       loadedModelURL = nil
       cache.removeAll()
-      messageBoundaries.removeAll()
       resolve(false)
       return
     }
 
     loadedModelURL = url
     cache.removeAll()
-    messageBoundaries.removeAll()
     resolve(true)
   }
 
@@ -221,7 +214,6 @@ public final class LLM: NSObject, LLMSpec {
                           reject: @escaping RCTPromiseRejectBlock) {
     loadedModelURL = nil
     cache.removeAll()
-    messageBoundaries.removeAll()
     resolve(true)
   }
 
@@ -306,18 +298,14 @@ public final class LLM: NSObject, LLMSpec {
   public func addMessageBoundary(_ resolve: @escaping RCTPromiseResolveBlock,
                                  reject: @escaping RCTPromiseRejectBlock) {
     messageBoundaries.append(Date())
-    if messageBoundaries.count > 100 {
-      messageBoundaries.removeFirst(messageBoundaries.count - 100)
-    }
     resolve(NSNull())
   }
 
   public func adjustPerformanceMode(_ mode: String,
                                     resolve: @escaping RCTPromiseResolveBlock,
                                     reject: @escaping RCTPromiseRejectBlock) {
-    let trimmed = mode.trimmingCharacters(in: .whitespacesAndNewlines)
-    let normalised = trimmed.lowercased()
-    resolve(supportedPerformanceModes.contains(normalised))
+    let validModes: Set<String> = ["high_quality", "balanced", "low_power"]
+    resolve(validModes.contains(mode))
   }
 
   private func resolveModelURL(from path: String) -> URL? {
@@ -374,14 +362,7 @@ public final class LLM: NSObject, LLMSpec {
     default:
       band = "Creative"
     }
-    let boundaryNote: String
-    if let lastBoundary = messageBoundaries.last {
-      let interval = Date().timeIntervalSince(lastBoundary)
-      boundaryNote = String(format: "%.2fs since boundary", interval)
-    } else {
-      boundaryNote = "no boundary set"
-    }
-    return "(\(band)) Echo: \(text) | \(boundaryNote)"
+    return "(\(band)) Echo: \(text)"
   }
 
   private func applyStopSequences(to text: String, stops: [String]) -> (String, Bool) {

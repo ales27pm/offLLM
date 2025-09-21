@@ -23,7 +23,6 @@ import {
 } from "../utils/paramUtils";
 import {
   ensureDirectoryExists,
-  getDefaultSafeRoot,
   getNodeFs,
   getPathStats,
   getReactNativeFs,
@@ -35,8 +34,6 @@ import {
 } from "../utils/fsUtils";
 
 const RNFS = getReactNativeFs();
-const DEFAULT_FILE_ROOT = getDefaultSafeRoot();
-
 const summarizeResult = (result) => {
   if (!result || typeof result !== "object") {
     return result;
@@ -144,69 +141,6 @@ export class ToolRegistry {
   }
 }
 
-const resolveWebSearchOptions = (parameters, context) => {
-  const originalParameters =
-    context && typeof context.originalParameters === "object"
-      ? context.originalParameters
-      : {};
-  const contextOptions =
-    context && typeof context.webSearch === "object" ? context.webSearch : {};
-
-  const provider = normalizeProvider(
-    resolveOptionValue("provider", {
-      originalParameters,
-      contextOptions,
-      parameterValues: parameters,
-      fallback: DEFAULT_PROVIDER,
-    }),
-  );
-
-  const timeRange = normalizeTimeRange(
-    resolveOptionValue("timeRange", {
-      originalParameters,
-      contextOptions,
-      parameterValues: parameters,
-      fallback: DEFAULT_TIME_RANGE,
-    }),
-  );
-
-  const safeSearch = normalizeSafeSearch(
-    resolveOptionValue("safeSearch", {
-      originalParameters,
-      contextOptions,
-      parameterValues: parameters,
-      fallback: DEFAULT_SAFE_SEARCH,
-    }),
-  );
-
-  const maxResults = normalizeMaxResults(
-    resolveOptionValue("maxResults", {
-      originalParameters,
-      contextOptions,
-      parameterValues: parameters,
-      fallback: DEFAULT_MAX_RESULTS,
-    }),
-  );
-
-  return {
-    provider,
-    timeRange,
-    safeSearch,
-    maxResults,
-  };
-};
-
-const resolveFileSystemRoot = (context) => {
-  if (!context || typeof context.fileSystem !== "object") {
-    return DEFAULT_FILE_ROOT;
-  }
-  const { root } = context.fileSystem;
-  if (typeof root === "string" && root.trim() !== "") {
-    return root;
-  }
-  return DEFAULT_FILE_ROOT;
-};
-
 export const builtInTools = {
   webSearch: {
     name: "webSearch",
@@ -244,9 +178,52 @@ export const builtInTools = {
       },
     },
     execute: async (parameters, context = {}) => {
+      const originalParameters =
+        context && typeof context.originalParameters === "object"
+          ? context.originalParameters
+          : {};
+      const contextOptions =
+        context && typeof context.webSearch === "object"
+          ? context.webSearch
+          : {};
+
+      const provider = normalizeProvider(
+        resolveOptionValue("provider", {
+          originalParameters,
+          contextOptions,
+          parameterValues: parameters,
+          fallback: DEFAULT_PROVIDER,
+        }),
+      );
+
+      const timeRange = normalizeTimeRange(
+        resolveOptionValue("timeRange", {
+          originalParameters,
+          contextOptions,
+          parameterValues: parameters,
+          fallback: DEFAULT_TIME_RANGE,
+        }),
+      );
+
+      const safeSearch = normalizeSafeSearch(
+        resolveOptionValue("safeSearch", {
+          originalParameters,
+          contextOptions,
+          parameterValues: parameters,
+          fallback: DEFAULT_SAFE_SEARCH,
+        }),
+      );
+
+      const maxResults = normalizeMaxResults(
+        resolveOptionValue("maxResults", {
+          originalParameters,
+          contextOptions,
+          parameterValues: parameters,
+          fallback: DEFAULT_MAX_RESULTS,
+        }),
+      );
+
       const { query } = parameters;
-      const { provider, timeRange, safeSearch, maxResults } =
-        resolveWebSearchOptions(parameters, context);
 
       try {
         const hasValidKey = await validateSearchApiKeys(provider);
@@ -311,10 +288,9 @@ export const builtInTools = {
         description: "Content to write (for write operations)",
       },
     },
-    execute: async (parameters, context = {}) => {
+    execute: async (parameters) => {
       const { operation, path: targetPath, content } = parameters;
       const nodeFsModule = getNodeFs();
-      const root = resolveFileSystemRoot(context);
 
       try {
         if (!targetPath || typeof targetPath !== "string") {
@@ -323,7 +299,7 @@ export const builtInTools = {
           );
         }
 
-        const resolution = resolveSafePath(targetPath, { root });
+        const resolution = resolveSafePath(targetPath);
         if (!resolution.isSafe) {
           throw new Error(
             "Invalid path: directory traversal detected or path outside the allowed root",
