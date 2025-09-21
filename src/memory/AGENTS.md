@@ -10,7 +10,7 @@
 - Encryption keys default to an ephemeral value in development. Configure `MEMORY_ENCRYPTION_KEY` (32 chars) in production so stored vectors remain decryptable across restarts.【F:src/memory/VectorMemory.ts†L23-L37】
 
 ## Dynamic feedback loop
-- Log migration outcomes or storage pressure in the generated reports whenever limits are hit; capture the root cause and mitigation in the living history so storage heuristics can be tuned iteratively.【F:REPORT.md†L1-L13】
+- Log migration outcomes or storage pressure in your PR or team notes whenever limits are hit, and capture the root cause plus mitigation in the living history so storage heuristics can be tuned iteratively; the legacy report pipeline is retired.【F:Steps.md†L1-L108】
 - Update documentation and tests when retrieval strategies, quota enforcement, or encryption policies change so consumers know how to adapt.【F:docs/agent-architecture.md†L9-L58】【F:__tests__/vectorMemory.test.js†L8-L43】
 
 ### Living history

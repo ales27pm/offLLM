@@ -14,7 +14,7 @@
 - The `MCPClient` auto-reconnects with backoff, tracks pending requests, and flushes queued messages once the socket opens; maintain those safeguards when extending transport features to avoid dropping tool calls.【F:src/architecture/toolSystem.js†L200-L392】
 
 ## Dynamic feedback loop
-- When plugin overrides or MCP integrations misbehave, capture the reproduction plus mitigation in the generated reports and echo the distilled lesson in this guide so future debugging starts with context.【F:REPORT.md†L1-L13】【F:report_agent.md†L6-L10】
+- When plugin overrides or MCP integrations misbehave, capture the reproduction plus mitigation in your PR (or `Steps.md`) and echo the distilled lesson in this guide so future debugging starts with context; the legacy report pipeline is no longer active.【F:Steps.md†L1-L108】
 - Update `docs/agent-architecture.md` and relevant tests after altering plugin activation order, dependency wiring, or tool analytics so external documentation reflects the new behaviour.【F:docs/agent-architecture.md†L21-L78】【F:__tests__/AGENTS.md†L1-L37】
 
 ### Living history
