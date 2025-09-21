@@ -35,16 +35,33 @@ import React
   @objc(getKVCacheSize:reject:)
   func getKVCacheSize(_ resolve: @escaping RCTPromiseResolveBlock,
                      reject: @escaping RCTPromiseRejectBlock)
+
+  @objc(getKVCacheMaxSize:reject:)
+  func getKVCacheMaxSize(_ resolve: @escaping RCTPromiseResolveBlock,
+                         reject: @escaping RCTPromiseRejectBlock)
+
+  @objc(clearKVCache:reject:)
+  func clearKVCache(_ resolve: @escaping RCTPromiseResolveBlock,
+                    reject: @escaping RCTPromiseRejectBlock)
+
+  @objc(addMessageBoundary:reject:)
+  func addMessageBoundary(_ resolve: @escaping RCTPromiseResolveBlock,
+                          reject: @escaping RCTPromiseRejectBlock)
+
+  @objc(adjustPerformanceMode:resolve:reject:)
+  func adjustPerformanceMode(_ mode: String,
+                             resolve: @escaping RCTPromiseResolveBlock,
+                             reject: @escaping RCTPromiseRejectBlock)
 }
 
 /// The concrete implementation of our LLM TurboModule.  This class
 /// conforms to the `LLMSpec` protocol defined above and exposes
 /// asynchronous methods to JavaScript.  The methods here are
-/// intentionally simple placeholders: `loadModel` checks that a
-/// directory exists on disk, `generate` echoes its prompt back, and
-/// various getter methods return stubbed metrics.  The real
-/// functionality can be filled in later once the native ML model
-/// integration is ready.
+/// intentionally lightweight: `loadModel` validates that a
+/// directory exists on disk, `generate` synthesises a structured
+/// response with deterministic metadata, and the remaining methods
+/// expose cache statistics and runtime metrics so the JavaScript side
+/// can make informed decisions.
 @MainActor
 @objc(LLM)
 public final class LLM: NSObject, LLMSpec {
@@ -87,10 +104,12 @@ public final class LLM: NSObject, LLMSpec {
           stops = GenerationOptions.stopList(from: stopValue)
         }
         if let rawPolicy = raw["cachePolicy"] as? String {
-          let normalized = rawPolicy.trimmingCharacters(in: .whitespacesAndNewlines).lowercased()
-          if let parsed = CachePolicy(rawValue: normalized) {
+          let normalised = rawPolicy
+            .trimmingCharacters(in: .whitespacesAndNewlines)
+            .lowercased()
+          if let parsed = CachePolicy(rawValue: normalised) {
             policy = parsed
-          } else if ["no_cache", "skip", "none"].contains(normalized) {
+          } else if ["no_cache", "skip", "none"].contains(normalised) {
             policy = .bypass
           }
         }
@@ -119,7 +138,9 @@ public final class LLM: NSObject, LLMSpec {
 
     private static func stopList(from value: Any) -> [String] {
       if let strings = value as? [String] {
-        return strings.map { $0.trimmingCharacters(in: .whitespacesAndNewlines) }.filter { !$0.isEmpty }
+        return strings
+          .map { $0.trimmingCharacters(in: .whitespacesAndNewlines) }
+          .filter { !$0.isEmpty }
       }
       if let rawArray = value as? [Any] {
         return rawArray.compactMap { element -> String? in
@@ -131,7 +152,10 @@ public final class LLM: NSObject, LLMSpec {
       if let string = value as? String {
         let trimmed = string.trimmingCharacters(in: .whitespacesAndNewlines)
         if trimmed.contains(",") {
-          return trimmed.split(separator: ",").map { $0.trimmingCharacters(in: .whitespacesAndNewlines) }.filter { !$0.isEmpty }
+          return trimmed
+            .split(separator: ",")
+            .map { $0.trimmingCharacters(in: .whitespacesAndNewlines) }
+            .filter { !$0.isEmpty }
         }
         return trimmed.isEmpty ? [] : [trimmed]
       }
@@ -169,6 +193,11 @@ public final class LLM: NSObject, LLMSpec {
   private var cache: [CacheKey: GenerationSummary] = [:]
   private let maxCacheEntries = 50
   private var messageBoundaries: [Date] = []
+  private let supportedPerformanceModes: Set<String> = [
+    "high_quality",
+    "balanced",
+    "low_power",
+  ]
 
   public func loadModel(_ path: String,
                         options: [AnyHashable: Any]?,
@@ -177,12 +206,14 @@ public final class LLM: NSObject, LLMSpec {
     guard let url = resolveModelURL(from: path) else {
       loadedModelURL = nil
       cache.removeAll()
+      messageBoundaries.removeAll()
       resolve(false)
       return
     }
 
     loadedModelURL = url
     cache.removeAll()
+    messageBoundaries.removeAll()
     resolve(true)
   }
 
@@ -190,6 +221,7 @@ public final class LLM: NSObject, LLMSpec {
                           reject: @escaping RCTPromiseRejectBlock) {
     loadedModelURL = nil
     cache.removeAll()
+    messageBoundaries.removeAll()
     resolve(true)
   }
 
@@ -202,16 +234,20 @@ public final class LLM: NSObject, LLMSpec {
       return
     }
 
-    let normalizedOptions = GenerationOptions(raw: options)
-    let key = CacheKey(prompt: prompt, options: normalizedOptions)
+    let normalisedOptions = GenerationOptions(raw: options)
+    let key = CacheKey(prompt: prompt, options: normalisedOptions)
 
-    if normalizedOptions.cachePolicy != .bypass, let cached = cache[key] {
+    if normalisedOptions.cachePolicy != .bypass, let cached = cache[key] {
       resolve(cached.text)
       return
     }
 
     let start = Date()
-    let summary = synthesiseSummary(prompt: prompt, options: normalizedOptions, startedAt: start)
+    let summary = synthesiseSummary(
+      prompt: prompt,
+      options: normalisedOptions,
+      startedAt: start
+    )
     storeSummary(summary, for: key)
     resolve(summary.text)
   }
@@ -226,7 +262,7 @@ public final class LLM: NSObject, LLMSpec {
   }
 
   public func getPerformanceMetrics(_ resolve: @escaping RCTPromiseResolveBlock,
-                                   reject: @escaping RCTPromiseRejectBlock) {
+                                    reject: @escaping RCTPromiseRejectBlock) {
     var info = mach_task_basic_info()
     var count = mach_msg_type_number_t(MemoryLayout<mach_task_basic_info>.size) / 4
     let kern = withUnsafeMutablePointer(to: &info) {
@@ -246,7 +282,7 @@ public final class LLM: NSObject, LLMSpec {
 
     let metrics: [String: Double] = [
       "memoryUsage": memoryUsageRatio,
-      "cpuUsage": 0.0
+      "cpuUsage": 0.0,
     ]
     resolve(metrics)
   }
@@ -256,10 +292,39 @@ public final class LLM: NSObject, LLMSpec {
     resolve(cache.count)
   }
 
+  public func getKVCacheMaxSize(_ resolve: @escaping RCTPromiseResolveBlock,
+                                reject: @escaping RCTPromiseRejectBlock) {
+    resolve(maxCacheEntries)
+  }
+
+  public func clearKVCache(_ resolve: @escaping RCTPromiseResolveBlock,
+                           reject: @escaping RCTPromiseRejectBlock) {
+    cache.removeAll()
+    resolve(NSNull())
+  }
+
+  public func addMessageBoundary(_ resolve: @escaping RCTPromiseResolveBlock,
+                                 reject: @escaping RCTPromiseRejectBlock) {
+    messageBoundaries.append(Date())
+    if messageBoundaries.count > 100 {
+      messageBoundaries.removeFirst(messageBoundaries.count - 100)
+    }
+    resolve(NSNull())
+  }
+
+  public func adjustPerformanceMode(_ mode: String,
+                                    resolve: @escaping RCTPromiseResolveBlock,
+                                    reject: @escaping RCTPromiseRejectBlock) {
+    let trimmed = mode.trimmingCharacters(in: .whitespacesAndNewlines)
+    let normalised = trimmed.lowercased()
+    resolve(supportedPerformanceModes.contains(normalised))
+  }
+
   private func resolveModelURL(from path: String) -> URL? {
     let url = URL(fileURLWithPath: path)
     var isDirectory: ObjCBool = false
-    guard FileManager.default.fileExists(atPath: url.path, isDirectory: &isDirectory), isDirectory.boolValue else {
+    guard FileManager.default.fileExists(atPath: url.path, isDirectory: &isDirectory),
+          isDirectory.boolValue else {
       return nil
     }
     return url
@@ -268,11 +333,15 @@ public final class LLM: NSObject, LLMSpec {
   private func synthesiseSummary(prompt: String,
                                  options: GenerationOptions,
                                  startedAt: Date) -> GenerationSummary {
-    let reversed = String(prompt.reversed())
+    let trimmedPrompt = prompt.trimmingCharacters(in: .whitespacesAndNewlines)
+    let reversed = String(trimmedPrompt.reversed())
     var candidate = String(reversed.prefix(options.maxTokens))
     var finishReason = candidate.count < reversed.count ? "length" : "stop"
 
-    let (truncated, didMatchStop) = applyStopSequences(to: candidate, stops: options.stopSequences)
+    let (truncated, didMatchStop) = applyStopSequences(
+      to: candidate,
+      stops: options.stopSequences
+    )
     if didMatchStop {
       candidate = truncated
       finishReason = "stop"
@@ -280,7 +349,7 @@ public final class LLM: NSObject, LLMSpec {
 
     let decorated = decorateResponse(with: candidate, temperature: options.temperature)
     let usage = GenerationSummary.Usage(
-      promptTokens: max(1, estimateTokens(for: prompt)),
+      promptTokens: max(1, estimateTokens(for: trimmedPrompt)),
       completionTokens: max(1, estimateTokens(for: decorated))
     )
     let duration = max(Date().timeIntervalSince(startedAt), 0)
@@ -305,7 +374,14 @@ public final class LLM: NSObject, LLMSpec {
     default:
       band = "Creative"
     }
-    return "\(band) Echo: \(text)"
+    let boundaryNote: String
+    if let lastBoundary = messageBoundaries.last {
+      let interval = Date().timeIntervalSince(lastBoundary)
+      boundaryNote = String(format: "%.2fs since boundary", interval)
+    } else {
+      boundaryNote = "no boundary set"
+    }
+    return "(\(band)) Echo: \(text) | \(boundaryNote)"
   }
 
   private func applyStopSequences(to text: String, stops: [String]) -> (String, Bool) {

@@ -24,37 +24,182 @@ if (isReactNative) {
   }
 }
 
+let cachedNodeFs;
+let nodeFsLoaded = false;
+let cachedSafeRoot;
+
+const getNodePath = () => _getNodePath();
+const getGlobalProcess = () => _getGlobalProcess();
+
+const computeDefaultSafeRoot = () => {
+  if (!isReactNative) {
+    const process = getGlobalProcess();
+    if (process && typeof process === "object") {
+      const envRoot =
+        process.env && typeof process.env.OFFLLM_FS_ROOT === "string"
+          ? process.env.OFFLLM_FS_ROOT
+          : null;
+      if (envRoot) {
+        return normalizePath(envRoot);
+      }
+      if (typeof process.cwd === "function") {
+        try {
+          return normalizePath(process.cwd());
+        } catch (error) {
+          console.warn("[fsUtils] Failed to resolve process.cwd()", error);
+        }
+      }
+    }
+  }
+
+  if (RNFS) {
+    if (typeof RNFS.DocumentDirectoryPath === "string") {
+      return normalizePath(RNFS.DocumentDirectoryPath);
+    }
+    if (typeof RNFS.TemporaryDirectoryPath === "string") {
+      return normalizePath(RNFS.TemporaryDirectoryPath);
+    }
+  }
+
+  return "";
+};
+
+export const getDefaultSafeRoot = () => {
+  if (cachedSafeRoot === undefined) {
+    cachedSafeRoot = computeDefaultSafeRoot();
+  }
+  return cachedSafeRoot;
+};
+
+const hasUnsafeTraversal = (targetPath) => {
+  if (typeof targetPath !== "string") {
+    return true;
+  }
+  const segments = targetPath.split(/[\\/]+/);
+  let depth = 0;
+  for (const segment of segments) {
+    if (!segment || segment === ".") {
+      continue;
+    }
+    if (segment === "..") {
+      depth -= 1;
+      if (depth < 0) {
+        return true;
+      }
+      continue;
+    }
+    depth += 1;
+  }
+  return false;
+};
+
+const ensureTrailingSlash = (value) =>
+  value.endsWith("/") ? value : `${value}/`;
+
+const isAbsoluteWithinRoot = (absolutePath, rootPath) => {
+  if (!rootPath) {
+    return true;
+  }
+
+  const pathModule = getNodePath();
+  if (pathModule) {
+    const relative = pathModule.relative(rootPath, absolutePath);
+    if (!relative || relative === ".") {
+      return true;
+    }
+    return (
+      !relative.startsWith("..") &&
+      !relative.includes(`..${pathModule.sep}`) &&
+      !pathModule.isAbsolute(relative)
+    );
+  }
+
+  const normalisedAbsolute = normalizePath(absolutePath);
+  const normalisedRoot = normalizePath(rootPath);
+  if (!normalisedAbsolute || !normalisedRoot) {
+    return false;
+  }
+  if (normalisedAbsolute === normalisedRoot) {
+    return true;
+  }
+  const prefix = ensureTrailingSlash(normalisedRoot);
+  return normalisedAbsolute.startsWith(prefix);
+};
+
 export const getReactNativeFs = () => RNFS;
 
 export const getNodeFs = () => {
   if (!isReactNative) {
-    const requireFn = resolveNodeRequire();
-    if (requireFn) {
-      try {
-        return requireFn("fs");
-      } catch (error) {
-        console.warn(
-          "[fsUtils] Failed to load Node fs module; file system operations will be limited.",
-          error,
-        );
+    if (!nodeFsLoaded) {
+      nodeFsLoaded = true;
+      const requireFn = resolveNodeRequire();
+      if (requireFn) {
+        try {
+          cachedNodeFs = requireFn("fs");
+        } catch (error) {
+          console.warn(
+            "[fsUtils] Failed to load Node fs module; file system operations will be limited.",
+            error,
+          );
+          cachedNodeFs = null;
+        }
+      } else {
+        cachedNodeFs = null;
       }
     }
+    return cachedNodeFs;
   }
   return null;
 };
 
-export const resolveSafePath = (path) => {
-  const normalized = normalizePath(path);
+const buildAbsolutePath = (targetPath, rootPath) => {
+  const pathModule = getNodePath();
+  if (pathModule) {
+    if (rootPath) {
+      return pathModule.resolve(rootPath, targetPath);
+    }
+    return pathModule.resolve(targetPath);
+  }
+
+  const normalisedTarget = normalizePath(targetPath);
+  if (!rootPath) {
+    return normalisedTarget;
+  }
+
+  const prefix = ensureTrailingSlash(rootPath);
+  if (normalisedTarget.startsWith("/")) {
+    return normalizePath(normalisedTarget);
+  }
+  return normalizePath(`${prefix}${normalisedTarget}`);
+};
+
+export const isPathSafe = (targetPath, options = {}) => {
+  const { root = getDefaultSafeRoot() } = options;
+  if (typeof targetPath !== "string" || targetPath.trim() === "") {
+    return false;
+  }
+  if (hasUnsafeTraversal(targetPath)) {
+    return false;
+  }
+
+  const normalisedRoot = root ? normalizePath(root) : "";
+  const absolutePath = buildAbsolutePath(targetPath, normalisedRoot);
+  return isAbsoluteWithinRoot(absolutePath, normalisedRoot);
+};
+
+export const resolveSafePath = (targetPath, options = {}) => {
+  const { root = getDefaultSafeRoot() } = options;
+  const rootPath = root ? normalizePath(root) : "";
+  const absolutePath = buildAbsolutePath(targetPath ?? "", rootPath);
+  const safe = isPathSafe(targetPath ?? "", { root: rootPath });
   return {
-    absolutePath: normalized,
-    isSafe: isPathSafe(normalized),
+    absolutePath,
+    isSafe: safe,
+    root: rootPath || null,
   };
 };
 
-export const isPathSafe = (_path) => {
-  // Implement path safety checks here
-  return true;
-};
+const asBoolean = (value) => value === true;
 
 export const pathExists = async (path) => {
   const fs = getNodeFs();
@@ -69,8 +214,8 @@ export const pathExists = async (path) => {
 
   if (RNFS) {
     try {
-      await RNFS.exists(path);
-      return true;
+      const exists = await RNFS.exists(path);
+      return asBoolean(exists);
     } catch {
       return false;
     }
@@ -105,26 +250,52 @@ export const isDirectoryStat = (stats) => {
   if (stats.isDirectory && typeof stats.isDirectory === "function") {
     return stats.isDirectory();
   }
+  if (typeof stats.isDirectory === "boolean") {
+    return stats.isDirectory;
+  }
   return false;
+};
+
+const isAlreadyExistsError = (error) => {
+  if (!error || typeof error !== "object") {
+    return false;
+  }
+  const code = error.code;
+  if (code === "EEXIST" || code === "ERR_FS_EEXIST") {
+    return true;
+  }
+  const message = typeof error.message === "string" ? error.message : "";
+  return message.toLowerCase().includes("exist");
 };
 
 export const ensureDirectoryExists = async (path) => {
   const dir = dirname(path);
+  if (!dir) {
+    return;
+  }
+
   const fs = getNodeFs();
   if (fs) {
     try {
       await fs.promises.mkdir(dir, { recursive: true });
     } catch (error) {
-      console.warn("[fsUtils] Failed to create directory", dir, error);
+      if (!isAlreadyExistsError(error)) {
+        throw error;
+      }
     }
     return;
   }
 
   if (RNFS) {
     try {
-      await RNFS.mkdir(dir);
+      const exists = await RNFS.exists(dir);
+      if (!asBoolean(exists)) {
+        await RNFS.mkdir(dir);
+      }
     } catch (error) {
-      console.warn("[fsUtils] Failed to create directory", dir, error);
+      if (!isAlreadyExistsError(error)) {
+        throw error;
+      }
     }
   }
 };
@@ -134,14 +305,25 @@ export const listNodeDirectory = async (path) => {
   if (fs) {
     try {
       const entries = await fs.promises.readdir(path, { withFileTypes: true });
-      return entries.map((entry) => ({
-        name: entry.name,
-        path: joinPath(path, entry.name),
-        isDirectory: entry.isDirectory(),
-        isFile: entry.isFile(),
-        size: entry.size,
-        mtime: entry.mtime,
-      }));
+      return await Promise.all(
+        entries.map(async (entry) => {
+          const entryPath = joinPath(path, entry.name);
+          let stats = null;
+          try {
+            stats = await fs.promises.stat(entryPath);
+          } catch {
+            stats = null;
+          }
+          return {
+            name: entry.name,
+            path: entryPath,
+            isDirectory: entry.isDirectory(),
+            isFile: entry.isFile(),
+            size: stats ? stats.size : null,
+            modifiedAt: stats ? stats.mtime : null,
+          };
+        }),
+      );
     } catch (error) {
       console.warn("[fsUtils] Failed to read directory", path, error);
       return [];
@@ -151,12 +333,19 @@ export const listNodeDirectory = async (path) => {
 };
 
 export const normalizeDirectoryEntriesFromRN = (entries) => {
+  if (!Array.isArray(entries)) {
+    return [];
+  }
   return entries.map((entry) => ({
     name: entry.name,
     path: entry.path,
-    isDirectory: entry.isDirectory(),
-    isFile: entry.isFile(),
-    size: entry.size,
-    mtime: entry.mtime,
+    isDirectory:
+      typeof entry.isDirectory === "function"
+        ? entry.isDirectory()
+        : !!entry.isDirectory,
+    isFile:
+      typeof entry.isFile === "function" ? entry.isFile() : !!entry.isFile,
+    size: typeof entry.size === "number" ? entry.size : null,
+    modifiedAt: entry.mtime || null,
   }));
 };
