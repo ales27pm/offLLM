@@ -13,6 +13,38 @@
 #define CR_RCT_APPSETUPUTILS_AVAILABLE 0
 #endif
 
+#if __has_include(<React-RCTAppDelegate/RCTReactNativeFactory.h>)
+#import <React-RCTAppDelegate/RCTReactNativeFactory.h>
+#elif __has_include(<React/RCTReactNativeFactory.h>)
+#import <React/RCTReactNativeFactory.h>
+#elif __has_include("RCTReactNativeFactory.h")
+#import "RCTReactNativeFactory.h"
+#else
+#error "RCTReactNativeFactory header not found. Run 'bundle exec pod install' to generate React-RCTAppDelegate"
+#endif
+
+#if __has_include(<React-RCTAppDelegate/RCTRootViewFactory.h>)
+#import <React-RCTAppDelegate/RCTRootViewFactory.h>
+#elif __has_include(<React/RCTRootViewFactory.h>)
+#import <React/RCTRootViewFactory.h>
+#elif __has_include("RCTRootViewFactory.h")
+#import "RCTRootViewFactory.h"
+#else
+#error "RCTRootViewFactory header not found. Run 'bundle exec pod install' to generate React-RCTAppDelegate"
+#endif
+
+#if __has_include(<React/RCTBundleURLProvider.h>)
+#import <React/RCTBundleURLProvider.h>
+#elif __has_include("RCTBundleURLProvider.h")
+#import "RCTBundleURLProvider.h"
+#endif
+
+#if __has_include(<React/RCTBridge.h>)
+#import <React/RCTBridge.h>
+#elif __has_include("RCTBridge.h")
+#import "RCTBridge.h"
+#endif
+
 #if CR_RCT_APPSETUPUTILS_AVAILABLE
 
 #if defined(__has_builtin)
@@ -43,16 +75,58 @@ static inline void RCTAppSetupPrepareApp(id application, BOOL turboModuleEnabled
 #define CR_RCT_PREPARE_APP(APP, TURBO) RCTAppSetupPrepareApp(APP, TURBO)
 #endif
 
+@interface AppDelegate ()
+@property(nonatomic, strong) RCTReactNativeFactory *reactNativeFactory;
+@property(nonatomic, copy) NSString *moduleName;
+@property(nonatomic, copy, nullable) NSDictionary *initialProps;
+@end
+
 @implementation AppDelegate
 
-- (BOOL)application:(UIApplication *)application
-    didFinishLaunchingWithOptions:(NSDictionary *)launchOptions
+- (instancetype)init
 {
-  // Prepare the React Native environment.
-  CR_RCT_PREPARE_APP(application, [self turboModuleEnabled]);
-  // Name must match the "name" field in app.json.
-  self.moduleName = @"monGARS";
-  return [super application:application didFinishLaunchingWithOptions:launchOptions];
+  self = [super init];
+  if (self) {
+    _moduleName = @"monGARS";
+    _initialProps = nil;
+  }
+  return self;
+}
+
+- (BOOL)application:(UIApplication *)application didFinishLaunchingWithOptions:(NSDictionary *)launchOptions
+{
+  CR_RCT_PREPARE_APP(application, self.turboModuleEnabled);
+
+  self.reactNativeFactory = [[RCTReactNativeFactory alloc] initWithDelegate:self];
+
+  UIView *rootView = [self.reactNativeFactory.rootViewFactory viewWithModuleName:self.moduleName
+                                                                initialProperties:self.initialProps
+                                                                    launchOptions:launchOptions];
+
+  UIViewController *rootViewController = [self createRootViewController];
+  [self setRootView:rootView toRootViewController:rootViewController];
+
+  self.window = [[UIWindow alloc] initWithFrame:[UIScreen mainScreen].bounds];
+  self.window.rootViewController = rootViewController;
+  [self.window makeKeyAndVisible];
+
+  return YES;
+}
+
+- (NSURL *)bundleURL
+{
+  return [self sourceURLForBridge:nil];
+}
+
+- (NSURL *)sourceURLForBridge:(RCTBridge *)bridge
+{
+#if DEBUG
+  return [[RCTBundleURLProvider sharedSettings] jsBundleURLForBundleRoot:@"index" fallbackResource:nil];
+#else
+  NSURL *bundleURL = [[NSBundle mainBundle] URLForResource:@"main" withExtension:@"jsbundle"];
+  NSAssert(bundleURL != nil, @"Unable to locate main.jsbundle. Ensure the JS bundle is embedded in release builds.");
+  return bundleURL;
+#endif
 }
 
 @end
