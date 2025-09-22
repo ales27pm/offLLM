@@ -1,14 +1,17 @@
-#import <Foundation/Foundation.h>
+#import <UIKit/UIKit.h>
 
-#if __has_include(<React/RCTAppDelegate.h>)
-#import <React/RCTAppDelegate.h>
-#elif __has_include(<React_RCTAppDelegate/RCTAppDelegate.h>)
-#import <React_RCTAppDelegate/RCTAppDelegate.h>
-#elif __has_include("RCTAppDelegate.h")
-#import "RCTAppDelegate.h"
+#if __has_include(<React-RCTAppDelegate/RCTDefaultReactNativeFactoryDelegate.h>)
+#import <React-RCTAppDelegate/RCTDefaultReactNativeFactoryDelegate.h>
+#elif __has_include(<React/RCTDefaultReactNativeFactoryDelegate.h>)
+#import <React/RCTDefaultReactNativeFactoryDelegate.h>
+#elif __has_include("RCTDefaultReactNativeFactoryDelegate.h")
+#import "RCTDefaultReactNativeFactoryDelegate.h"
 #else
-#error "RCTAppDelegate header not found. Run 'bundle exec pod install' to generate React-RCTAppDelegate"
+#error "RCTDefaultReactNativeFactoryDelegate header not found. Run 'bundle exec pod install' to generate React-RCTAppDelegate"
 #endif
 
-@interface AppDelegate : RCTAppDelegate
+@interface AppDelegate : RCTDefaultReactNativeFactoryDelegate <UIApplicationDelegate>
+
+@property (nonatomic, strong) UIWindow *window;
+
 @end
