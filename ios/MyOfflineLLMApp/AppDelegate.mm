@@ -23,7 +23,11 @@ static NSString *ResolveReactModuleName(void)
 }
 
 @interface AppDelegate ()
+#if RN_HAS_REACT_NATIVE_FACTORY
 @property(nonatomic, strong) RCTReactNativeFactory *reactNativeFactory;
+#else
+@property(nonatomic, strong) RCTBridge *bridge;
+#endif
 @property(nonatomic, copy) NSString *moduleName;
 @property(nonatomic, copy, nullable) NSDictionary *initialProps;
 @end
@@ -42,13 +46,24 @@ static NSString *ResolveReactModuleName(void)
 
 - (BOOL)application:(UIApplication *)application didFinishLaunchingWithOptions:(NSDictionary *)launchOptions
 {
-  RNPrepareReactNativeApplication(application, self.turboModuleEnabled);
+  BOOL turboModuleEnabled = NO;
+#if RN_HAS_REACT_NATIVE_FACTORY
+  turboModuleEnabled = self.turboModuleEnabled;
+#endif
+  RNPrepareReactNativeApplication(application, turboModuleEnabled);
 
+#if RN_HAS_REACT_NATIVE_FACTORY
   self.reactNativeFactory = [[RCTReactNativeFactory alloc] initWithDelegate:self];
 
   UIView *rootView = [self.reactNativeFactory.rootViewFactory viewWithModuleName:self.moduleName
                                                                 initialProperties:self.initialProps
                                                                     launchOptions:launchOptions];
+#else
+  self.bridge = [[RCTBridge alloc] initWithDelegate:self launchOptions:launchOptions];
+  UIView *rootView = [[RCTRootView alloc] initWithBridge:self.bridge
+                                             moduleName:self.moduleName
+                                      initialProperties:self.initialProps];
+#endif
 
   if (rootView == nil) {
     NSString *message =
@@ -58,8 +73,18 @@ static NSString *ResolveReactModuleName(void)
     return NO;
   }
 
+#if !RN_HAS_REACT_NATIVE_FACTORY
+  if ([rootView respondsToSelector:@selector(setBackgroundColor:)]) {
+    rootView.backgroundColor = [UIColor whiteColor];
+  }
+#endif
+
+#if RN_HAS_REACT_NATIVE_FACTORY
   UIViewController *rootViewController = [self createRootViewController];
   [self setRootView:rootView toRootViewController:rootViewController];
+#else
+  UIViewController *rootViewController = [self createFallbackRootViewControllerWithRootView:rootView];
+#endif
 
   self.window = [[UIWindow alloc] initWithFrame:[UIScreen mainScreen].bounds];
   self.window.rootViewController = rootViewController;
@@ -89,5 +114,14 @@ static NSString *ResolveReactModuleName(void)
   return bundleURL;
 #endif
 }
+
+#if !RN_HAS_REACT_NATIVE_FACTORY
+- (UIViewController *)createFallbackRootViewControllerWithRootView:(UIView *)rootView
+{
+  UIViewController *rootViewController = [UIViewController new];
+  rootViewController.view = rootView;
+  return rootViewController;
+}
+#endif
 
 @end

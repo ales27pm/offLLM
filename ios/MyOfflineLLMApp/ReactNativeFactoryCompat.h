@@ -1,15 +1,26 @@
+#pragma once
+
 #import <Foundation/Foundation.h>
 
 #if __has_include(<React-RCTAppDelegate/RCTDefaultReactNativeFactoryDelegate.h>)
+#define RN_HAS_REACT_NATIVE_FACTORY 1
 #import <React-RCTAppDelegate/RCTDefaultReactNativeFactoryDelegate.h>
 #import <React-RCTAppDelegate/RCTReactNativeFactory.h>
 #import <React-RCTAppDelegate/RCTRootViewFactory.h>
 #elif __has_include(<React/RCTDefaultReactNativeFactoryDelegate.h>)
+#define RN_HAS_REACT_NATIVE_FACTORY 1
 #import <React/RCTDefaultReactNativeFactoryDelegate.h>
 #import <React/RCTReactNativeFactory.h>
 #import <React/RCTRootViewFactory.h>
 #else
-#error "Unable to locate React Native factory headers. Ensure React Native >= 0.72 is installed."
+#define RN_HAS_REACT_NATIVE_FACTORY 0
+#endif
+
+#if !RN_HAS_REACT_NATIVE_FACTORY
+#import <React/RCTBridge.h>
+#import <React/RCTBridgeDelegate.h>
+#import <React/RCTBundleURLProvider.h>
+#import <React/RCTRootView.h>
 #endif
 
 #if __has_include(<React-RCTAppDelegate/RCTAppSetupUtils.h>)
