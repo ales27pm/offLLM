@@ -131,7 +131,7 @@ PAYLOAD_DIR="$BUILD_DIR/Payload"
 rm -rf "$PAYLOAD_DIR"
 mkdir -p "$PAYLOAD_DIR"
 cp -R "$APP_PATH" "$PAYLOAD_DIR/"
-(cd "$BUILD_DIR" && zip -qr monGARS-unsigned-ipa.zip Payload)
-echo "✅ Artifact created at $BUILD_DIR/monGARS-unsigned-ipa.zip"
+(cd "$BUILD_DIR" && zip -qry monGARS-unsigned.ipa Payload)
+echo "✅ Artifact created at $BUILD_DIR/monGARS-unsigned.ipa"
 
 echo "✅ Build script completed."

@@ -242,6 +242,7 @@ if [ -d "$APP_PATH" ]; then
   rm -rf "$BUILD_DIR/Payload"
   mkdir -p "$BUILD_DIR/Payload"
   cp -R "$APP_PATH" "$BUILD_DIR/Payload/"
+  "${ROOT_DIR}/scripts/ci/verify-hermes-static.sh" "$BUILD_DIR/Payload" "$SCHEME"
   (cd "$BUILD_DIR" && zip -qry monGARS-unsigned.ipa Payload)
   (cd "$APP_DIR" && zip -qry "$PWD/../../$SCHEME.app.zip" "$SCHEME.app")
 fi

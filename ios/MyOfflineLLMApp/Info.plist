@@ -51,8 +51,10 @@
 	<string>Motion data helps with sensor-based tools.</string>
         <key>NSAppleMusicUsageDescription</key>
         <string>Apple Music access allows controlling playback.</string>
-	<key>NSPhotoLibraryUsageDescription</key>
+        <key>NSPhotoLibraryUsageDescription</key>
         <string>Photo library access lets you share images.</string>
+        <key>ReactNativeRootModuleName</key>
+        <string>monGARS</string>
         <key>RCTNewArchEnabled</key>
         <true/>
 </dict>

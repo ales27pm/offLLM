@@ -3,6 +3,9 @@ set -euo pipefail
 ARCHIVE_PATH="${1:-build/DerivedData/Archive.xcarchive}"
 OUT_DIR="${2:-build}"
 APP_NAME_HINT="${3:-}"
+SCRIPT_DIR="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
+REPO_ROOT="$(cd "${SCRIPT_DIR}/.." && pwd)"
+VERIFY_HERMES_SCRIPT="${REPO_ROOT}/scripts/ci/verify-hermes-static.sh"
 if [ ! -d "$ARCHIVE_PATH" ]; then
   echo "::error title=Archive not found::'$ARCHIVE_PATH' does not exist (archive failed)."
   exit 66
@@ -35,9 +38,9 @@ fi
 mkdir -p "$OUT_DIR"
 OUT_DIR="$(cd "$OUT_DIR" && pwd)"
 APP_BASENAME="$(basename "$APP_PATH" .app)"
-( cd "$(dirname "$APP_PATH")" && /usr/bin/zip -qry "${OUT_DIR}/${APP_BASENAME}.zip" "$(basename "$APP_PATH")" )
 TMP="$(mktemp -d)"; mkdir -p "$TMP/Payload"
 cp -R "$APP_PATH" "$TMP/Payload/"
+"${VERIFY_HERMES_SCRIPT}" "$TMP/Payload" "$APP_BASENAME"
 ( cd "$TMP" && /usr/bin/zip -qry "${OUT_DIR}/${APP_BASENAME}.ipa" "Payload" )
 rm -rf "$TMP"
 echo "::notice title=Packaging complete::${OUT_DIR}/${APP_BASENAME}.ipa"

@@ -175,16 +175,20 @@ jobs:
 
       - name: Package Unsigned IPA (zip Payload)
         run: |
+          set -euo pipefail
           APP_PATH="$(/usr/bin/find "${DERIVED_DATA}/Build/Products/Release-iphoneos" -maxdepth 1 -name '*.app' -print -quit)"
           if [ -z "$APP_PATH" ]; then
             echo "::error::Could not find built .app under ${DERIVED_DATA}/Build/Products/Release-iphoneos"
             exit 1
           fi
-          mkdir -p "$(dirname "$IPA_OUT")" Payload
-          cp -R "$APP_PATH" "Payload/"
-          # Preserve bundle attributes/resource forks
-          ditto -c -k --sequesterRsrc --keepParent "Payload" "$IPA_OUT"
-          rm -rf Payload
+          PAYLOAD_DIR="Payload"
+          rm -rf "$PAYLOAD_DIR"
+          mkdir -p "$(dirname "$IPA_OUT")" "$PAYLOAD_DIR"
+          cp -R "$APP_PATH" "$PAYLOAD_DIR/"
+          # Hermes must remain statically linked; bundling hermes.framework alongside the Pods build aborts at launch.
+          ./scripts/ci/verify-hermes-static.sh "$PAYLOAD_DIR" "$SCHEME"
+          zip -qry "$IPA_OUT" "$PAYLOAD_DIR"
+          rm -rf "$PAYLOAD_DIR"
           echo "Created unsigned IPA at: $IPA_OUT"
 
       - name: Upload Artifacts

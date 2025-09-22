@@ -323,6 +323,8 @@ end
 
 install! 'cocoapods', :disable_input_output_paths => true
 
+use_frameworks! :linkage => :static
+
 # --- Auto-detect the .xcodeproj near this Podfile ---
 #
 project_candidates = Dir.glob(File.join(__dir__, '*.xcodeproj')).sort
@@ -370,14 +372,11 @@ target 'monGARS' do
   config = use_native_modules!
 
   new_arch_enabled = env_flag_enabled?('RCT_NEW_ARCH_ENABLED', default: true)
-  fabric_enabled = env_flag_enabled?('RCT_FABRIC_ENABLED', default: new_arch_enabled)
-
-  flags = get_default_flags()
 
   use_react_native!(
     :path => config[:reactNativePath],
-    :hermes_enabled => flags[:hermes_enabled],
-    :fabric_enabled => fabric_enabled,
+    :hermes_enabled => true,
+    :fabric_enabled => true,
     :new_arch_enabled => new_arch_enabled,
     :app_path => "#{__dir__}/..",
     :config_file_dir => File.expand_path('..', __dir__)
@@ -408,11 +407,31 @@ end
 post_install do |installer|
   react_native_post_install(installer)
 
-  forbidden_frameworks = ['CoreAudioTypes']
+  forbidden_frameworks = ['CoreAudioTypes', 'hermes']
   forbidden_framework_refs = forbidden_frameworks.flat_map do |framework|
     ["#{framework}.framework", "#{framework}.tbd"]
   end.uniq
   pods_project_modified = false
+
+  matches_hermes_framework = lambda do |name|
+    next false if name.nil?
+
+    normalized = name.to_s.downcase
+    normalized.include?('hermes.framework')
+  end
+
+  frameworks_copy_phase = lambda do |phase|
+    next false unless phase.respond_to?(:dst_subfolder_spec) || phase.respond_to?(:symbol_dst_subfolder_spec)
+
+    spec =
+      if phase.respond_to?(:symbol_dst_subfolder_spec) && phase.symbol_dst_subfolder_spec
+        phase.symbol_dst_subfolder_spec
+      else
+        phase.dst_subfolder_spec
+      end
+
+    [:frameworks, '10', 10].include?(spec)
+  end
 
   # Unconditionally disable I/O path analysis to avoid flaky .xcfilelist issues
   installer.pods_project.targets.each do |t|
@@ -423,6 +442,33 @@ post_install do |installer|
       c.build_settings['CLANG_CXX_LANGUAGE_STANDARD'] = 'c++20'
       c.build_settings['CLANG_CXX_LIBRARY'] = 'libc++'
 
+      existing_ldflags = c.build_settings['OTHER_LDFLAGS']
+      desired_ldflags =
+        if existing_ldflags.nil? || (existing_ldflags.respond_to?(:empty?) && existing_ldflags.empty?)
+          ['$(inherited)', '-ObjC']
+        else
+          append_flags(existing_ldflags, ['$(inherited)', '-ObjC'])
+        end
+      if desired_ldflags != existing_ldflags
+        c.build_settings['OTHER_LDFLAGS'] = desired_ldflags
+        pods_project_modified = true
+      end
+
+      if c.build_settings['DEAD_CODE_STRIPPING'] != 'NO'
+        c.build_settings['DEAD_CODE_STRIPPING'] = 'NO'
+        pods_project_modified = true
+      end
+
+      if c.build_settings['STRIP_INSTALLED_PRODUCT'] != 'NO'
+        c.build_settings['STRIP_INSTALLED_PRODUCT'] = 'NO'
+        pods_project_modified = true
+      end
+
+      if c.build_settings['IPHONEOS_DEPLOYMENT_TARGET'] != '17.0'
+        c.build_settings['IPHONEOS_DEPLOYMENT_TARGET'] = '17.0'
+        pods_project_modified = true
+      end
+
       if sanitize_build_setting_ldflags(c, forbidden_frameworks)
         Pod::UI.puts "[Podfile] Removed #{forbidden_frameworks.join(', ')} from OTHER_LDFLAGS for #{target_name} (#{c.name})"
         pods_project_modified = true
@@ -430,26 +476,52 @@ post_install do |installer|
     end
 
     frameworks_phase = t.respond_to?(:frameworks_build_phase) ? t.frameworks_build_phase : nil
-    next unless frameworks_phase && frameworks_phase.respond_to?(:files)
+    if frameworks_phase && frameworks_phase.respond_to?(:files)
+      frameworks_phase.files.to_a.dup.each do |build_file|
+        file_ref = build_file.respond_to?(:file_ref) ? build_file.file_ref : nil
+        next unless file_ref
 
-    frameworks_phase.files.to_a.dup.each do |build_file|
-      file_ref = build_file.respond_to?(:file_ref) ? build_file.file_ref : nil
-      next unless file_ref
+        display_name =
+          if file_ref.respond_to?(:display_name)
+            file_ref.display_name.to_s
+          elsif file_ref.respond_to?(:path)
+            file_ref.path.to_s
+          else
+            ''
+          end
 
-      display_name =
-        if file_ref.respond_to?(:display_name)
-          file_ref.display_name.to_s
-        elsif file_ref.respond_to?(:path)
-          file_ref.path.to_s
-        else
-          ''
-        end
+        next unless forbidden_framework_refs.include?(display_name)
 
-      next unless forbidden_framework_refs.include?(display_name)
+        frameworks_phase.remove_build_file(build_file)
+        Pod::UI.puts "[Podfile] Removed #{display_name} from #{target_name}'s Frameworks phase"
+        pods_project_modified = true
+      end
+    end
 
-      frameworks_phase.remove_build_file(build_file)
-      Pod::UI.puts "[Podfile] Removed #{display_name} from #{target_name}'s Frameworks phase"
-      pods_project_modified = true
+    copy_phases = t.respond_to?(:copy_files_build_phases) ? t.copy_files_build_phases : []
+    copy_phases.to_a.each do |phase|
+      next unless frameworks_copy_phase.call(phase)
+      next unless phase.respond_to?(:files)
+
+      phase.files.to_a.dup.each do |build_file|
+        file_ref = build_file.respond_to?(:file_ref) ? build_file.file_ref : nil
+        next unless file_ref
+
+        display_name =
+          if file_ref.respond_to?(:display_name)
+            file_ref.display_name.to_s
+          elsif file_ref.respond_to?(:path)
+            file_ref.path.to_s
+          else
+            ''
+          end
+
+        next unless matches_hermes_framework.call(display_name)
+
+        phase.remove_build_file(build_file)
+        Pod::UI.puts "[Podfile] Removed #{display_name} from #{target_name}'s #{phase.name || 'Embed Frameworks'} phase"
+        pods_project_modified = true
+      end
     end
   end
 
@@ -590,26 +662,52 @@ post_install do |installer|
       end
 
       frameworks_phase = target.respond_to?(:frameworks_build_phase) ? target.frameworks_build_phase : nil
-      next unless frameworks_phase && frameworks_phase.respond_to?(:files)
+      if frameworks_phase && frameworks_phase.respond_to?(:files)
+        frameworks_phase.files.to_a.dup.each do |build_file|
+          file_ref = build_file.respond_to?(:file_ref) ? build_file.file_ref : nil
+          next unless file_ref
 
-      frameworks_phase.files.to_a.dup.each do |build_file|
-        file_ref = build_file.respond_to?(:file_ref) ? build_file.file_ref : nil
-        next unless file_ref
+          display_name =
+            if file_ref.respond_to?(:display_name)
+              file_ref.display_name.to_s
+            elsif file_ref.respond_to?(:path)
+              file_ref.path.to_s
+            else
+              ''
+            end
 
-        display_name =
-          if file_ref.respond_to?(:display_name)
-            file_ref.display_name.to_s
-          elsif file_ref.respond_to?(:path)
-            file_ref.path.to_s
-          else
-            ''
-          end
+          next unless forbidden_framework_refs.include?(display_name)
 
-        next unless forbidden_framework_refs.include?(display_name)
+          frameworks_phase.remove_build_file(build_file)
+          Pod::UI.puts "[Podfile] Removed #{display_name} from #{target.name}'s Frameworks phase"
+          project_modified = true
+        end
+      end
 
-        frameworks_phase.remove_build_file(build_file)
-        Pod::UI.puts "[Podfile] Removed #{display_name} from #{target.name}'s Frameworks phase"
-        project_modified = true
+      copy_phases = target.respond_to?(:copy_files_build_phases) ? target.copy_files_build_phases : []
+      copy_phases.to_a.each do |phase|
+        next unless frameworks_copy_phase.call(phase)
+        next unless phase.respond_to?(:files)
+
+        phase.files.to_a.dup.each do |build_file|
+          file_ref = build_file.respond_to?(:file_ref) ? build_file.file_ref : nil
+          next unless file_ref
+
+          display_name =
+            if file_ref.respond_to?(:display_name)
+              file_ref.display_name.to_s
+            elsif file_ref.respond_to?(:path)
+              file_ref.path.to_s
+            else
+              ''
+            end
+
+          next unless matches_hermes_framework.call(display_name)
+
+          phase.remove_build_file(build_file)
+          Pod::UI.puts "[Podfile] Removed #{display_name} from #{target.name}'s #{phase.name || 'Embed Frameworks'} phase"
+          project_modified = true
+        end
       end
     end
 
