@@ -1,5 +1,5 @@
 #import <UIKit/UIKit.h>
-#import <React-RCTAppDelegate/RCTDefaultReactNativeFactoryDelegate.h>
+#import "ReactNativeFactoryCompat.h"
 
 @interface AppDelegate : RCTDefaultReactNativeFactoryDelegate <UIApplicationDelegate>
 
