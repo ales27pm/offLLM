@@ -67,3 +67,11 @@ static inline void RNPrepareReactNativeApplication(id application, BOOL turboMod
 
 #undef RN_APPSETUP_HAS_TURBO_PARAM
 #undef RN_APPSETUPUTILS_AVAILABLE
+
+#if RN_HAS_REACT_NATIVE_FACTORY
+typedef RCTDefaultReactNativeFactoryDelegate RNAppDelegateBaseClass;
+#define RN_APP_DELEGATE_PROTOCOLS UIApplicationDelegate
+#else
+typedef UIResponder RNAppDelegateBaseClass;
+#define RN_APP_DELEGATE_PROTOCOLS UIApplicationDelegate, RCTBridgeDelegate
+#endif

@@ -1,12 +1,10 @@
 #import <UIKit/UIKit.h>
 #import "ReactNativeFactoryCompat.h"
 
-#if RN_HAS_REACT_NATIVE_FACTORY
-@interface AppDelegate : RCTDefaultReactNativeFactoryDelegate <UIApplicationDelegate>
-#else
-@interface AppDelegate : UIResponder <UIApplicationDelegate, RCTBridgeDelegate>
-#endif
+@interface AppDelegate : RNAppDelegateBaseClass <RN_APP_DELEGATE_PROTOCOLS>
 
 @property (nonatomic, strong) UIWindow *window;
 
 @end
+
+#undef RN_APP_DELEGATE_PROTOCOLS
