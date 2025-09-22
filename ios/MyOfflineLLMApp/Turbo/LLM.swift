@@ -885,6 +885,7 @@ public final class LLM: NSObject, LLMSpec {
     }
 
     return [
+      "Qwen/Qwen2-1.5B-Instruct-MLX",
       "mlx-community/gemma-2-2b-it",
       "mlx-community/llama-3.1-instruct-8b",
       "mlx-community/phi-3-mini-4k-instruct",

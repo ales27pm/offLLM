@@ -59,6 +59,15 @@ const MODEL_PRESETS = [
     size: "1.1 GB",
   },
   {
+    id: "qwen2-1_5b-mlx",
+    name: "Qwen2 1.5B Instruct (MLX)",
+    modelId: "Qwen/Qwen2-1.5B-Instruct-MLX",
+    description:
+      "MLX-optimised Qwen2 chat model for iOS builds. Loads directly from Hugging Face via the MLX runtime.",
+    size: "0.81 GB",
+    platforms: ["ios"],
+  },
+  {
     id: "tinyllama-1b-q4",
     name: "TinyLlama 1.1B Q4_K_M",
     url: "https://huggingface.co/jzhang38/TinyLlama-1.1B-Chat-v1.0-GGUF/resolve/main/TinyLlama-1.1B-Chat-v1.0.Q4_K_M.gguf",
@@ -105,7 +114,14 @@ function App() {
   const selectedModel = useLLMStore((state) => state.selectedModel);
   const setSelectedModel = useLLMStore((state) => state.setSelectedModel);
   const isGenerating = useLLMStore((state) => state.isGenerating);
-  const modelOptions = useMemo(() => MODEL_PRESETS, []);
+  const platform = Platform.OS;
+  const modelOptions = useMemo(
+    () =>
+      MODEL_PRESETS.filter(
+        (preset) => !preset.platforms || preset.platforms.includes(platform),
+      ),
+    [platform],
+  );
   const initializingRef = useRef(false);
   const handleSend = useCallback(
     (text) => {
@@ -147,22 +163,33 @@ function App() {
 
   const handleModelDownload = useCallback(
     async (model) => {
-      if (!model?.url) {
+      if (!model?.url && !model?.modelId) {
         setModelError("Select a model to download.");
         return;
       }
       try {
         setModelError(null);
-        setModelStatus("downloading");
-        setDownloadProgress(0.05);
-        const path = await ensureModelDownloaded(model.url, {
-          checksum: model.checksum,
-        });
-        setDownloadProgress(0.75);
-        setModelStatus("loading");
-        await LLMService.loadModel(path);
-        setDownloadProgress(1);
-        setCurrentModelPath(path);
+        setDownloadProgress(0);
+        if (model.url) {
+          setModelStatus("downloading");
+          setDownloadProgress(0.05);
+          const path = await ensureModelDownloaded(model.url, {
+            checksum: model.checksum,
+          });
+          setDownloadProgress(0.75);
+          setModelStatus("loading");
+          await LLMService.loadModel(path);
+          setDownloadProgress(1);
+          setCurrentModelPath(path);
+        } else if (model.modelId) {
+          setModelStatus("loading");
+          setDownloadProgress(0.1);
+          await LLMService.loadModel(model.modelId);
+          setDownloadProgress(1);
+          setCurrentModelPath(model.modelId);
+        } else {
+          throw new Error("Model is missing download information.");
+        }
         setModelStatus("ready");
       } catch (err) {
         console.error("Model selection failed:", err);
