@@ -1,28 +1,21 @@
-# Services & Tools Guide
+# Services Guide
 
 ## LLM runtime
-- `llmService` handles model download, native bridge selection, plugin enablement, KV-cache maintenance, embeddings, and adaptive quantisation scheduling. Keep the `loadModel → clearKVCache → generate` flow intact so plugins and cache sizing stay coherent across platforms.【F:src/services/llmService.js†L14-L350】
-- Generation routes through `PluginManager.execute` when sparse attention is active; ensure new options are plumbed into both native and web code paths so overrides remain consistent.【F:src/services/llmService.js†L116-L187】
-- Embedding requires a loaded model on device—guard new entry points with informative errors instead of silent fallbacks.【F:src/services/llmService.js†L236-L250】
+- `llmService` owns model download, native/TurboModule bridging, plugin enablement, KV-cache lifecycle, embeddings, performance metrics, and adaptive quantisation. New entry points must preserve the `loadConfiguredModel → generate → adjustQuantization` flow so plugins can wrap or override generation safely.【F:src/services/llmService.js†L14-L351】
+- Built-in plugins (`sparseAttention`, `adaptiveQuantization`) are registered through `registerLLMPlugins`; follow the same pattern for new plugins so enable/disable can restore original methods cleanly.【F:src/architecture/pluginSetup.js†L1-L30】【F:src/architecture/pluginManager.js†L23-L204】
+- The dependency injector seeds device profile, performance metrics, and KV cache state for plugin access. Register additional shared services through the injector instead of introducing globals.【F:src/architecture/dependencyInjector.js†L1-L24】【F:src/architecture/diSetup.js†L1-L5】
 
 ## Context planning
-- `ContextEngineer` provides hierarchical attention, similarity/quality scoring, sparse retrieval fallbacks, and device-aware token budgeting; changes must respect its vector-store contract and deterministic behaviour because orchestration depends on the returned prompt budget.【F:src/services/contextEngineer.js†L182-L444】
-- The accompanying `ContextEvaluator` clusters context, adjusts quality scores based on metadata, and can fall back gracefully when hierarchical attention fails—keep those heuristics in sync with device detection logic.【F:src/services/contextEngineer.js†L15-L180】
+- `ContextEngineer` coordinates dynamic token budgeting, hierarchical summarisation, sparse retrieval fallbacks, and device-aware prioritisation. Keep its heuristics deterministic and update documentation/tests when you tweak budgeting or sparse-attention thresholds.【F:src/services/contextEngineer.js†L16-L423】
+- Memory integration (vector store indexing/retrieval plus bounded history) depends on the same embeddings used by `llmService`. Update both layers together if you change metadata or storage formats to avoid desynchronised recall.【F:src/core/memory/MemoryManager.js†L8-L34】【F:src/services/llmService.js†L116-L207】
 
-## Content & search utilities
-- `ReadabilityService` caches `(html, url)` pairs, strips unsafe nodes, normalises metadata (title, byline, published time), and exposes helpers for published date parsing; maintain cache invalidation and error messages so callers receive actionable responses.【F:src/services/readabilityService.js†L3-L159】
-- `SearchService` wraps multiple providers, validates API keys, rate-limits calls, and enriches results via `extractFromUrl`; the exported `webSearchTool` mirrors those semantics and returns structured success/error payloads. Keep provider names and parameter metadata aligned across both layers.【F:src/services/webSearchService.js†L1-L65】【F:src/tools/webSearchTool.js†L4-L85】
+## Content and search services
+- `ReadabilityService` fetches, cleans, and caches article content with metadata; expose informative errors so upstream tools can surface failures without losing context.【F:src/services/readabilityService.js†L1-L159】
+- `SearchService.performSearchWithContentExtraction` wraps multiple providers, applies caching/rate limiting, and enriches results with readability output. Keep its payload shape (`{ success, contentExtracted, ... }`) stable so tool consumers can rely on consistent fields.【F:src/services/webSearchService.js†L1-L65】
 
 ## Reasoning utilities
-- `TreeOfThoughtReasoner` implements multi-branch reasoning with candidate generation, scoring, and path selection, delegating all generation/evaluation to `llmService.generate`. Update both sides when you change return signatures or heuristics.【F:src/services/treeOfThought.js†L1-L191】【F:src/services/llmService.js†L116-L208】
+- `TreeOfThoughtReasoner` implements multi-branch reasoning, candidate evaluation, and explanation synthesis on top of `llmService.generate`. Adjust branching limits, evaluation thresholds, or explanation output in tandem with documentation and tests.【F:src/services/treeOfThought.js†L3-L191】
 
-## Dynamic feedback loop
-- Capture performance heuristics (KV cache pressure, inference time, quantisation switches) in your PR or engineering notes when they inform service-level changes, and mirror key takeaways in the living history below; the legacy report pipeline no longer runs automatically.【F:Steps.md†L1-L108】
-- After introducing a new provider, plugin-aware service, or reasoning primitive, refresh `docs/agent-architecture.md` and extend the relevant tests so the behaviour stays discoverable.【F:docs/agent-architecture.md†L26-L78】【F:__tests__/AGENTS.md†L1-L37】
-
-### Living history
-- 2025-02 – Switching `performSearchWithContentExtraction` to `extractFromUrl` fixed downstream crashes when the deprecated `extract` API was missing—do not regress that call path.【F:src/services/webSearchService.js†L21-L64】
-- 2025-02 – Adaptive quantisation relies on averaged inference time and memory metrics; keep those counters accurate or you lose the self-tuning benefits.【F:src/services/llmService.js†L153-L350】
-
-### Session reflection
-- Before ending the session, save the current run's successes and errors so the next session can build on what worked and avoid repeating mistakes.
+## Tests & coordination
+- Extend `llmService.test.js`, `toolHandler.test.js`, and `vectorMemory.test.js` whenever you modify service contracts to ensure orchestration keeps its guarantees.【F:__tests__/llmService.test.js†L1-L33】【F:__tests__/toolHandler.test.js†L1-L76】【F:__tests__/vectorMemory.test.js†L1-L45】
+- Reflect service-layer changes in `docs/agent-architecture.md` so the external narrative remains authoritative for plugins, context planning, and tooling integrations.【F:docs/agent-architecture.md†L15-L118】

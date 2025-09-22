@@ -1,4 +1,5 @@
 # iOS Workspace Guidelines
 
-- Keep `MyOfflineLLMApp/Info.plist` populated with the core bundle keys (`CFBundleExecutable`, `CFBundlePackageType`, `CFBundleShortVersionString`, `CFBundleVersion`) so archives pass App Store and sideloader validation. Do not strip them when regenerating the plist from templates.【F:ios/MyOfflineLLMApp/Info.plist†L1-L34】
-- Coordinate any future plist migrations with the XcodeGen `project.yml` so the build settings continue to inject `PRODUCT_BUNDLE_IDENTIFIER` and other substitutions correctly.【F:ios/project.yml†L21-L83】
+- Keep `MyOfflineLLMApp/Info.plist` populated with required bundle metadata (executable name, identifier, versioning) and the usage-description strings relied on by native tools (calendar, contacts, location, microphone, motion, music, photos). Regenerating the plist must preserve these keys so archives remain valid.【F:ios/MyOfflineLLMApp/Info.plist†L5-L56】
+- Coordinate plist or entitlement changes with XcodeGen’s `project.yml` so deployment targets, MLX package versions, bridging headers, and build settings stay in sync with runtime expectations.【F:ios/project.yml†L1-L118】
+- `project.yml` already injects the MLX packages and system frameworks used by the TurboModules. If you add new native modules or Swift packages, declare them here so `xcodegen` and the doctor workflow pick up the dependencies automatically.【F:ios/project.yml†L36-L83】
