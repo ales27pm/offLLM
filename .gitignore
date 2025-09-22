@@ -13,3 +13,5 @@ ios/monGARS.xcodeproj/project.xcworkspace/xcshareddata/WorkspaceSettings.xcsetti
 !ios/build/generated/
 !ios/build/generated/ios/**
 ios/monGARS.xcresult
+ios/MyOfflineLLMApp/Resources/Models/*
+!ios/MyOfflineLLMApp/Resources/Models/.gitkeep

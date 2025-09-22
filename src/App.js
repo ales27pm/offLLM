@@ -63,7 +63,7 @@ const MODEL_PRESETS = [
     name: "Qwen2 1.5B Instruct (MLX)",
     modelId: "Qwen/Qwen2-1.5B-Instruct-MLX",
     description:
-      "MLX-optimised Qwen2 chat model for iOS builds. Loads directly from Hugging Face via the MLX runtime.",
+      "Ships bundled in iOS builds as an MLX-optimised Qwen2 chat model for offline use.",
     size: "0.81 GB",
     platforms: ["ios"],
   },
@@ -115,13 +115,22 @@ function App() {
   const setSelectedModel = useLLMStore((state) => state.setSelectedModel);
   const isGenerating = useLLMStore((state) => state.isGenerating);
   const platform = Platform.OS;
-  const modelOptions = useMemo(
-    () =>
-      MODEL_PRESETS.filter(
-        (preset) => !preset.platforms || preset.platforms.includes(platform),
-      ),
-    [platform],
-  );
+  const modelOptions = useMemo(() => {
+    const filtered = MODEL_PRESETS.filter(
+      (preset) => !preset.platforms || preset.platforms.includes(platform),
+    );
+    if (platform === "ios") {
+      return [...filtered].sort((a, b) => {
+        const aBundled = Boolean(a.modelId && a.platforms?.includes("ios"));
+        const bBundled = Boolean(b.modelId && b.platforms?.includes("ios"));
+        if (aBundled === bBundled) {
+          return 0;
+        }
+        return aBundled ? -1 : 1;
+      });
+    }
+    return filtered;
+  }, [platform]);
   const initializingRef = useRef(false);
   const handleSend = useCallback(
     (text) => {

@@ -62,6 +62,9 @@ export default function ChatInterface({
   const isLargeScreen = width >= 900;
   const [showSidebar, setShowSidebar] = useState(isLargeScreen);
   const canSend = modelStatus === "ready";
+  const isBundledSelection = Boolean(
+    selectedModel?.modelId && !selectedModel?.url,
+  );
 
   const orderedConversations = useMemo(
     () =>
@@ -165,8 +168,8 @@ export default function ChatInterface({
       >
         <Text style={styles.sidebarTitle}>Model settings</Text>
         <Text style={styles.modelHint}>
-          Choose a model, download it for offline use, and load it into the
-          assistant.
+          Choose a model, load bundled weights immediately, or download another
+          option for offline use.
         </Text>
         {modelOptions.map((option) => {
           const selected = option.id === selectedModel?.id;
@@ -208,7 +211,11 @@ export default function ChatInterface({
           }
         >
           <Text style={styles.downloadButtonText}>
-            {modelStatus === "downloading" ? "Downloading…" : "Download & Load"}
+            {modelStatus === "downloading"
+              ? "Downloading…"
+              : isBundledSelection
+                ? "Load Model"
+                : "Download & Load"}
           </Text>
         </TouchableOpacity>
         <View style={styles.statusRow}>
