@@ -7,7 +7,7 @@ set -euo pipefail
 #   MODEL_ID                Hugging Face repo id (default: Qwen/Qwen2-1.5B-Instruct-MLX)
 #   MODEL_REVISION          Revision/branch to download (default: main)
 #   MODEL_ROOT              Destination root for bundled models
-#                            (default: ios/MyOfflineLLMApp/Resources/Models)
+#                            (default: ios/MyOfflineLLMApp/Models)
 #   PYTHON_BIN              Python executable to use (default: python3)
 #   MODEL_VENV_DIR          Optional path to reuse a Python virtualenv for dependencies
 #   CI_FORCE_MODEL_REFRESH  When non-zero, remove any cached copy and redownload
@@ -17,7 +17,7 @@ REPO_ROOT="$(cd "${SCRIPT_DIR}/../.." && pwd)"
 
 MODEL_ID="${MODEL_ID:-Qwen/Qwen2-1.5B-Instruct-MLX}"
 MODEL_REVISION="${MODEL_REVISION:-main}"
-MODEL_ROOT="${MODEL_ROOT:-${REPO_ROOT}/ios/MyOfflineLLMApp/Resources/Models}"
+MODEL_ROOT="${MODEL_ROOT:-${REPO_ROOT}/ios/MyOfflineLLMApp/Models}"
 PYTHON_BIN="${PYTHON_BIN:-python3}"
 HOST_PYTHON="$PYTHON_BIN"
 TARGET_DIR="${MODEL_ROOT}/${MODEL_ID}"
@@ -45,8 +45,8 @@ if [[ "${CI_FORCE_MODEL_REFRESH:-0}" != "0" ]]; then
   rm -rf "$TARGET_DIR"
 fi
 
-if [[ -d "$TARGET_DIR" ]] && find "$TARGET_DIR" -type f \( -name '*.safetensors' -o -name '*.gguf' \) -print -quit | grep -q .; then
-  log "Model artifacts already present at ${TARGET_DIR}; skipping download."
+if [[ -d "$TARGET_DIR" ]] && find "$TARGET_DIR" -type f \( -name '*.safetensors' -o -name '*.gguf' -o -name '*.mlx' \) -print -quit | grep -q .; then
+  log "Model artifacts (.safetensors/.gguf/.mlx) already present at ${TARGET_DIR}; skipping download."
   exit 0
 fi
 
@@ -108,8 +108,8 @@ snapshot_download(
 )
 PY
 
-if ! find "$TARGET_DIR" -type f \( -name '*.safetensors' -o -name '*.gguf' \) -print -quit | grep -q .; then
-  die "Downloaded model at ${TARGET_DIR} does not contain expected weight files"
+if ! find "$TARGET_DIR" -type f \( -name '*.safetensors' -o -name '*.gguf' -o -name '*.mlx' \) -print -quit | grep -q .; then
+  die "Downloaded model at ${TARGET_DIR} does not contain expected .safetensors, .gguf, or .mlx weight files"
 fi
 
 log "Bundled MLX model ready at ${TARGET_DIR}"

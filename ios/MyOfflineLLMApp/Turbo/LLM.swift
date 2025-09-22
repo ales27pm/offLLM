@@ -884,12 +884,25 @@ public final class LLM: NSObject, LLMSpec {
   }
 
   private static func loadFallbackModels() -> [String] {
-    if let url = Bundle.main.url(forResource: "fallback_models", withExtension: "json"),
-       let data = try? Data(contentsOf: url),
-       let json = try? JSONSerialization.jsonObject(with: data) as? [String: Any],
-       let models = json["fallback_models"] as? [String],
-       !models.isEmpty {
-      return models
+    let candidateURLs: [URL?] = [
+      Bundle.main.url(
+        forResource: "fallback_models",
+        withExtension: "json",
+        subdirectory: "Models"
+      ),
+      Bundle.main.url(
+        forResource: "fallback_models",
+        withExtension: "json"
+      )
+    ]
+
+    for case let url? in candidateURLs {
+      if let data = try? Data(contentsOf: url),
+         let json = try? JSONSerialization.jsonObject(with: data) as? [String: Any],
+         let models = json["fallback_models"] as? [String],
+         !models.isEmpty {
+        return models
+      }
     }
 
     return [

@@ -38,6 +38,9 @@ targets:
       - path: MyOfflineLLMApp/Resources
         type: folder
         optional: true
+      - path: MyOfflineLLMApp/Models
+        type: folder
+        optional: true
 
     dependencies:
       # System frameworks required by custom native modules
