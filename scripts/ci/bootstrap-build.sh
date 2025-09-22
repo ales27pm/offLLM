@@ -4,6 +4,7 @@ set -euo pipefail
 SCRIPT_DIR="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
 ROOT_DIR="$(cd "$SCRIPT_DIR/../.." && pwd)"
 XCODE_ENV_HELPER="$ROOT_DIR/scripts/lib/xcode_env.sh"
+NPM_ENV_HELPER="$ROOT_DIR/scripts/lib/npm_env.sh"
 ENV_FILE="$ROOT_DIR/.env"
 DEFAULT_ENV_FILE="$ROOT_DIR/.env.default"
 
@@ -19,6 +20,11 @@ elif [ -f "$DEFAULT_ENV_FILE" ]; then
   source "$DEFAULT_ENV_FILE"
   set +a
 fi
+
+# shellcheck source=../lib/npm_env.sh
+source "$NPM_ENV_HELPER"
+# Normalize deprecated npm proxy environment variables before invoking npm.
+sanitize_npm_proxy_env
 
 # shellcheck source=../lib/xcode_env.sh
 source "$XCODE_ENV_HELPER"
