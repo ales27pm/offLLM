@@ -7,6 +7,8 @@ REPORT.md
 .env*
 # CocoaPods outputs are third-party and not maintained by Prettier
 ios/Pods
+ios/MyOfflineLLMApp/Models
+ios/MyOfflineLLMApp/Resources/Models
 .github/workflows/ios.yml
 .github/workflows/ios-unsigned.yml
 .github/workflows/ios-unsigned-device.yml
