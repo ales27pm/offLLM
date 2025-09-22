@@ -1,6 +1,14 @@
 #!/usr/bin/env bash
 set -euo pipefail
 
+SCRIPT_DIR="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
+ROOT_DIR="$(cd "$SCRIPT_DIR/.." && pwd)"
+NPM_ENV_HELPER="$ROOT_DIR/scripts/lib/npm_env.sh"
+# shellcheck source=lib/npm_env.sh
+source "$NPM_ENV_HELPER"
+# Normalize deprecated npm proxy environment variables before invoking npm.
+sanitize_npm_proxy_env
+
 echo "Starting clean iOS build process..."
 
 # Step 1: Clean JavaScript dependencies
