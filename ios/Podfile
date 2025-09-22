@@ -718,9 +718,108 @@ post_install do |installer|
           project_modified = true
         end
       end
+
+      guard_phase_name = '[Hermes] Verify static linkage'
+      desired_guard_script = <<~'SCRIPT'
+        set -euo pipefail
+
+        if [ -z "${TARGET_BUILD_DIR:-}" ] || [ -z "${FULL_PRODUCT_NAME:-}" ]; then
+          echo "error: Hermes static linkage guard requires TARGET_BUILD_DIR and FULL_PRODUCT_NAME" >&2
+          exit 70
+        fi
+
+        case "${FULL_PRODUCT_NAME}" in
+        *.app)
+          ;;
+        *)
+          exit 0
+          ;;
+        esac
+
+        SCRIPT_PATH="${PROJECT_DIR}/../scripts/ci/verify-hermes-static.sh"
+        if [ ! -f "${SCRIPT_PATH}" ]; then
+          echo "error: Missing Hermes verification script at ${SCRIPT_PATH}" >&2
+          exit 70
+        fi
+
+        APP_NAME="${FULL_PRODUCT_NAME%.app}"
+        bash "${SCRIPT_PATH}" "${TARGET_BUILD_DIR}" "${APP_NAME}"
+      SCRIPT
+
+      existing_guard_phase =
+        target.shell_script_build_phases.find do |phase|
+          phase_name =
+            if phase.respond_to?(:name)
+              phase.name.to_s
+            elsif phase.respond_to?(:display_name)
+              phase.display_name.to_s
+            else
+              ''
+            end
+          phase_name == guard_phase_name
+        end
+
+      guard_phase = existing_guard_phase || target.new_shell_script_build_phase(guard_phase_name)
+      if existing_guard_phase.nil?
+        Pod::UI.puts "[Podfile] Added #{guard_phase_name} build phase to #{target.name}"
+        project_modified = true
+      end
+
+      if guard_phase.shell_script != desired_guard_script
+        guard_phase.shell_script = desired_guard_script
+        Pod::UI.puts "[Podfile] Updated #{guard_phase_name} build phase script for #{target.name}"
+        project_modified = true
+      end
+
+      if guard_phase.respond_to?(:shell_path) && guard_phase.shell_path != '/bin/bash'
+        guard_phase.shell_path = '/bin/bash'
+        project_modified = true
+      end
+
+      if guard_phase.respond_to?(:run_only_for_deployment_postprocessing=) &&
+         guard_phase.run_only_for_deployment_postprocessing != '0'
+        guard_phase.run_only_for_deployment_postprocessing = '0'
+        project_modified = true
+      end
+
+      if guard_phase.respond_to?(:show_env_vars_in_log=) && guard_phase.show_env_vars_in_log != '0'
+        guard_phase.show_env_vars_in_log = '0'
+        project_modified = true
+      end
+
+      if guard_phase.respond_to?(:always_out_of_date=) && guard_phase.always_out_of_date != '1'
+        guard_phase.always_out_of_date = '1'
+        project_modified = true
+      end
+
+      if guard_phase.respond_to?(:input_paths=) && guard_phase.input_paths != []
+        guard_phase.input_paths = []
+        project_modified = true
+      end
+
+      if guard_phase.respond_to?(:output_paths=) && guard_phase.output_paths != []
+        guard_phase.output_paths = []
+        project_modified = true
+      end
+
+      unless target.build_phases.last == guard_phase
+        target.build_phases.delete(guard_phase)
+        target.build_phases << guard_phase
+        project_modified = true
+      end
     end
 
     user_project.save if project_modified
+  end
+
+  hermes_sandbox_root = File.join(installer.sandbox.root.to_s, 'hermes-engine')
+  if Dir.exist?(hermes_sandbox_root)
+    Dir.glob(File.join(hermes_sandbox_root, '**', 'hermes.framework'), File::FNM_CASEFOLD).each do |framework_path|
+      next unless File.directory?(framework_path)
+
+      Pod::UI.puts "[Podfile] Removing dynamic Hermes framework at #{framework_path}"
+      FileUtils.rm_rf(framework_path)
+    end
   end
 
   support_files_root = File.join(__dir__, 'Pods', 'Target Support Files')
