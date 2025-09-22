@@ -2,6 +2,7 @@ import Foundation
 import Darwin
 import os
 import React
+import ReactCommon
 @preconcurrency import MLX
 @preconcurrency import MLXLLM
 @preconcurrency import MLXLMCommon
@@ -487,153 +488,89 @@ public final class LLM: NSObject, LLMSpec {
 
   // MARK: - LLMSpec
 
-  public func loadModel(_ path: String,
-                        options: [AnyHashable : Any]?,
-                        resolve: @escaping RCTPromiseResolveBlock,
-                        reject: @escaping RCTPromiseRejectBlock) {
-    let normalized = normalize(options)
-    Task(priority: .userInitiated) {
-      do {
-        let details = try await runtime.loadModel(path: path, options: normalized)
-        var payload: [String: Any] = [
-          "status": "loaded",
-          "model": details.identifier
-        ]
-        payload["contextLength"] = boxOptional(details.contextLength)
-        payload["kvCacheMax"] = boxOptional(details.contextLength)
-        resolveOnMainThread(resolve, payload)
-      } catch {
-        rejectOnMainThread(reject, error)
-      }
-    }
-  }
-
-  public func unloadModel(_ resolve: @escaping RCTPromiseResolveBlock,
-                          reject: @escaping RCTPromiseRejectBlock) {
-    Task { @MainActor in
-      await runtime.unload()
-      resolveOnMainThread(resolve, true)
-    }
-  }
-
-  public func generate(_ prompt: String,
-                       options: [AnyHashable : Any]?,
-                       resolve: @escaping RCTPromiseResolveBlock,
-                       reject: @escaping RCTPromiseRejectBlock) {
-    Task(priority: .userInitiated) {
-      guard await runtime.isLoaded else {
-        rejectOnMainThread(reject, NativeLLMError.modelNotLoaded)
-        return
-      }
-
-      let normalized = normalize(options)
-      do {
-        let summary = try await runtime.generate(prompt: prompt, options: normalized) { chunk in
-          Task { @MainActor in MLXEvents.shared?.emitToken(chunk) }
-        }
-        Task { @MainActor in MLXEvents.shared?.emitCompleted() }
-
-        var payload: [String: Any] = [
-          "text": summary.text,
-          "promptTokens": summary.promptTokens,
-          "completionTokens": summary.generatedTokens,
-          "duration": summary.duration,
-          "kvCacheSize": summary.kvCacheSize
-        ]
-        payload["kvCacheMax"] = boxOptional(summary.kvCacheMax)
-        if !summary.toolCalls.isEmpty {
-          payload["toolCalls"] = summary.toolCalls.map { $0.asDictionary() }
-        }
-        resolveOnMainThread(resolve, payload)
-      } catch {
-        Task { @MainActor in
-          MLXEvents.shared?.emitError("EGEN", message: error.localizedDescription)
-        }
-        rejectOnMainThread(reject, error)
-      }
-    }
-  }
-
-  public func embed(_ text: String,
-                    resolve: @escaping RCTPromiseResolveBlock,
-                    reject: @escaping RCTPromiseRejectBlock) {
-    Task(priority: .userInitiated) {
-      do {
-        let vector = try await runtime.embedding(for: text)
-        resolveOnMainThread(resolve, vector)
-      } catch {
-        rejectOnMainThread(reject, error)
-      }
-    }
-  }
-
-  public func getPerformanceMetrics(_ resolve: @escaping RCTPromiseResolveBlock,
-                                    reject: @escaping RCTPromiseRejectBlock) {
-    Task {
-      let info = await runtime.latestCompletion()
-      let metrics: [String: Any] = [
-        "memoryUsage": sampleMemoryUsage(),
-        "cpuUsage": sampleCPUUsage(),
-        "promptTokens": boxOptional(info?.promptTokenCount),
-        "completionTokens": boxOptional(info?.generationTokenCount),
-        "promptTime": boxOptional(info?.promptTime),
-        "generationTime": boxOptional(info?.generateTime),
-        "tokensPerSecond": boxOptional(info?.tokensPerSecond),
-        "promptTokensPerSecond": boxOptional(info?.promptTokensPerSecond)
-      ]
-      resolve(metrics)
-    }
-  }
-
-  public func getKVCacheSize(_ resolve: @escaping RCTPromiseResolveBlock,
-                             reject: @escaping RCTPromiseRejectBlock) {
-    Task {
-      let size = await runtime.kvCacheSize()
-      resolve(size)
-    }
-  }
-
-  public func getKVCacheMaxSize(_ resolve: @escaping RCTPromiseResolveBlock,
-                                reject: @escaping RCTPromiseRejectBlock) {
-    Task {
-      let size = await runtime.kvCacheMaxSize()
-      resolve(size)
-    }
-  }
-
-  public func clearKVCache(_ resolve: @escaping RCTPromiseResolveBlock,
-                           reject: @escaping RCTPromiseRejectBlock) {
-    Task {
-      await runtime.clearCache()
-      resolve(NSNull())
-    }
-  }
-
-  public func addMessageBoundary(_ resolve: @escaping RCTPromiseResolveBlock,
-                                 reject: @escaping RCTPromiseRejectBlock) {
-    Task {
-      await runtime.addBoundary()
-      resolve(NSNull())
-    }
-  }
-
-  public func adjustPerformanceMode(_ mode: String,
+  nonisolated public func loadModel(_ path: String,
+                                    options: [AnyHashable: Any]?,
                                     resolve: @escaping RCTPromiseResolveBlock,
                                     reject: @escaping RCTPromiseRejectBlock) {
-    Task {
-      switch mode {
-      case "low-memory", "power-saving":
-        await runtime.setMaxKVCache(2048)
-        resolve(true)
-      case "balanced":
-        await runtime.setMaxKVCache(4096)
-        resolve(true)
-      case "performance", "high_quality":
-        await runtime.setMaxKVCache(8192)
-        resolve(true)
-      default:
-        resolve(false)
-      }
+    Task(priority: .userInitiated) { @MainActor [weak self] in
+      guard let self else { return }
+      await self.performLoadModel(path: path, options: options, resolve: resolve, reject: reject)
+    }
+  }
+
+  nonisolated public func unloadModel(_ resolve: @escaping RCTPromiseResolveBlock,
+                                      reject: @escaping RCTPromiseRejectBlock) {
+    Task { @MainActor [weak self] in
+      guard let self else { return }
+      await self.performUnloadModel(resolve: resolve, reject: reject)
+    }
+  }
+
+  nonisolated public func generate(_ prompt: String,
+                                   options: [AnyHashable: Any]?,
+                                   resolve: @escaping RCTPromiseResolveBlock,
+                                   reject: @escaping RCTPromiseRejectBlock) {
+    Task(priority: .userInitiated) { @MainActor [weak self] in
+      guard let self else { return }
+      await self.performGenerate(prompt: prompt, options: options, resolve: resolve, reject: reject)
+    }
+  }
+
+  nonisolated public func embed(_ text: String,
+                                resolve: @escaping RCTPromiseResolveBlock,
+                                reject: @escaping RCTPromiseRejectBlock) {
+    Task(priority: .userInitiated) { @MainActor [weak self] in
+      guard let self else { return }
+      await self.performEmbed(text: text, resolve: resolve, reject: reject)
+    }
+  }
+
+  nonisolated public func getPerformanceMetrics(_ resolve: @escaping RCTPromiseResolveBlock,
+                                                reject: @escaping RCTPromiseRejectBlock) {
+    Task { @MainActor [weak self] in
+      guard let self else { return }
+      await self.performGetPerformanceMetrics(resolve: resolve, reject: reject)
+    }
+  }
+
+  nonisolated public func getKVCacheSize(_ resolve: @escaping RCTPromiseResolveBlock,
+                                         reject: @escaping RCTPromiseRejectBlock) {
+    Task { @MainActor [weak self] in
+      guard let self else { return }
+      await self.performGetKVCacheSize(resolve: resolve, reject: reject)
+    }
+  }
+
+  nonisolated public func getKVCacheMaxSize(_ resolve: @escaping RCTPromiseResolveBlock,
+                                            reject: @escaping RCTPromiseRejectBlock) {
+    Task { @MainActor [weak self] in
+      guard let self else { return }
+      await self.performGetKVCacheMaxSize(resolve: resolve, reject: reject)
+    }
+  }
+
+  nonisolated public func clearKVCache(_ resolve: @escaping RCTPromiseResolveBlock,
+                                       reject: @escaping RCTPromiseRejectBlock) {
+    Task { @MainActor [weak self] in
+      guard let self else { return }
+      await self.performClearKVCache(resolve: resolve, reject: reject)
+    }
+  }
+
+  nonisolated public func addMessageBoundary(_ resolve: @escaping RCTPromiseResolveBlock,
+                                             reject: @escaping RCTPromiseRejectBlock) {
+    Task { @MainActor [weak self] in
+      guard let self else { return }
+      await self.performAddMessageBoundary(resolve: resolve, reject: reject)
+    }
+  }
+
+  nonisolated public func adjustPerformanceMode(_ mode: String,
+                                                resolve: @escaping RCTPromiseResolveBlock,
+                                                reject: @escaping RCTPromiseRejectBlock) {
+    Task { @MainActor [weak self] in
+      guard let self else { return }
+      await self.performAdjustPerformanceMode(mode: mode, resolve: resolve, reject: reject)
     }
   }
 
@@ -647,6 +584,146 @@ public final class LLM: NSObject, LLMSpec {
       result[stringKey] = value
     }
     return result
+  }
+
+  @MainActor
+  private func performLoadModel(path: String,
+                                options: [AnyHashable: Any]?,
+                                resolve: @escaping RCTPromiseResolveBlock,
+                                reject: @escaping RCTPromiseRejectBlock) async {
+    let normalized = normalize(options)
+    do {
+      let details = try await runtime.loadModel(path: path, options: normalized)
+      var payload: [String: Any] = [
+        "status": "loaded",
+        "model": details.identifier
+      ]
+      payload["contextLength"] = boxOptional(details.contextLength)
+      payload["kvCacheMax"] = boxOptional(details.contextLength)
+      resolveOnMainThread(resolve, payload)
+    } catch {
+      rejectOnMainThread(reject, error)
+    }
+  }
+
+  @MainActor
+  private func performUnloadModel(resolve: @escaping RCTPromiseResolveBlock,
+                                  reject: @escaping RCTPromiseRejectBlock) async {
+    await runtime.unload()
+    resolveOnMainThread(resolve, true)
+  }
+
+  @MainActor
+  private func performGenerate(prompt: String,
+                               options: [AnyHashable: Any]?,
+                               resolve: @escaping RCTPromiseResolveBlock,
+                               reject: @escaping RCTPromiseRejectBlock) async {
+    guard await runtime.isLoaded else {
+      rejectOnMainThread(reject, NativeLLMError.modelNotLoaded)
+      return
+    }
+
+    let normalized = normalize(options)
+    do {
+      let summary = try await runtime.generate(prompt: prompt, options: normalized) { chunk in
+        Task { @MainActor in MLXEvents.shared?.emitToken(chunk) }
+      }
+      Task { @MainActor in MLXEvents.shared?.emitCompleted() }
+
+      var payload: [String: Any] = [
+        "text": summary.text,
+        "promptTokens": summary.promptTokens,
+        "completionTokens": summary.generatedTokens,
+        "duration": summary.duration,
+        "kvCacheSize": summary.kvCacheSize
+      ]
+      payload["kvCacheMax"] = boxOptional(summary.kvCacheMax)
+      if !summary.toolCalls.isEmpty {
+        payload["toolCalls"] = summary.toolCalls.map { $0.asDictionary() }
+      }
+      resolveOnMainThread(resolve, payload)
+    } catch {
+      Task { @MainActor in
+        MLXEvents.shared?.emitError("EGEN", message: error.localizedDescription)
+      }
+      rejectOnMainThread(reject, error)
+    }
+  }
+
+  @MainActor
+  private func performEmbed(text: String,
+                            resolve: @escaping RCTPromiseResolveBlock,
+                            reject: @escaping RCTPromiseRejectBlock) async {
+    do {
+      let vector = try await runtime.embedding(for: text)
+      resolveOnMainThread(resolve, vector)
+    } catch {
+      rejectOnMainThread(reject, error)
+    }
+  }
+
+  @MainActor
+  private func performGetPerformanceMetrics(resolve: @escaping RCTPromiseResolveBlock,
+                                            reject: @escaping RCTPromiseRejectBlock) async {
+    let info = await runtime.latestCompletion()
+    let metrics: [String: Any] = [
+      "memoryUsage": sampleMemoryUsage(),
+      "cpuUsage": sampleCPUUsage(),
+      "promptTokens": boxOptional(info?.promptTokenCount),
+      "completionTokens": boxOptional(info?.generationTokenCount),
+      "promptTime": boxOptional(info?.promptTime),
+      "generationTime": boxOptional(info?.generateTime),
+      "tokensPerSecond": boxOptional(info?.tokensPerSecond),
+      "promptTokensPerSecond": boxOptional(info?.promptTokensPerSecond)
+    ]
+    resolveOnMainThread(resolve, metrics)
+  }
+
+  @MainActor
+  private func performGetKVCacheSize(resolve: @escaping RCTPromiseResolveBlock,
+                                     reject: @escaping RCTPromiseRejectBlock) async {
+    let size = await runtime.kvCacheSize()
+    resolveOnMainThread(resolve, size)
+  }
+
+  @MainActor
+  private func performGetKVCacheMaxSize(resolve: @escaping RCTPromiseResolveBlock,
+                                        reject: @escaping RCTPromiseRejectBlock) async {
+    let size = await runtime.kvCacheMaxSize()
+    resolveOnMainThread(resolve, size)
+  }
+
+  @MainActor
+  private func performClearKVCache(resolve: @escaping RCTPromiseResolveBlock,
+                                   reject: @escaping RCTPromiseRejectBlock) async {
+    await runtime.clearCache()
+    resolveOnMainThread(resolve, NSNull())
+  }
+
+  @MainActor
+  private func performAddMessageBoundary(resolve: @escaping RCTPromiseResolveBlock,
+                                         reject: @escaping RCTPromiseRejectBlock) async {
+    await runtime.addBoundary()
+    resolveOnMainThread(resolve, NSNull())
+  }
+
+  @MainActor
+  private func performAdjustPerformanceMode(mode: String,
+                                            resolve: @escaping RCTPromiseResolveBlock,
+                                            reject: @escaping RCTPromiseRejectBlock) async {
+    switch mode {
+    case "low-memory", "power-saving":
+      await runtime.setMaxKVCache(2048)
+      resolveOnMainThread(resolve, true)
+    case "balanced":
+      await runtime.setMaxKVCache(4096)
+      resolveOnMainThread(resolve, true)
+    case "performance", "high_quality":
+      await runtime.setMaxKVCache(8192)
+      resolveOnMainThread(resolve, true)
+    default:
+      resolveOnMainThread(resolve, false)
+    }
   }
 
   private func resolveOnMainThread(_ resolve: @escaping RCTPromiseResolveBlock, _ value: Any) {
