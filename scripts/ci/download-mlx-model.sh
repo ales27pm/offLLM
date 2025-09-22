@@ -11,6 +11,8 @@ set -euo pipefail
 #   PYTHON_BIN              Python executable to use (default: python3)
 #   MODEL_VENV_DIR          Optional path to reuse a Python virtualenv for dependencies
 #   CI_FORCE_MODEL_REFRESH  When non-zero, remove any cached copy and redownload
+#   VERIFY_MODEL_PIPELINE   "0" to skip transformers pipeline warm-up, "1" to force it,
+#                           otherwise detected automatically (Darwin arm64 only)
 
 SCRIPT_DIR="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
 REPO_ROOT="$(cd "${SCRIPT_DIR}/../.." && pwd)"
@@ -87,6 +89,33 @@ log "Installing huggingface_hub dependency inside ${VENV_DIR} (quietly)"
 "$PYTHON_BIN" -m pip install --upgrade --quiet pip
 "$PYTHON_BIN" -m pip install --upgrade --quiet "huggingface_hub>=0.24.0,<0.25.0"
 
+should_validate_pipeline=0
+case "${VERIFY_MODEL_PIPELINE:-auto}" in
+  0)
+    should_validate_pipeline=0
+    ;;
+  1)
+    should_validate_pipeline=1
+    ;;
+  *)
+    if [[ "$(uname -s)" == "Darwin" && "$(uname -m)" == "arm64" ]]; then
+      should_validate_pipeline=1
+    fi
+    ;;
+esac
+
+if [[ "$should_validate_pipeline" -eq 0 && "${VERIFY_MODEL_PIPELINE:-auto}" != "0" ]]; then
+  log "Skipping transformers pipeline warm-up on $(uname -s)/$(uname -m); enable VERIFY_MODEL_PIPELINE=1 on supported hosts."
+fi
+
+if [[ "$should_validate_pipeline" -eq 1 ]]; then
+  log "Installing transformers pipeline helpers inside ${VENV_DIR} (quietly)"
+  "$PYTHON_BIN" -m pip install --upgrade --quiet "transformers>=4.43.0" "sentencepiece>=0.1.99"
+  if [[ "$(uname -s)" == "Darwin" && "$(uname -m)" == "arm64" ]]; then
+    "$PYTHON_BIN" -m pip install --upgrade --quiet "mlx>=0.12.0"
+  fi
+fi
+
 log "Downloading ${MODEL_ID}@${MODEL_REVISION}"
 MODEL_ID="$MODEL_ID" \
 MODEL_REVISION="$MODEL_REVISION" \
@@ -113,3 +142,40 @@ if ! find "$TARGET_DIR" -type f \( -name '*.safetensors' -o -name '*.gguf' -o -n
 fi
 
 log "Bundled MLX model ready at ${TARGET_DIR}"
+
+if [[ "$should_validate_pipeline" -eq 1 ]]; then
+  log "Validating MLX weights with transformers pipeline helper"
+  MODEL_DIR="$TARGET_DIR" "$PYTHON_BIN" <<'PY'
+import json
+import os
+
+from transformers import pipeline
+
+model_dir = os.environ["MODEL_DIR"]
+
+messages = [
+    {"role": "user", "content": "Who are you?"},
+]
+
+try:
+    pipe = pipeline(
+        "text-generation",
+        model=model_dir,
+        trust_remote_code=True,
+    )
+
+    generation_kwargs = {
+        "max_new_tokens": 64,
+        "return_full_text": False,
+    }
+    pad_token_id = getattr(getattr(pipe, "tokenizer", None), "eos_token_id", None)
+    if pad_token_id is not None:
+        generation_kwargs["pad_token_id"] = pad_token_id
+
+    outputs = pipe(messages, **generation_kwargs)
+except Exception as exc:  # pragma: no cover - runtime validation only
+    raise SystemExit(f"Pipeline warm-up failed: {exc}") from exc
+
+print(json.dumps(outputs, indent=2, ensure_ascii=False))
+PY
+fi
