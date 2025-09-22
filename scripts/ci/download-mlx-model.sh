@@ -9,6 +9,7 @@ set -euo pipefail
 #   MODEL_ROOT              Destination root for bundled models
 #                            (default: ios/MyOfflineLLMApp/Resources/Models)
 #   PYTHON_BIN              Python executable to use (default: python3)
+#   MODEL_VENV_DIR          Optional path to reuse a Python virtualenv for dependencies
 #   CI_FORCE_MODEL_REFRESH  When non-zero, remove any cached copy and redownload
 
 SCRIPT_DIR="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
@@ -18,6 +19,7 @@ MODEL_ID="${MODEL_ID:-Qwen/Qwen2-1.5B-Instruct-MLX}"
 MODEL_REVISION="${MODEL_REVISION:-main}"
 MODEL_ROOT="${MODEL_ROOT:-${REPO_ROOT}/ios/MyOfflineLLMApp/Resources/Models}"
 PYTHON_BIN="${PYTHON_BIN:-python3}"
+HOST_PYTHON="$PYTHON_BIN"
 TARGET_DIR="${MODEL_ROOT}/${MODEL_ID}"
 
 log() {
@@ -29,7 +31,12 @@ die() {
   exit 1
 }
 
-if ! command -v "$PYTHON_BIN" >/dev/null 2>&1; then
+dir_has_contents() {
+  local dir="$1"
+  [[ -d "$dir" ]] && [[ -n "$(ls -A -- "$dir" 2>/dev/null)" ]]
+}
+
+if ! command -v "$HOST_PYTHON" >/dev/null 2>&1; then
   die "Python interpreter '$PYTHON_BIN' not found"
 fi
 
@@ -46,7 +53,38 @@ fi
 log "Ensuring destination ${TARGET_DIR} exists"
 mkdir -p "$TARGET_DIR"
 
-log "Installing huggingface_hub dependency (quietly)"
+if [[ -n "${MODEL_VENV_DIR:-}" ]]; then
+  VENV_DIR="$MODEL_VENV_DIR"
+  CLEANUP_VENV=0
+else
+  VENV_DIR="$(mktemp -d "${TMPDIR:-/tmp}/mlx-model-venv-XXXXXXXX")"
+  CLEANUP_VENV=1
+fi
+
+cleanup() {
+  if [[ "${CLEANUP_VENV:-0}" -eq 1 ]]; then
+    rm -rf "$VENV_DIR"
+  fi
+}
+trap cleanup EXIT
+
+if [[ ! -x "${VENV_DIR}/bin/python" ]]; then
+  if [[ "${CLEANUP_VENV:-0}" -eq 0 ]] && dir_has_contents "$VENV_DIR"; then
+    die "MODEL_VENV_DIR '${VENV_DIR}' exists but does not look like an empty Python virtual environment"
+  fi
+  if [[ "${CLEANUP_VENV:-0}" -eq 1 ]]; then
+    rm -rf "$VENV_DIR"
+  fi
+  log "Creating Python virtual environment at ${VENV_DIR}"
+  "$HOST_PYTHON" -m venv "$VENV_DIR" || die "Failed to create Python virtual environment at ${VENV_DIR}"
+else
+  log "Reusing Python virtual environment at ${VENV_DIR}"
+fi
+
+PYTHON_BIN="${VENV_DIR}/bin/python"
+
+log "Installing huggingface_hub dependency inside ${VENV_DIR} (quietly)"
+"$PYTHON_BIN" -m pip install --upgrade --quiet pip
 "$PYTHON_BIN" -m pip install --upgrade --quiet "huggingface_hub>=0.24.0,<0.25.0"
 
 log "Downloading ${MODEL_ID}@${MODEL_REVISION}"
