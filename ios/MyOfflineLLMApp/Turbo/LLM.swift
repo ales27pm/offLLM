@@ -510,7 +510,7 @@ public final class LLM: NSObject, LLMSpec {
 
   public func unloadModel(_ resolve: @escaping RCTPromiseResolveBlock,
                           reject: @escaping RCTPromiseRejectBlock) {
-    Task {
+    Task { @MainActor in
       await runtime.unload()
       resolveOnMainThread(resolve, true)
     }
