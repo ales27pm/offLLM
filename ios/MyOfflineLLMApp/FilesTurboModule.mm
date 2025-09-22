@@ -1,6 +1,7 @@
 #import <React/RCTBridgeModule.h>
 #import <React/RCTLog.h>
 #import "React/RCTUtils.h"
+#import <TargetConditionals.h>
 #import <UIKit/UIKit.h>
 
 static NSString *const FilesTurboModuleBookmarkKey =
@@ -13,6 +14,7 @@ static NSString *const FilesTurboModuleBookmarkKey =
 @property(nonatomic, strong) NSURL *lastFileURL;
 @property(nonatomic, strong) UIDocumentInteractionController *interactionController;
 @property(nonatomic, strong) NSURL *activeScopedURL;
+@property(nonatomic, assign) BOOL hasActiveSecurityScope;
 @end
 
 @implementation FilesTurboModule
@@ -40,6 +42,7 @@ RCT_EXPORT_METHOD(pickFile:(NSString *)type resolver:(RCTPromiseResolveBlock)res
 - (void)documentPicker:(UIDocumentPickerViewController *)controller didPickDocumentsAtURLs:(NSArray<NSURL *> *)urls {
   if (self.resolver && urls.count > 0) {
     NSURL *url = urls[0];
+    self.hasActiveSecurityScope = NO;
     BOOL hasAccess = [url startAccessingSecurityScopedResource];
     self.resolver(@{ @"url": url.absoluteString ?: @"" });
     self.lastFileURL = url;
@@ -80,12 +83,25 @@ RCT_REMAP_METHOD(openRecent,
       return;
     }
 
-    if (![url startAccessingSecurityScopedResource]) {
+    self.hasActiveSecurityScope = NO;
+    BOOL hasAccess = [url startAccessingSecurityScopedResource];
+#if TARGET_OS_MACCATALYST
+    if (!hasAccess) {
       reject(@"access_denied", @"Unable to access the recent file", nil);
       return;
     }
+#else
+    if (!hasAccess) {
+      NSError *reachabilityError = nil;
+      if (![url checkResourceIsReachableAndReturnError:&reachabilityError]) {
+        reject(@"access_denied", @"Unable to access the recent file", reachabilityError);
+        return;
+      }
+    }
+#endif
 
     self.activeScopedURL = url;
+    self.hasActiveSecurityScope = hasAccess;
     self.interactionController = [UIDocumentInteractionController interactionControllerWithURL:url];
     self.interactionController.delegate = self;
 
@@ -137,16 +153,21 @@ RCT_REMAP_METHOD(openRecent,
 #pragma mark - Helpers
 
 - (void)cleanupInteractionController {
-  if (self.activeScopedURL) {
+  if (self.activeScopedURL && self.hasActiveSecurityScope) {
     [self.activeScopedURL stopAccessingSecurityScopedResource];
-    self.activeScopedURL = nil;
   }
+  self.activeScopedURL = nil;
+  self.hasActiveSecurityScope = NO;
   self.interactionController = nil;
 }
 
 - (void)storeBookmarkForURL:(NSURL *)url {
   NSError *bookmarkError = nil;
-  NSData *bookmark = [url bookmarkDataWithOptions:NSURLBookmarkCreationWithSecurityScope
+  NSURLBookmarkCreationOptions options = 0;
+#if TARGET_OS_MACCATALYST
+  options = NSURLBookmarkCreationWithSecurityScope;
+#endif
+  NSData *bookmark = [url bookmarkDataWithOptions:options
                       includingResourceValuesForKeys:nil
                                        relativeToURL:nil
                                                error:&bookmarkError];
@@ -168,8 +189,12 @@ RCT_REMAP_METHOD(openRecent,
   }
 
   BOOL stale = NO;
+  NSURLBookmarkResolutionOptions options = 0;
+#if TARGET_OS_MACCATALYST
+  options = NSURLBookmarkResolutionWithSecurityScope;
+#endif
   NSURL *url = [NSURL URLByResolvingBookmarkData:bookmark
-                                         options:NSURLBookmarkResolutionWithSecurityScope
+                                         options:options
                                    relativeToURL:nil
                              bookmarkDataIsStale:&stale
                                            error:error];
@@ -184,7 +209,11 @@ RCT_REMAP_METHOD(openRecent,
 
   if (stale) {
     NSError *refreshError = nil;
-    NSData *freshBookmark = [url bookmarkDataWithOptions:NSURLBookmarkCreationWithSecurityScope
+    NSURLBookmarkCreationOptions refreshOptions = 0;
+#if TARGET_OS_MACCATALYST
+    refreshOptions = NSURLBookmarkCreationWithSecurityScope;
+#endif
+    NSData *freshBookmark = [url bookmarkDataWithOptions:refreshOptions
                            includingResourceValuesForKeys:nil
                                             relativeToURL:nil
                                                     error:&refreshError];
