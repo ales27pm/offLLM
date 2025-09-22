@@ -2,7 +2,6 @@ import Foundation
 import Darwin
 import os
 import React
-import ReactCommon
 @preconcurrency import MLX
 @preconcurrency import MLXLLM
 @preconcurrency import MLXLMCommon
@@ -14,7 +13,13 @@ public typealias LLMSpec = NativeLLMSpec
 import AppSpecs
 public typealias LLMSpec = NativeLLMSpec
 #else
-@objc public protocol LLMSpec: RCTTurboModule {
+// The Objective-C++ shim in `LLM+Turbo.mm` declares the concrete module's
+// `RCTTurboModule` conformance. Keeping the Swift fallback tied to
+// `NSObjectProtocol` avoids importing ReactCommon—which pulls heavy C++
+// headers Swift cannot parse in our build settings—while still exposing the
+// promise-based surface expected by React Native when codegen specs are
+// unavailable.
+@objc public protocol LLMSpec: NSObjectProtocol {
   func loadModel(_ path: String,
                  options: [AnyHashable: Any]?,
                  resolve: @escaping RCTPromiseResolveBlock,
