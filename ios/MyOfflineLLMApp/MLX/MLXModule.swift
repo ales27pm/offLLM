@@ -96,6 +96,7 @@ final class MLXModule: NSObject {
   private var actor: ChatSessionActor?
 
   private let fallbacks: [String] = [
+    "Qwen/Qwen2-1.5B-Instruct-MLX",
     "mlx-community/gemma-2-2b-it",
     "mlx-community/llama-3.1-instruct-8b",
     "mlx-community/phi-3-mini-4k-instruct",
@@ -103,9 +104,29 @@ final class MLXModule: NSObject {
   ]
 
   // Helpers
-  private static func loadContainer(modelID: String) async throws -> ModelContainer {
-    let cfg = ModelConfiguration(id: modelID)
-    return try await LLMModelFactory.shared.loadContainer(configuration: cfg)
+  private static func loadContainer(configuration: ModelConfiguration) async throws -> ModelContainer {
+    try await LLMModelFactory.shared.loadContainer(configuration: configuration)
+  }
+
+  private static func configurationKey(for configuration: ModelConfiguration) -> String {
+    switch configuration.id {
+    case .id(let id, let revision):
+      return "id:\(id)#\(String(describing: revision))"
+    case .directory(let url):
+      return "dir:\(url.path)"
+    }
+  }
+
+  private static func configurations(for identifier: String) -> [ModelConfiguration] {
+    let trimmed = identifier.trimmingCharacters(in: .whitespacesAndNewlines)
+    guard !trimmed.isEmpty else { return [] }
+
+    var results: [ModelConfiguration] = []
+    if let bundled = BundledModelLocator.directory(for: trimmed) {
+      results.append(ModelConfiguration(directory: bundled))
+    }
+    results.append(ModelConfiguration(id: trimmed))
+    return results
   }
 
   private func setActive(container: ModelContainer) {
@@ -122,6 +143,23 @@ final class MLXModule: NSObject {
     return ids
   }
 
+  private func configurationsToTry(from requested: String?) -> [ModelConfiguration] {
+    let candidateIDs = idsToTry(from: requested)
+    var seen: Set<String> = []
+    var configurations: [ModelConfiguration] = []
+
+    for id in candidateIDs {
+      for configuration in Self.configurations(for: id) {
+        let key = Self.configurationKey(for: configuration)
+        if seen.insert(key).inserted {
+          configurations.append(configuration)
+        }
+      }
+    }
+
+    return configurations
+  }
+
   // MARK: - JS API
 
   /// JS: MLXModule.load(modelID?: string): Promise<{id: string}>
@@ -129,15 +167,15 @@ final class MLXModule: NSObject {
   func load(modelID: NSString?, resolve: @escaping RCTPromiseResolveBlock, reject: @escaping RCTPromiseRejectBlock) {
     let p = MLXPromise(resolve, reject)
     let requestedID = modelID as String?
-    let candidateIDs = idsToTry(from: requestedID)
-    Task { [weak self, candidateIDs] in
+    let configurations = configurationsToTry(from: requestedID)
+    Task { [weak self, configurations] in
       guard let self else { return }
       var lastError: Error?
-      for id in candidateIDs {
+      for configuration in configurations {
         do {
-          let container = try await Self.loadContainer(modelID: id)
+          let container = try await Self.loadContainer(configuration: configuration)
           await MainActor.run { self.setActive(container: container) }
-          p.ok(["id": id])
+          p.ok(["id": configuration.name])
           return
         } catch {
           lastError = error

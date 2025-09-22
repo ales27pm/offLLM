@@ -22,6 +22,9 @@ jobs:
     steps:
       - uses: actions/checkout@ff7abcd0c3c05ccf6adc123a8cd1fd4fb30fb493
 
+      - name: Download bundled MLX model
+        run: ./scripts/ci/download-mlx-model.sh
+
       - name: Select Xcode
         uses: maxim-lobanov/setup-xcode@60606e260d2fc5762a71e64e74b2174e8ea3c8bd
         with:

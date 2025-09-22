@@ -105,6 +105,7 @@ class LLMService {
       }
 
       this.isReady = true;
+      this.modelPath = modelPath;
       await this.clearKVCache();
       return result;
     } catch (error) {

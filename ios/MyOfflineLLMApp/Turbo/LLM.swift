@@ -382,49 +382,57 @@ private actor NativeLLMRuntime {
 
   private func configurations(for path: String?, options: [String: Any]) -> [ModelConfiguration] {
     var results: [ModelConfiguration] = []
-    if let explicit = options["modelId"] as? String,
-       !explicit.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty {
-      results.append(ModelConfiguration(id: explicit))
+    var seen: Set<String> = []
+
+    func append(_ configuration: ModelConfiguration) {
+      let key: String
+      switch configuration.id {
+      case .id(let id, let revision):
+        key = "id:\(id)#\(String(describing: revision))"
+      case .directory(let url):
+        key = "dir:\(url.path)"
+      }
+      if seen.insert(key).inserted {
+        results.append(configuration)
+      }
     }
+
+    func appendIdentifier(_ identifier: String?) {
+      guard let identifier else { return }
+      let trimmed = identifier.trimmingCharacters(in: .whitespacesAndNewlines)
+      guard !trimmed.isEmpty else { return }
+      if let bundled = BundledModelLocator.directory(for: trimmed) {
+        append(ModelConfiguration(directory: bundled))
+      }
+      append(ModelConfiguration(id: trimmed))
+    }
+
+    appendIdentifier(options["modelId"] as? String)
 
     if let rawPath = path?.trimmingCharacters(in: .whitespacesAndNewlines), !rawPath.isEmpty {
       var isDirectory: ObjCBool = false
       if FileManager.default.fileExists(atPath: rawPath, isDirectory: &isDirectory) {
         if isDirectory.boolValue {
-          results.append(ModelConfiguration(directory: URL(fileURLWithPath: rawPath)))
+          append(ModelConfiguration(directory: URL(fileURLWithPath: rawPath)))
         } else {
           let parent = URL(fileURLWithPath: rawPath).deletingLastPathComponent()
           if FileManager.default.fileExists(atPath: parent.path, isDirectory: &isDirectory),
              isDirectory.boolValue {
-            results.append(ModelConfiguration(directory: parent))
+            append(ModelConfiguration(directory: parent))
           }
         }
       }
 
       if rawPath.contains("/") && !rawPath.hasPrefix("/") {
-        results.append(ModelConfiguration(id: rawPath))
+        appendIdentifier(rawPath)
       }
     }
 
     for fallback in fallbackModelIDs {
-      results.append(ModelConfiguration(id: fallback))
+      appendIdentifier(fallback)
     }
 
-    var seen: Set<String> = []
-    return results.filter { config in
-      let key: String
-      switch config.id {
-      case .id(let id, let revision):
-        key = "id:\(id)#\(revision)"
-      case .directory(let url):
-        key = "dir:\(url.path)"
-      }
-      if seen.contains(key) {
-        return false
-      }
-      seen.insert(key)
-      return true
-    }
+    return results
   }
 
   private func parameters(from options: [String: Any]) -> GenerateParameters {
@@ -876,15 +884,29 @@ public final class LLM: NSObject, LLMSpec {
   }
 
   private static func loadFallbackModels() -> [String] {
-    if let url = Bundle.main.url(forResource: "fallback_models", withExtension: "json"),
-       let data = try? Data(contentsOf: url),
-       let json = try? JSONSerialization.jsonObject(with: data) as? [String: Any],
-       let models = json["fallback_models"] as? [String],
-       !models.isEmpty {
-      return models
+    let candidateURLs: [URL?] = [
+      Bundle.main.url(
+        forResource: "fallback_models",
+        withExtension: "json",
+        subdirectory: "Models"
+      ),
+      Bundle.main.url(
+        forResource: "fallback_models",
+        withExtension: "json"
+      )
+    ]
+
+    for case let url? in candidateURLs {
+      if let data = try? Data(contentsOf: url),
+         let json = try? JSONSerialization.jsonObject(with: data) as? [String: Any],
+         let models = json["fallback_models"] as? [String],
+         !models.isEmpty {
+        return models
+      }
     }
 
     return [
+      "Qwen/Qwen2-1.5B-Instruct-MLX",
       "mlx-community/gemma-2-2b-it",
       "mlx-community/llama-3.1-instruct-8b",
       "mlx-community/phi-3-mini-4k-instruct",

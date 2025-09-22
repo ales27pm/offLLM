@@ -28,6 +28,9 @@ jobs:
     steps:
       - uses: actions/checkout@v5
 
+      - name: Download bundled MLX model
+        run: ./scripts/ci/download-mlx-model.sh
+
       - name: Select Xcode ${{ env.XCODE_VERSION }}
         run: |
           sudo xcode-select -s "/Applications/Xcode_${XCODE_VERSION}.app"
@@ -181,6 +184,9 @@ jobs:
     needs: sim-build
     steps:
       - uses: actions/checkout@v5
+
+      - name: Download bundled MLX model
+        run: ./scripts/ci/download-mlx-model.sh
 
       - name: Select Xcode ${{ env.XCODE_VERSION }}
         run: |
