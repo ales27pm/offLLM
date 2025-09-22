@@ -1,9 +1,47 @@
 import Foundation
 import Darwin
 import os
+import React
 @preconcurrency import MLX
 @preconcurrency import MLXLLM
 @preconcurrency import MLXLMCommon
+
+#if canImport(AppSpec)
+import AppSpec
+public typealias LLMSpec = NativeLLMSpec
+#elseif canImport(AppSpecs)
+import AppSpecs
+public typealias LLMSpec = NativeLLMSpec
+#else
+@objc public protocol LLMSpec: RCTTurboModule {
+  func loadModel(_ path: String,
+                 options: [AnyHashable: Any]?,
+                 resolve: @escaping RCTPromiseResolveBlock,
+                 reject: @escaping RCTPromiseRejectBlock)
+  func unloadModel(_ resolve: @escaping RCTPromiseResolveBlock,
+                   reject: @escaping RCTPromiseRejectBlock)
+  func generate(_ prompt: String,
+                options: [AnyHashable: Any]?,
+                resolve: @escaping RCTPromiseResolveBlock,
+                reject: @escaping RCTPromiseRejectBlock)
+  func embed(_ text: String,
+             resolve: @escaping RCTPromiseResolveBlock,
+             reject: @escaping RCTPromiseRejectBlock)
+  func getPerformanceMetrics(_ resolve: @escaping RCTPromiseResolveBlock,
+                             reject: @escaping RCTPromiseRejectBlock)
+  func getKVCacheSize(_ resolve: @escaping RCTPromiseResolveBlock,
+                      reject: @escaping RCTPromiseRejectBlock)
+  func getKVCacheMaxSize(_ resolve: @escaping RCTPromiseResolveBlock,
+                         reject: @escaping RCTPromiseRejectBlock)
+  func clearKVCache(_ resolve: @escaping RCTPromiseResolveBlock,
+                    reject: @escaping RCTPromiseRejectBlock)
+  func addMessageBoundary(_ resolve: @escaping RCTPromiseResolveBlock,
+                          reject: @escaping RCTPromiseRejectBlock)
+  func adjustPerformanceMode(_ mode: String,
+                             resolve: @escaping RCTPromiseResolveBlock,
+                             reject: @escaping RCTPromiseRejectBlock)
+}
+#endif
 
 // React types are exposed via the bridging header; no explicit import is required.
 
@@ -47,8 +85,99 @@ private struct GenerationSummary: Sendable {
   let duration: TimeInterval
   let kvCacheSize: Int
   let kvCacheMax: Int?
-  let toolCalls: [[String: Any]]
+  let toolCalls: [ToolCallSummary]
 }
+
+private struct ToolCallSummary: Sendable {
+  let name: String
+  let arguments: [String: JSONValue]
+
+  func asDictionary() -> [String: Any] {
+    var payload: [String: Any] = ["name": name]
+    payload["arguments"] = arguments.mapValues { $0.foundationValue }
+    return payload
+  }
+}
+
+private enum JSONValue: Sendable {
+  case string(String)
+  case number(Double)
+  case bool(Bool)
+  case array([JSONValue])
+  case object([String: JSONValue])
+  case null
+
+  init(from value: Any) {
+    if let string = value as? String {
+      self = .string(string)
+    } else if let bool = value as? Bool {
+      self = .bool(bool)
+    } else if let number = value as? NSNumber {
+      if CFGetTypeID(number) == CFBooleanGetTypeID() {
+        self = .bool(number.boolValue)
+      } else {
+        self = .number(number.doubleValue)
+      }
+    } else if let double = value as? Double {
+      self = .number(double)
+    } else if let float = value as? Float {
+      self = .number(Double(float))
+    } else if let int = value as? Int {
+      self = .number(Double(int))
+    } else if let array = value as? [Any] {
+      self = .array(array.map { JSONValue(from: $0) })
+    } else if let dictionary = value as? [String: Any] {
+      var mapped: [String: JSONValue] = [:]
+      mapped.reserveCapacity(dictionary.count)
+      for (key, nestedValue) in dictionary {
+        mapped[key] = JSONValue(from: nestedValue)
+      }
+      self = .object(mapped)
+    } else if value is NSNull {
+      self = .null
+    } else {
+      self = .string(String(describing: value))
+    }
+  }
+
+  var foundationValue: Any {
+    switch self {
+    case .string(let value):
+      return value
+    case .number(let value):
+      return value
+    case .bool(let value):
+      return value
+    case .array(let values):
+      return values.map { $0.foundationValue }
+    case .object(let object):
+      var dictionary: [String: Any] = [:]
+      dictionary.reserveCapacity(object.count)
+      for (key, value) in object {
+        dictionary[key] = value.foundationValue
+      }
+      return dictionary
+    case .null:
+      return NSNull()
+    }
+  }
+}
+
+private struct GenerationOutput: Sendable {
+  let text: String
+  let completion: GenerateCompletionInfo?
+  let toolCalls: [ToolCallSummary]
+}
+
+private final class CacheBox: @unchecked Sendable {
+  var value: [KVCache]
+
+  init(value: [KVCache]) {
+    self.value = value
+  }
+}
+
+extension GenerateCompletionInfo: @unchecked Sendable {}
 
 private actor NativeLLMRuntime {
   private let fallbackModelIDs: [String]
@@ -141,24 +270,26 @@ private actor NativeLLMRuntime {
 
     var parameters = parameters(from: options)
     parameters.maxKVSize = currentMaxKV
-
-    var collectedText = ""
-    var completionInfo: GenerateCompletionInfo?
-    var collectedToolCalls: [[String: Any]] = []
+    let generationParameters = parameters
     let messages = conversation + [.user(prompt)]
+    let cacheBox = CacheBox(value: cache)
 
-    try await container.perform { context in
+    let result = try await container.perform { context -> GenerationOutput in
       let userInput = UserInput(chat: messages)
       let input = try await context.processor.prepare(input: userInput)
 
-      if cache.isEmpty {
-        cache = context.model.newCache(parameters: parameters)
+      if cacheBox.value.isEmpty {
+        cacheBox.value = context.model.newCache(parameters: generationParameters)
       }
 
       let stream = try MLXLMCommon.generate(input: input,
-                                            cache: cache,
-                                            parameters: parameters,
+                                            cache: cacheBox.value,
+                                            parameters: generationParameters,
                                             context: context)
+
+      var collectedText = ""
+      var completionInfo: GenerateCompletionInfo?
+      var collectedToolCalls: [ToolCallSummary] = []
 
       for await event in stream {
         if let chunk = event.chunk, !chunk.isEmpty {
@@ -169,24 +300,32 @@ private actor NativeLLMRuntime {
           completionInfo = info
         }
         if let call = event.toolCall {
-          let arguments = call.function.arguments.mapValues { $0.anyValue }
-          collectedToolCalls.append(["name": call.function.name, "arguments": arguments])
+          var arguments: [String: JSONValue] = [:]
+          for (key, value) in call.function.arguments {
+            arguments[key] = JSONValue(from: value.anyValue)
+          }
+          collectedToolCalls.append(ToolCallSummary(name: call.function.name, arguments: arguments))
         }
       }
+
+      return GenerationOutput(text: collectedText,
+                              completion: completionInfo,
+                              toolCalls: collectedToolCalls)
     }
 
-    conversation = messages + [.assistant(collectedText)]
+    cache = cacheBox.value
+    conversation = messages + [.assistant(result.text)]
     pruneConversationIfNeeded()
-    lastCompletion = completionInfo
+    lastCompletion = result.completion
 
     let summary = GenerationSummary(
-      text: collectedText,
-      promptTokens: completionInfo?.promptTokenCount ?? 0,
-      generatedTokens: completionInfo?.generationTokenCount ?? 0,
-      duration: (completionInfo?.promptTime ?? 0) + (completionInfo?.generateTime ?? 0),
+      text: result.text,
+      promptTokens: result.completion?.promptTokenCount ?? 0,
+      generatedTokens: result.completion?.generationTokenCount ?? 0,
+      duration: (result.completion?.promptTime ?? 0) + (result.completion?.generateTime ?? 0),
       kvCacheSize: cache.first?.offset ?? 0,
       kvCacheMax: currentMaxKV,
-      toolCalls: collectedToolCalls
+      toolCalls: result.toolCalls
     )
 
     return summary
@@ -371,8 +510,10 @@ public final class LLM: NSObject, LLMSpec {
 
   public func unloadModel(_ resolve: @escaping RCTPromiseResolveBlock,
                           reject: @escaping RCTPromiseRejectBlock) {
-    runtime.unload()
-    resolve(true)
+    Task {
+      await runtime.unload()
+      resolveOnMainThread(resolve, true)
+    }
   }
 
   public func generate(_ prompt: String,
@@ -401,7 +542,7 @@ public final class LLM: NSObject, LLMSpec {
         ]
         payload["kvCacheMax"] = boxOptional(summary.kvCacheMax)
         if !summary.toolCalls.isEmpty {
-          payload["toolCalls"] = summary.toolCalls
+          payload["toolCalls"] = summary.toolCalls.map { $0.asDictionary() }
         }
         resolveOnMainThread(resolve, payload)
       } catch {
