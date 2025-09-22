@@ -1,4 +1,4 @@
-#include "Pods/Target Support Files/Pods-MyOfflineLLMApp/Pods-MyOfflineLLMApp.release.xcconfig"
+#include "Pods/Target Support Files/Pods-monGARS/Pods-monGARS.release.xcconfig"
 #include? "Auto/MLXFlags.xcconfig"
 
 HEADER_SEARCH_PATHS = $(inherited) $(SRCROOT)/build/generated/ios \

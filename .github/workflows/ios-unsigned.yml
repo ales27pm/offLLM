@@ -112,6 +112,27 @@ jobs:
           echo "MODULE_CACHE_DIR=${MODULE_CACHE_DIR}" >> $GITHUB_ENV
           echo "CLANG_MODULE_CACHE_PATH=${MODULE_CACHE_DIR}" >> $GITHUB_ENV
 
+      - name: Detect available iOS Simulator runtime
+        id: detect_sim_runtime
+        run: |
+          set -euo pipefail
+          RUNTIME_ID="$(xcrun simctl list runtimes -j | /usr/bin/python3 - <<'PY'
+import json, sys
+data = json.load(sys.stdin)
+ios = [r for r in data.get('runtimes', []) if r.get('platform') == 'iOS' and r.get('isAvailable')]
+if not ios:
+    sys.exit(1)
+ios.sort(key=lambda r: tuple(int(part) for part in r.get('version', '0').split('.')))
+print(ios[-1]['identifier'])
+PY
+          )"
+          if [ -z "${RUNTIME_ID}" ]; then
+            echo "::error::No available iOS Simulator runtime found." >&2
+            exit 70
+          fi
+          echo "runtime_id=${RUNTIME_ID}" >> "$GITHUB_OUTPUT"
+          echo "Detected runtime: ${RUNTIME_ID}"
+
       - name: Build — Simulator (generic destination)
         env:
           RCT_NEW_ARCH_ENABLED: "1"
@@ -119,19 +140,18 @@ jobs:
           CLANG_MODULE_CACHE_PATH: ${{ env.CLANG_MODULE_CACHE_PATH }}
         run: |
           set -euo pipefail
+          : "${RESULT_BUNDLE_SIM:?RESULT_BUNDLE_SIM is required}"
           mkdir -p "$(dirname "$RESULT_BUNDLE_SIM")"
-          LINK_MAP_DIR="${RUNNER_TEMP:-/tmp}"
-          LINK_MAP_PATH="${LINK_MAP_DIR}/link-map-simulator-build-$(date +%s)-\$(TARGET_NAME)-\$(CURRENT_ARCH).map"
-          EXTRA_OTHER_LDFLAGS="-v -Xlinker -map -Xlinker ${LINK_MAP_PATH}"
-          BASE_OTHER_LDFLAGS="${OTHER_LDFLAGS:-}"
-          if [[ "${BASE_OTHER_LDFLAGS}" != *"\$(inherited)"* ]]; then
-            if [ -n "${BASE_OTHER_LDFLAGS}" ]; then
-              BASE_OTHER_LDFLAGS="\$(inherited) ${BASE_OTHER_LDFLAGS}"
-            else
-              BASE_OTHER_LDFLAGS="\$(inherited)"
-            fi
+
+          # Emit a link map without embedding literal $(TARGET_NAME) in YAML.
+          export LINK_MAP_DIR="${RUNNER_TEMP:-/tmp}"
+          export LINK_MAP_FILE="link-map-simulator-$(date +%s).map"
+          base_ldflags="${OTHER_LDFLAGS:-}"
+          if [ -z "${base_ldflags}" ]; then
+            base_ldflags='$(inherited)'
           fi
-          OTHER_LDFLAGS="${BASE_OTHER_LDFLAGS} ${EXTRA_OTHER_LDFLAGS}"
+          export OTHER_LDFLAGS="${base_ldflags} -Xlinker -map -Xlinker ${LINK_MAP_DIR}/${LINK_MAP_FILE}"
+
           xcodebuild \
             -workspace "${WORKSPACE}" \
             -scheme "${SCHEME}" \
@@ -144,6 +164,8 @@ jobs:
             CODE_SIGNING_REQUIRED=NO \
             OTHER_LDFLAGS="${OTHER_LDFLAGS}" \
             clean build | xcpretty && exit ${PIPESTATUS[0]}
+
+          echo "::notice title=Link map::${LINK_MAP_DIR}/${LINK_MAP_FILE}"
 
       - name: Summarize simulator xcresult
         if: ${{ always() }}
@@ -275,19 +297,17 @@ jobs:
           CLANG_MODULE_CACHE_PATH: ${{ env.CLANG_MODULE_CACHE_PATH }}
         run: |
           set -euo pipefail
+          : "${RESULT_BUNDLE_DEV:?RESULT_BUNDLE_DEV is required}"
           mkdir -p "$(dirname "$RESULT_BUNDLE_DEV")"
-          LINK_MAP_DIR="${RUNNER_TEMP:-/tmp}"
-          LINK_MAP_PATH="${LINK_MAP_DIR}/link-map-device-archive-$(date +%s)-\$(TARGET_NAME)-\$(CURRENT_ARCH).map"
-          EXTRA_OTHER_LDFLAGS="-v -Xlinker -map -Xlinker ${LINK_MAP_PATH}"
-          BASE_OTHER_LDFLAGS="${OTHER_LDFLAGS:-}"
-          if [[ "${BASE_OTHER_LDFLAGS}" != *"\$(inherited)"* ]]; then
-            if [ -n "${BASE_OTHER_LDFLAGS}" ]; then
-              BASE_OTHER_LDFLAGS="\$(inherited) ${BASE_OTHER_LDFLAGS}"
-            else
-              BASE_OTHER_LDFLAGS="\$(inherited)"
-            fi
+
+          export LINK_MAP_DIR="${RUNNER_TEMP:-/tmp}"
+          export LINK_MAP_FILE="link-map-device-archive-$(date +%s).map"
+          base_ldflags="${OTHER_LDFLAGS:-}"
+          if [ -z "${base_ldflags}" ]; then
+            base_ldflags='$(inherited)'
           fi
-          OTHER_LDFLAGS="${BASE_OTHER_LDFLAGS} ${EXTRA_OTHER_LDFLAGS}"
+          export OTHER_LDFLAGS="${base_ldflags} -Xlinker -map -Xlinker ${LINK_MAP_DIR}/${LINK_MAP_FILE}"
+
           xcodebuild \
             -workspace "${WORKSPACE}" \
             -scheme "${SCHEME}" \
@@ -299,6 +319,24 @@ jobs:
             CODE_SIGNING_REQUIRED=NO \
             OTHER_LDFLAGS="${OTHER_LDFLAGS}" \
             clean build archive | xcpretty && exit ${PIPESTATUS[0]}
+
+          echo "::notice title=Link map::${LINK_MAP_DIR}/${LINK_MAP_FILE}"
+
+      - name: Verify bundle slices and static Hermes
+        run: |
+          set -euo pipefail
+          APP_PATH="${DERIVED_DATA}/Build/Products/Release-iphoneos/${SCHEME}.app"
+          if [ ! -d "${APP_PATH}" ]; then
+            echo "::error::Expected app bundle at ${APP_PATH}" >&2
+            exit 1
+          fi
+          ./scripts/ci/guard_no_dynamic_frameworks.sh "${APP_PATH}"
+          ./scripts/ci/verify_arm_slices.sh "${APP_PATH}"
+          TMP_PAYLOAD="$(mktemp -d)"
+          mkdir -p "${TMP_PAYLOAD}/Payload"
+          cp -R "${APP_PATH}" "${TMP_PAYLOAD}/Payload/"
+          ./scripts/ci/verify-hermes-static.sh "${TMP_PAYLOAD}/Payload" "${SCHEME}"
+          rm -rf "${TMP_PAYLOAD}"
 
       - name: Summarize device xcresult
         if: ${{ always() }}

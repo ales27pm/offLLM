@@ -438,9 +438,18 @@ post_install do |installer|
     target_name = t.respond_to?(:name) ? t.name.to_s : ''
 
     t.build_configurations.each do |c|
-      c.build_settings['DISABLE_INPUT_OUTPUT_PATHS'] = 'YES'
-      c.build_settings['CLANG_CXX_LANGUAGE_STANDARD'] = 'c++20'
-      c.build_settings['CLANG_CXX_LIBRARY'] = 'libc++'
+      if c.build_settings['DISABLE_INPUT_OUTPUT_PATHS'] != 'YES'
+        c.build_settings['DISABLE_INPUT_OUTPUT_PATHS'] = 'YES'
+        pods_project_modified = true
+      end
+      if c.build_settings['CLANG_CXX_LANGUAGE_STANDARD'] != 'c++17'
+        c.build_settings['CLANG_CXX_LANGUAGE_STANDARD'] = 'c++17'
+        pods_project_modified = true
+      end
+      if c.build_settings['CLANG_CXX_LIBRARY'] != 'libc++'
+        c.build_settings['CLANG_CXX_LIBRARY'] = 'libc++'
+        pods_project_modified = true
+      end
 
       existing_ldflags = c.build_settings['OTHER_LDFLAGS']
       desired_ldflags =
@@ -630,12 +639,12 @@ post_install do |installer|
       next unless target.name == 'monGARS'
 
       target.build_configurations.each do |config|
-        removed_std = config.build_settings.delete('CLANG_CXX_LANGUAGE_STANDARD')
-        if removed_std
+        desired_std = 'c++17'
+        current_std = config.build_settings['CLANG_CXX_LANGUAGE_STANDARD']
+        if current_std != desired_std
+          config.build_settings['CLANG_CXX_LANGUAGE_STANDARD'] = desired_std
           project_modified = true
-          if removed_std != '$(inherited)'
-            Pod::UI.puts "[Podfile] Clearing CLANG_CXX_LANGUAGE_STANDARD for #{target.name} (#{config.name})"
-          end
+          Pod::UI.puts "[Podfile] Setting CLANG_CXX_LANGUAGE_STANDARD=#{desired_std} for #{target.name} (#{config.name})"
         end
 
         current_library = config.build_settings['CLANG_CXX_LIBRARY']

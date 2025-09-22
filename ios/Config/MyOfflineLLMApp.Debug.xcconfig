@@ -1,4 +1,4 @@
-#include "Pods/Target Support Files/Pods-MyOfflineLLMApp/Pods-MyOfflineLLMApp.debug.xcconfig"
+#include "Pods/Target Support Files/Pods-monGARS/Pods-monGARS.debug.xcconfig"
 #include? "Auto/MLXFlags.xcconfig"
 
 // Local additions (kept minimal — most comes from Pods)

@@ -92,7 +92,10 @@ fi
 cp -R "$APP_PATH" "$OUT_DIR/Payload/"
 # Ensure truly unsigned bundle
 rm -rf "$OUT_DIR/Payload/monGARS.app/_CodeSignature" "$OUT_DIR/Payload/monGARS.app/embedded.mobileprovision"
-# Verify Hermes remains statically linked before zipping
+# Verify bundle contents before zipping
+APP_BUNDLE="$OUT_DIR/Payload/monGARS.app"
+"${ROOT_DIR}/scripts/ci/guard_no_dynamic_frameworks.sh" "$APP_BUNDLE"
+"${ROOT_DIR}/scripts/ci/verify_arm_slices.sh" "$APP_BUNDLE"
 "${ROOT_DIR}/scripts/ci/verify-hermes-static.sh" "$OUT_DIR/Payload" "monGARS"
 # Zip to IPA
 (

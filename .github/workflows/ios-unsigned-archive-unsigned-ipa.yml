@@ -185,6 +185,9 @@ jobs:
           rm -rf "$PAYLOAD_DIR"
           mkdir -p "$(dirname "$IPA_OUT")" "$PAYLOAD_DIR"
           cp -R "$APP_PATH" "$PAYLOAD_DIR/"
+          APP_BUNDLE="$PAYLOAD_DIR/$(basename "$APP_PATH")"
+          ./scripts/ci/guard_no_dynamic_frameworks.sh "$APP_BUNDLE"
+          ./scripts/ci/verify_arm_slices.sh "$APP_BUNDLE"
           # Hermes must remain statically linked; bundling hermes.framework alongside the Pods build aborts at launch.
           ./scripts/ci/verify-hermes-static.sh "$PAYLOAD_DIR" "$SCHEME"
           zip -qry "$IPA_OUT" "$PAYLOAD_DIR"

@@ -131,6 +131,10 @@ PAYLOAD_DIR="$BUILD_DIR/Payload"
 rm -rf "$PAYLOAD_DIR"
 mkdir -p "$PAYLOAD_DIR"
 cp -R "$APP_PATH" "$PAYLOAD_DIR/"
+APP_BUNDLE="$PAYLOAD_DIR/$(basename "$APP_PATH")"
+"$ROOT_DIR/scripts/ci/guard_no_dynamic_frameworks.sh" "$APP_BUNDLE"
+"$ROOT_DIR/scripts/ci/verify_arm_slices.sh" "$APP_BUNDLE"
+"$ROOT_DIR/scripts/ci/verify-hermes-static.sh" "$PAYLOAD_DIR" "$SCHEME"
 (cd "$BUILD_DIR" && zip -qry monGARS-unsigned.ipa Payload)
 echo "✅ Artifact created at $BUILD_DIR/monGARS-unsigned.ipa"
 

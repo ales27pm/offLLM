@@ -6,6 +6,8 @@ APP_NAME_HINT="${3:-}"
 SCRIPT_DIR="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
 REPO_ROOT="$(cd "${SCRIPT_DIR}/.." && pwd)"
 VERIFY_HERMES_SCRIPT="${REPO_ROOT}/scripts/ci/verify-hermes-static.sh"
+GUARD_FRAMEWORKS_SCRIPT="${REPO_ROOT}/scripts/ci/guard_no_dynamic_frameworks.sh"
+VERIFY_ARM_SLICES_SCRIPT="${REPO_ROOT}/scripts/ci/verify_arm_slices.sh"
 if [ ! -d "$ARCHIVE_PATH" ]; then
   echo "::error title=Archive not found::'$ARCHIVE_PATH' does not exist (archive failed)."
   exit 66
@@ -40,6 +42,9 @@ OUT_DIR="$(cd "$OUT_DIR" && pwd)"
 APP_BASENAME="$(basename "$APP_PATH" .app)"
 TMP="$(mktemp -d)"; mkdir -p "$TMP/Payload"
 cp -R "$APP_PATH" "$TMP/Payload/"
+APP_PAYLOAD_PATH="$TMP/Payload/${APP_BASENAME}.app"
+"${GUARD_FRAMEWORKS_SCRIPT}" "$APP_PAYLOAD_PATH"
+"${VERIFY_ARM_SLICES_SCRIPT}" "$APP_PAYLOAD_PATH"
 "${VERIFY_HERMES_SCRIPT}" "$TMP/Payload" "$APP_BASENAME"
 ( cd "$TMP" && /usr/bin/zip -qry "${OUT_DIR}/${APP_BASENAME}.ipa" "Payload" )
 rm -rf "$TMP"

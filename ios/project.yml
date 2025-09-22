@@ -15,7 +15,7 @@ packages:
 
 settings:
   base:
-    CLANG_CXX_LANGUAGE_STANDARD: c++20
+    CLANG_CXX_LANGUAGE_STANDARD: c++17
     CLANG_CXX_LIBRARY: libc++
 
 targets:
@@ -84,10 +84,12 @@ targets:
 
         # Stable toolchain for RN/Folly
         CLANG_CXX_LIBRARY: libc++
-        # CLANG_CXX_LANGUAGE_STANDARD inherited from Pods (c++20)
+        # CLANG_CXX_LANGUAGE_STANDARD inherited from Pods (c++17)
         OTHER_MTLFLAGS:
           - "$(inherited)"
           - "-std=metal-cpp17"
+
+        EXCLUDED_ARCHS[sdk=iphoneos*]: arm64e
 
         # Allow CocoaPods header symlink scripts to write in Xcode 15+
         ENABLE_USER_SCRIPT_SANDBOXING: NO

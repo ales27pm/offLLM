@@ -242,6 +242,9 @@ if [ -d "$APP_PATH" ]; then
   rm -rf "$BUILD_DIR/Payload"
   mkdir -p "$BUILD_DIR/Payload"
   cp -R "$APP_PATH" "$BUILD_DIR/Payload/"
+  APP_BUNDLE="$BUILD_DIR/Payload/${SCHEME}.app"
+  "${ROOT_DIR}/scripts/ci/guard_no_dynamic_frameworks.sh" "$APP_BUNDLE"
+  "${ROOT_DIR}/scripts/ci/verify_arm_slices.sh" "$APP_BUNDLE"
   "${ROOT_DIR}/scripts/ci/verify-hermes-static.sh" "$BUILD_DIR/Payload" "$SCHEME"
   (cd "$BUILD_DIR" && zip -qry monGARS-unsigned.ipa Payload)
   (cd "$APP_DIR" && zip -qry "$PWD/../../$SCHEME.app.zip" "$SCHEME.app")
