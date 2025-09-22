@@ -1,4 +1,4 @@
-import { useEffect, useState } from "react";
+import { useCallback, useEffect, useMemo, useRef, useState } from "react";
 /* global __DEV__ */
 import {
   View,
@@ -10,7 +10,6 @@ import {
 } from "react-native";
 import LLMService from "./services/llmService";
 import { ensureModelDownloaded } from "./utils/modelDownloader";
-import { getEnv } from "./config";
 import { ToolRegistry, builtInTools } from "./architecture/toolSystem";
 import {
   createCalendarEventTool,
@@ -47,6 +46,36 @@ import DebugConsole from "./debug/DebugConsole";
 import { useSpeechRecognition } from "./hooks/useSpeechRecognition";
 import { useChat } from "./hooks/useChat";
 import useLLMStore from "./store/llmStore";
+import { MODEL_CONFIG } from "./config/model";
+
+const MODEL_PRESETS = [
+  {
+    id: "configured",
+    name: "Configured model",
+    url: MODEL_CONFIG.url,
+    checksum: MODEL_CONFIG.checksum,
+    description:
+      "Uses MODEL_URL or the default Dolphin 3.0 1B quantised build.",
+    size: "1.1 GB",
+  },
+  {
+    id: "tinyllama-1b-q4",
+    name: "TinyLlama 1.1B Q4_K_M",
+    url: "https://huggingface.co/jzhang38/TinyLlama-1.1B-Chat-v1.0-GGUF/resolve/main/TinyLlama-1.1B-Chat-v1.0.Q4_K_M.gguf",
+    checksum: undefined,
+    description:
+      "Ultra-fast miniature chat model ideal for quick interactions.",
+    size: "0.7 GB",
+  },
+  {
+    id: "phi-2-q4",
+    name: "Phi-2 2.7B Q4_K_M",
+    url: "https://huggingface.co/TheBloke/phi-2-GGUF/resolve/main/phi-2.Q4_K_M.gguf",
+    checksum: undefined,
+    description: "Larger reasoning-focused model with a compact quantisation.",
+    size: "1.6 GB",
+  },
+];
 
 function App() {
   const [initialized, setInitialized] = useState(false);
@@ -54,74 +83,224 @@ function App() {
   const [input, setInput] = useState("");
   const [showDebug, setShowDebug] = useState(false);
   const { send } = useChat();
-  const { messages } = useLLMStore();
-  const { isRecording, start } = useSpeechRecognition(send, (err) =>
-    console.warn("Speech recognition error", err),
+  const messages = useLLMStore((state) => state.messages);
+  const conversations = useLLMStore((state) => state.conversations);
+  const currentConversationId = useLLMStore(
+    (state) => state.currentConversationId,
+  );
+  const startNewConversation = useLLMStore(
+    (state) => state.startNewConversation,
+  );
+  const selectConversation = useLLMStore((state) => state.selectConversation);
+  const voiceMode = useLLMStore((state) => state.voiceMode);
+  const setVoiceMode = useLLMStore((state) => state.setVoiceMode);
+  const modelStatus = useLLMStore((state) => state.modelStatus);
+  const setModelStatus = useLLMStore((state) => state.setModelStatus);
+  const setCurrentModelPath = useLLMStore((state) => state.setCurrentModelPath);
+  const currentModelPath = useLLMStore((state) => state.currentModelPath);
+  const downloadProgress = useLLMStore((state) => state.downloadProgress);
+  const setDownloadProgress = useLLMStore((state) => state.setDownloadProgress);
+  const modelError = useLLMStore((state) => state.modelError);
+  const setModelError = useLLMStore((state) => state.setModelError);
+  const selectedModel = useLLMStore((state) => state.selectedModel);
+  const setSelectedModel = useLLMStore((state) => state.setSelectedModel);
+  const isGenerating = useLLMStore((state) => state.isGenerating);
+  const modelOptions = useMemo(() => MODEL_PRESETS, []);
+  const initializingRef = useRef(false);
+  const handleSend = useCallback(
+    (text) => {
+      if (modelStatus !== "ready") {
+        return;
+      }
+      const candidate = typeof text === "string" ? text : input;
+      const trimmed = candidate.trim();
+      if (!trimmed) {
+        return;
+      }
+      send(trimmed);
+      setInput("");
+    },
+    [input, modelStatus, send],
+  );
+  const handleSpeechResult = useCallback(
+    (transcript) => {
+      if (transcript) {
+        handleSend(transcript);
+      }
+    },
+    [handleSend],
+  );
+  const handleSpeechError = useCallback(
+    (err) => console.warn("Speech recognition error", err),
+    [],
+  );
+  const { isRecording, start, stop } = useSpeechRecognition(
+    handleSpeechResult,
+    handleSpeechError,
   );
 
   useEffect(() => {
-    initializeApp();
-  }, []);
-
-  const initializeApp = async () => {
-    try {
-      const dependencyInjector = new DependencyInjector();
-      const toolRegistry = new ToolRegistry();
-      Object.entries(builtInTools).forEach(([name, tool]) => {
-        toolRegistry.registerTool(name, tool);
-      });
-      if (Platform.OS === "ios") {
-        [
-          createCalendarEventTool,
-          sendMessageTool,
-          makePhoneCallTool,
-          getCallHistoryTool,
-          getCurrentLocationTool,
-          startLocationUpdatesTool,
-          stopLocationUpdatesTool,
-          showMapTool,
-          getDirectionsTool,
-          searchPlacesTool,
-          findContactTool,
-          addContactTool,
-          playMusicTool,
-          getMusicLibraryTool,
-          getBatteryInfoTool,
-          getSensorDataTool,
-          setClipboardTool,
-          getClipboardTool,
-          vibrateTool,
-          toggleFlashlightTool,
-          getDeviceInfoTool,
-          setBrightnessTool,
-          pickPhotoTool,
-          takePhotoTool,
-          pickFileTool,
-          openUrlTool,
-        ].forEach((tool) => {
-          toolRegistry.registerTool(tool.name, tool);
-        });
-      }
-      const pluginManager = new PluginManager();
-      // Set MODEL_URL in your environment or config to point to the model file
-      const MODEL_URL = getEnv("MODEL_URL");
-      const modelPath = await ensureModelDownloaded(MODEL_URL);
-      await LLMService.loadModel(modelPath);
-      dependencyInjector.register("toolRegistry", toolRegistry);
-      dependencyInjector.register("pluginManager", pluginManager);
-      dependencyInjector.register("llmService", LLMService);
-      setInitialized(true);
-    } catch (err) {
-      console.error("App initialization failed:", err);
-      setError(err.message);
+    if (!selectedModel && modelOptions.length > 0) {
+      setSelectedModel(modelOptions[0]);
     }
-  };
+  }, [selectedModel, setSelectedModel, modelOptions]);
 
-  const handleSend = (text) => {
-    const message = text || input;
-    send(message);
-    setInput("");
-  };
+  const handleModelDownload = useCallback(
+    async (model) => {
+      if (!model?.url) {
+        setModelError("Select a model to download.");
+        return;
+      }
+      try {
+        setModelError(null);
+        setModelStatus("downloading");
+        setDownloadProgress(0.05);
+        const path = await ensureModelDownloaded(model.url, {
+          checksum: model.checksum,
+        });
+        setDownloadProgress(0.75);
+        setModelStatus("loading");
+        await LLMService.loadModel(path);
+        setDownloadProgress(1);
+        setCurrentModelPath(path);
+        setModelStatus("ready");
+      } catch (err) {
+        console.error("Model selection failed:", err);
+        setModelStatus("error");
+        setDownloadProgress(0);
+        setModelError(err instanceof Error ? err.message : String(err));
+      }
+    },
+    [setCurrentModelPath, setDownloadProgress, setModelError, setModelStatus],
+  );
+
+  const initializeApp = useCallback(
+    async (model) => {
+      try {
+        const dependencyInjector = new DependencyInjector();
+        const toolRegistry = new ToolRegistry();
+        Object.entries(builtInTools).forEach(([name, tool]) => {
+          toolRegistry.registerTool(name, tool);
+        });
+        if (Platform.OS === "ios") {
+          [
+            createCalendarEventTool,
+            sendMessageTool,
+            makePhoneCallTool,
+            getCallHistoryTool,
+            getCurrentLocationTool,
+            startLocationUpdatesTool,
+            stopLocationUpdatesTool,
+            showMapTool,
+            getDirectionsTool,
+            searchPlacesTool,
+            findContactTool,
+            addContactTool,
+            playMusicTool,
+            getMusicLibraryTool,
+            getBatteryInfoTool,
+            getSensorDataTool,
+            setClipboardTool,
+            getClipboardTool,
+            vibrateTool,
+            toggleFlashlightTool,
+            getDeviceInfoTool,
+            setBrightnessTool,
+            pickPhotoTool,
+            takePhotoTool,
+            pickFileTool,
+            openUrlTool,
+          ].forEach((tool) => {
+            toolRegistry.registerTool(tool.name, tool);
+          });
+        }
+        const pluginManager = new PluginManager();
+        dependencyInjector.register("toolRegistry", toolRegistry);
+        dependencyInjector.register("pluginManager", pluginManager);
+        dependencyInjector.register("llmService", LLMService);
+        setInitialized(true);
+        await handleModelDownload(model);
+      } catch (err) {
+        console.error("App initialization failed:", err);
+        setError(err.message);
+      } finally {
+        initializingRef.current = false;
+      }
+    },
+    [handleModelDownload],
+  );
+
+  useEffect(() => {
+    if (!selectedModel || initialized || initializingRef.current) {
+      return;
+    }
+    initializingRef.current = true;
+    initializeApp(selectedModel).catch((err) => {
+      console.error("Initialization error", err);
+      setError(err.message);
+      initializingRef.current = false;
+    });
+  }, [initializeApp, initialized, selectedModel]);
+
+  useEffect(() => {
+    if (!initialized) {
+      return;
+    }
+    if (conversations.length === 0) {
+      startNewConversation();
+    }
+  }, [initialized, conversations.length, startNewConversation]);
+
+  useEffect(() => {
+    if (!initialized) {
+      return;
+    }
+    if (modelStatus !== "ready") {
+      if (isRecording) {
+        stop();
+      }
+      return;
+    }
+    if (!voiceMode) {
+      if (isRecording) {
+        stop();
+      }
+      return;
+    }
+    if (!isRecording) {
+      const timer = setTimeout(() => {
+        start().catch((err) => {
+          console.warn("Unable to start speech recognition", err);
+          setVoiceMode(false);
+        });
+      }, 400);
+      return () => clearTimeout(timer);
+    }
+  }, [
+    initialized,
+    modelStatus,
+    voiceMode,
+    isRecording,
+    start,
+    stop,
+    setVoiceMode,
+  ]);
+
+  const handleModelSelect = useCallback(
+    (model) => {
+      setModelError(null);
+      setSelectedModel(model);
+    },
+    [setModelError, setSelectedModel],
+  );
+
+  const handleDownloadPress = useCallback(() => {
+    if (selectedModel) {
+      handleModelDownload(selectedModel);
+    } else {
+      setModelError("Select a model to download.");
+    }
+  }, [handleModelDownload, selectedModel, setModelError]);
 
   if (error) {
     return (
@@ -146,9 +325,25 @@ function App() {
         messages={messages}
         input={input}
         onInputChange={setInput}
-        onSend={() => handleSend()}
+        onSend={handleSend}
         isRecording={isRecording}
         onMicPress={start}
+        onMicStop={stop}
+        conversations={conversations}
+        onSelectConversation={selectConversation}
+        onNewConversation={startNewConversation}
+        currentConversationId={currentConversationId}
+        voiceModeEnabled={voiceMode}
+        onVoiceModeToggle={setVoiceMode}
+        modelOptions={modelOptions}
+        onModelSelect={handleModelSelect}
+        selectedModel={selectedModel}
+        onDownloadModel={handleDownloadPress}
+        modelStatus={modelStatus}
+        modelError={modelError}
+        downloadProgress={downloadProgress}
+        currentModelPath={currentModelPath}
+        isGenerating={isGenerating}
       />
       {(__DEV__ || process.env.DEBUG_PANEL === "1") && (
         <>
