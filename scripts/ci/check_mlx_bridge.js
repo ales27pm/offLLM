@@ -85,6 +85,14 @@ function main() {
       label: "ObjC shim (MLXModuleBridge.m)",
     },
     {
+      rel: "ios/MyOfflineLLMApp/MLX/MLXEvents.swift",
+      label: "Swift event emitter (MLXEvents.swift)",
+    },
+    {
+      rel: "ios/MyOfflineLLMApp/MLX/MLXEventsBridge.m",
+      label: "ObjC shim (MLXEventsBridge.m)",
+    },
+    {
       rel: "src/native/MLXModule.ts",
       label: "JS wrapper (src/native/MLXModule.ts)",
     },
@@ -119,13 +127,25 @@ function main() {
       rel: "ios/MyOfflineLLMApp/MLX/MLXModuleBridge.m",
       substrings: [
         "RCT_EXTERN_MODULE(MLXModule, NSObject)",
-        "RCT_EXTERN_METHOD(load:(NSString *)modelID",
-        "RCT_EXTERN_METHOD(isLoaded:(RCTPromiseResolveBlock)resolve",
+        "RCT_EXTERN_METHOD(load:(NSString * _Nullable)modelID",
         "RCT_EXTERN_METHOD(generate:(NSString *)prompt",
+        "options:(NSDictionary * _Nullable)options",
+        "RCT_EXTERN_METHOD(startStream:(NSString *)prompt",
         "RCT_EXTERN_METHOD(reset)",
         "RCT_EXTERN_METHOD(unload)",
+        "RCT_EXTERN_METHOD(stop)",
       ],
       label: "MLXModuleBridge.m",
+    },
+    {
+      rel: "ios/MyOfflineLLMApp/MLX/MLXEvents.swift",
+      substrings: ["@objc(MLXEvents)", "RCTEventEmitter"],
+      label: "MLXEvents.swift",
+    },
+    {
+      rel: "ios/MyOfflineLLMApp/MLX/MLXEventsBridge.m",
+      substrings: ["RCT_EXTERN_MODULE(MLXEvents, RCTEventEmitter)"],
+      label: "MLXEventsBridge.m",
     },
     {
       rel: "src/native/MLXModule.ts",
@@ -133,9 +153,10 @@ function main() {
         "NativeModules.MLXModule",
         "load(",
         "generate(",
-        "isLoaded(",
+        "startStream(",
         "reset(",
         "unload(",
+        "stop(",
       ],
       label: "src/native/MLXModule.ts",
     },
@@ -161,6 +182,8 @@ function main() {
     try {
       softCheck(pbx, ["MLXModule.swift"], `${pbx} (MLXModule.swift ref)`);
       softCheck(pbx, ["MLXModuleBridge.m"], `${pbx} (MLXModuleBridge.m ref)`);
+      softCheck(pbx, ["MLXEvents.swift"], `${pbx} (MLXEvents.swift ref)`);
+      softCheck(pbx, ["MLXEventsBridge.m"], `${pbx} (MLXEventsBridge.m ref)`);
     } catch (e) {
       console.warn(`WARN: ${e.message}`);
     }

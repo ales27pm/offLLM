@@ -38,15 +38,15 @@ export const createCalendarEventTool = {
     notes: { type: "string", required: false },
   },
   execute: async (params) => {
-    const endDate =
-      params.endDate ||
-      new Date(new Date(params.startDate).getTime() + 3600000).toISOString();
+    const hasEndDate = Boolean(params.endDate);
+    const fallbackDuration = hasEndDate ? null : 3600;
     return await CalendarTurboModule.createEvent(
       params.title,
       params.startDate,
-      endDate,
-      params.location,
-      params.notes,
+      hasEndDate ? params.endDate : null,
+      fallbackDuration,
+      params.location ?? null,
+      params.notes ?? null,
     );
   },
 };
