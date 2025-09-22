@@ -632,7 +632,7 @@ public final class LLM: NSObject, LLMSpec {
   }
 
   /// Convert arbitrary RN options into a Sendable JSONValue map.
-  private func toJSONOptions(_ raw: [AnyHashable: Any]?) -> [String: JSONValue] {
+  nonisolated private func toJSONOptions(_ raw: [AnyHashable: Any]?) -> [String: JSONValue] {
     guard let raw else { return [:] }
     var out: [String: JSONValue] = [:]
     for (k, v) in raw {
