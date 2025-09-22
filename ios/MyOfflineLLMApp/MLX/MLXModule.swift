@@ -156,7 +156,7 @@ final class MLXModule: NSObject {
   func reset() {
     guard let activeActor = actor else { return }
     Task {
-      await activeActor.reset()
+      await MainActor.run { activeActor.reset() }
     }
   }
 
@@ -172,8 +172,10 @@ final class MLXModule: NSObject {
   func stop() {
     let activeActor = actor
     Task {
-      await activeActor?.stop()
-      await MainActor.run { MLXEvents.shared?.emitStopped() }
+      await MainActor.run {
+        activeActor?.stop()
+        MLXEvents.shared?.emitStopped()
+      }
     }
   }
 
