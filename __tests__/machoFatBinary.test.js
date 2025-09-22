@@ -59,11 +59,11 @@ describe("machoFatBinary utilities", () => {
 
   test("extractMachO returns the requested architecture buffer", () => {
     const x86 = Buffer.from("x86_64", "utf8");
-    const arm = Buffer.from("arm64", "utf8");
+    const x86Alt = Buffer.from("x86_64#2", "utf8");
 
     const universal = createUniversalBinary([
       { cpuType: CPU_TYPE_X86_64, cpuSubtype: 1, data: x86, align: 2 },
-      { cpuType: CPU_TYPE_X86_64, cpuSubtype: 2, data: arm, align: 2 },
+      { cpuType: CPU_TYPE_X86_64, cpuSubtype: 2, data: x86Alt, align: 2 },
     ]);
 
     const first = extractMachO(universal, {
@@ -76,7 +76,7 @@ describe("machoFatBinary utilities", () => {
       cpuType: CPU_TYPE_X86_64,
       cpuSubtype: 2,
     });
-    expect(bufferToHex(second)).toBe(bufferToHex(arm));
+    expect(bufferToHex(second)).toBe(bufferToHex(x86Alt));
 
     expect(() => extractMachO(universal, CPU_TYPE_X86_64)).toThrow(
       /specify cpuSubtype to disambiguate/,
@@ -134,5 +134,14 @@ describe("machoFatBinary utilities", () => {
     const parsed = parseUniversalBinary(array);
     expect(parsed.architectures).toHaveLength(1);
     expect(bufferToHex(parsed.architectures[0].data)).toBe(bufferToHex(data));
+  });
+
+  test("supports signed cpuSubtype (e.g., -1) and numeric spec + subtype overload", () => {
+    const buf = Buffer.from("any-subtype", "utf8");
+    const universal = createUniversalBinary([
+      { cpuType: CPU_TYPE_ARM64, cpuSubtype: -1, data: buf, align: 2 },
+    ]);
+    const out = extractMachO(universal, CPU_TYPE_ARM64, -1);
+    expect(bufferToHex(out)).toBe(bufferToHex(buf));
   });
 });

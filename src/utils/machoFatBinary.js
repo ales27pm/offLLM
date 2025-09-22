@@ -94,6 +94,14 @@ const toSafeNumber = (value, label) => {
     return value;
   }
 
+  if (typeof value !== "bigint") {
+    throw new TypeError(`${label} must be a number or bigint`);
+  }
+
+  if (value < 0n) {
+    throw new RangeError(`${label} must be a finite positive integer`);
+  }
+
   if (value > BigInt(Number.MAX_SAFE_INTEGER)) {
     throw new RangeError(
       `${label} does not fit within JavaScript's safe integer range`,
@@ -101,6 +109,30 @@ const toSafeNumber = (value, label) => {
   }
 
   return Number(value);
+};
+
+const INT32_MIN = -0x80000000;
+const UINT32_MAX = 0xffffffff;
+const toSignedInt32 = (value, label) => {
+  let numeric;
+  if (typeof value === "bigint") {
+    if (value < BigInt(INT32_MIN) || value > BigInt(UINT32_MAX)) {
+      throw new RangeError(`${label} must fit in a 32-bit integer`);
+    }
+    numeric = Number(value);
+  } else if (typeof value === "number") {
+    if (!Number.isFinite(value) || !Number.isInteger(value)) {
+      throw new RangeError(`${label} must be a finite integer`);
+    }
+    if (value < INT32_MIN || value > UINT32_MAX) {
+      throw new RangeError(`${label} must fit in a 32-bit integer`);
+    }
+    numeric = value;
+  } else {
+    throw new TypeError(`${label} must be a number or bigint`);
+  }
+
+  return numeric | 0;
 };
 
 const normaliseAlignment = (align) => {
@@ -184,6 +216,18 @@ const assertUniqueArchitectures = (architectures) => {
   }
 };
 
+const normaliseCpuField = (value) => value >>> 0;
+
+const maybeNormaliseCpuSpecField = (value, label) => {
+  if (value == null) {
+    return undefined;
+  }
+  if (typeof value === "number" || typeof value === "bigint") {
+    return toSignedInt32(value, label);
+  }
+  throw new TypeError(`${label} must be a number or bigint`);
+};
+
 const parseHeaderFromView = (view) => {
   if (view.byteLength < HEADER_SIZE) {
     throw new Error("Buffer is too small to contain a fat header");
@@ -238,6 +282,12 @@ export const parseUniversalBinary = (buffer) => {
   const header = parseHeaderFromView(view);
 
   const entrySize = header.is64Bit ? FAT_ARCH64_SIZE : FAT_ARCH_SIZE;
+  if (
+    header.architectureCount >
+    Math.floor((Number.MAX_SAFE_INTEGER - HEADER_SIZE) / entrySize)
+  ) {
+    throw new Error("Fat binary declares an excessive number of architectures");
+  }
   const requiredSize = HEADER_SIZE + header.architectureCount * entrySize;
   if (view.byteLength < requiredSize) {
     throw new Error(
@@ -289,7 +339,7 @@ export const parseUniversalBinary = (buffer) => {
 
     const offsetBigInt = BigInt(offset);
     const alignmentBigInt = 1n << BigInt(alignmentExponent);
-    if (alignmentBigInt !== 0n && offsetBigInt % alignmentBigInt !== 0n) {
+    if (offsetBigInt % alignmentBigInt !== 0n) {
       throw new Error(
         `Architecture index ${index} offset ${offset} does not respect 2^${alignmentExponent} alignment`,
       );
@@ -315,18 +365,29 @@ export const parseUniversalBinary = (buffer) => {
 };
 
 const resolveArchitectureSpec = (spec, maybeSubtype) => {
-  if (typeof spec === "number") {
+  if (typeof spec === "number" || typeof spec === "bigint") {
     return {
-      cpuType: spec,
-      cpuSubtype: typeof maybeSubtype === "number" ? maybeSubtype : undefined,
+      cpuType: toSignedInt32(spec, "architecture spec cpuType"),
+      cpuSubtype: maybeNormaliseCpuSpecField(
+        maybeSubtype,
+        "architecture spec cpuSubtype",
+      ),
     };
   }
 
   if (typeof spec === "object" && spec !== null) {
+    const cpuType = maybeNormaliseCpuSpecField(
+      spec.cpuType,
+      "architecture spec cpuType",
+    );
+    const cpuSubtype = maybeNormaliseCpuSpecField(
+      spec.cpuSubtype,
+      "architecture spec cpuSubtype",
+    );
+
     return {
-      cpuType: typeof spec.cpuType === "number" ? spec.cpuType : undefined,
-      cpuSubtype:
-        typeof spec.cpuSubtype === "number" ? spec.cpuSubtype : undefined,
+      cpuType,
+      cpuSubtype,
       index:
         typeof spec.index === "number" && Number.isInteger(spec.index)
           ? spec.index
@@ -335,7 +396,7 @@ const resolveArchitectureSpec = (spec, maybeSubtype) => {
   }
 
   throw new TypeError(
-    "Architecture spec must be a cpuType number, { cpuType, cpuSubtype }, or { index } object",
+    "Architecture spec must be a cpuType number or bigint, { cpuType, cpuSubtype }, or { index } object",
   );
 };
 
@@ -359,8 +420,9 @@ export const extractMachO = (buffer, spec, maybeSubtype) => {
     );
   }
 
+  const cpuTypeKey = normaliseCpuField(criteria.cpuType);
   const matches = parsed.architectures.filter(
-    (arch) => arch.cpuType === criteria.cpuType,
+    (arch) => normaliseCpuField(arch.cpuType) === cpuTypeKey,
   );
 
   if (matches.length === 0) {
@@ -368,8 +430,9 @@ export const extractMachO = (buffer, spec, maybeSubtype) => {
   }
 
   if (typeof criteria.cpuSubtype === "number") {
+    const subtypeKey = normaliseCpuField(criteria.cpuSubtype);
     const match = matches.find(
-      (arch) => arch.cpuSubtype === criteria.cpuSubtype,
+      (arch) => normaliseCpuField(arch.cpuSubtype) === subtypeKey,
     );
     if (!match) {
       throw new Error(
@@ -421,11 +484,11 @@ const normaliseEntry = (entry, index, defaultAlign) => {
   }
 
   const data = toUint8Array(entry.data, `architectures[${index}].data`);
-  const cpuType = toSafeNumber(
+  const cpuType = toSignedInt32(
     entry.cpuType,
     `architectures[${index}].cpuType`,
   );
-  const cpuSubtype = toSafeNumber(
+  const cpuSubtype = toSignedInt32(
     entry.cpuSubtype,
     `architectures[${index}].cpuSubtype`,
   );
