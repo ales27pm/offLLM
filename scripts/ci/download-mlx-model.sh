@@ -112,7 +112,7 @@ if [[ "$should_validate_pipeline" -eq 1 ]]; then
   log "Installing transformers pipeline helpers inside ${VENV_DIR} (quietly)"
   "$PYTHON_BIN" -m pip install --upgrade --quiet "transformers>=4.43.0" "sentencepiece>=0.1.99"
   if [[ "$(uname -s)" == "Darwin" && "$(uname -m)" == "arm64" ]]; then
-    "$PYTHON_BIN" -m pip install --upgrade --quiet "mlx>=0.12.0"
+    "$PYTHON_BIN" -m pip install --upgrade --quiet "mlx>=0.12.0" "mlx-lm>=0.10.0"
   fi
 fi
 
@@ -144,20 +144,51 @@ fi
 log "Bundled MLX model ready at ${TARGET_DIR}"
 
 if [[ "$should_validate_pipeline" -eq 1 ]]; then
-  log "Validating MLX weights with transformers pipeline helper"
+  log "Validating MLX weights with runtime helpers"
   MODEL_DIR="$TARGET_DIR" "$PYTHON_BIN" <<'PY'
 import json
 import os
-
-from transformers import pipeline
+import sys
 
 model_dir = os.environ["MODEL_DIR"]
 
-messages = [
-    {"role": "user", "content": "Who are you?"},
-]
+PROMPT = "You are a helpful assistant. Who are you?"
 
-try:
+def try_mlx_validation() -> bool:
+    try:
+        from mlx_lm import generate, load
+    except Exception:  # pragma: no cover - optional dependency
+        return False
+
+    try:
+        try:
+            model, tokenizer = load(model_dir, tokenizer=model_dir)
+        except TypeError:
+            model, tokenizer = load(model_dir)
+
+        response = generate(model, tokenizer, PROMPT, max_tokens=64)
+    except Exception as exc:  # pragma: no cover - runtime validation only
+        raise SystemExit(f"MLX validation failed: {exc}") from exc
+
+    if isinstance(response, (list, tuple)) and response:
+        response_text = "".join(str(part) for part in response)
+    else:
+        response_text = str(response)
+
+    print(json.dumps({
+        "backend": "mlx_lm",
+        "prompt": PROMPT,
+        "response": response_text,
+    }, ensure_ascii=False))
+    return True
+
+def run_transformers_pipeline() -> None:
+    from transformers import pipeline
+
+    messages = [
+        {"role": "user", "content": PROMPT},
+    ]
+
     pipe = pipeline(
         "text-generation",
         model=model_dir,
@@ -173,9 +204,18 @@ try:
         generation_kwargs["pad_token_id"] = pad_token_id
 
     outputs = pipe(messages, **generation_kwargs)
+    print(json.dumps({
+        "backend": "transformers",
+        "outputs": outputs,
+    }, indent=2, ensure_ascii=False))
+
+
+if try_mlx_validation():
+    sys.exit(0)
+
+try:
+    run_transformers_pipeline()
 except Exception as exc:  # pragma: no cover - runtime validation only
     raise SystemExit(f"Pipeline warm-up failed: {exc}") from exc
-
-print(json.dumps(outputs, indent=2, ensure_ascii=False))
 PY
 fi
