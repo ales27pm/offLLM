@@ -114,6 +114,8 @@ function App() {
   const selectedModel = useLLMStore((state) => state.selectedModel);
   const setSelectedModel = useLLMStore((state) => state.setSelectedModel);
   const isGenerating = useLLMStore((state) => state.isGenerating);
+  const activeModelId = useLLMStore((state) => state.activeModelId);
+  const setActiveModelId = useLLMStore((state) => state.setActiveModelId);
   const platform = Platform.OS;
   const modelOptions = useMemo(() => {
     const filtered = MODEL_PRESETS.filter(
@@ -190,12 +192,14 @@ function App() {
           await LLMService.loadModel(path);
           setDownloadProgress(1);
           setCurrentModelPath(path);
+          setActiveModelId(model.id);
         } else if (model.modelId) {
           setModelStatus("loading");
           setDownloadProgress(0.1);
           await LLMService.loadModel(model.modelId);
           setDownloadProgress(1);
           setCurrentModelPath(model.modelId);
+          setActiveModelId(model.id);
         } else {
           throw new Error("Model is missing download information.");
         }
@@ -207,7 +211,13 @@ function App() {
         setModelError(err instanceof Error ? err.message : String(err));
       }
     },
-    [setCurrentModelPath, setDownloadProgress, setModelError, setModelStatus],
+    [
+      setActiveModelId,
+      setCurrentModelPath,
+      setDownloadProgress,
+      setModelError,
+      setModelStatus,
+    ],
   );
 
   const initializeApp = useCallback(
@@ -324,10 +334,27 @@ function App() {
 
   const handleModelSelect = useCallback(
     (model) => {
+      if (!model) {
+        setModelError("Select a model to download.");
+        return;
+      }
       setModelError(null);
       setSelectedModel(model);
+      if (model.id === activeModelId) {
+        setModelStatus("ready");
+        setDownloadProgress(1);
+      } else {
+        setModelStatus("idle");
+        setDownloadProgress(0);
+      }
     },
-    [setModelError, setSelectedModel],
+    [
+      activeModelId,
+      setDownloadProgress,
+      setModelError,
+      setModelStatus,
+      setSelectedModel,
+    ],
   );
 
   const handleDownloadPress = useCallback(() => {
@@ -380,6 +407,7 @@ function App() {
         downloadProgress={downloadProgress}
         currentModelPath={currentModelPath}
         isGenerating={isGenerating}
+        activeModelId={activeModelId}
       />
       {(__DEV__ || process.env.DEBUG_PANEL === "1") && (
         <>

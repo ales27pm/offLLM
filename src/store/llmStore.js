@@ -42,6 +42,7 @@ const useLLMStore = create((set, get) => ({
   downloadProgress: 0,
   currentModelPath: null,
   selectedModel: null,
+  activeModelId: null,
   addMessage: (message) =>
     set((state) => {
       const normalised = normaliseMessage(message);
@@ -158,6 +159,7 @@ const useLLMStore = create((set, get) => ({
   setDownloadProgress: (downloadProgress) => set({ downloadProgress }),
   setCurrentModelPath: (path) => set({ currentModelPath: path }),
   setSelectedModel: (model) => set({ selectedModel: model }),
+  setActiveModelId: (modelId) => set({ activeModelId: modelId }),
   generateResponse: async (prompt, llmService) => {
     const { addMessage, setIsGenerating } = get();
     if (!prompt || typeof prompt !== "string" || !prompt.trim()) {
