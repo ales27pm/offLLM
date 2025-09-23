@@ -240,23 +240,30 @@ jobs:
             exit 1
           fi
 
-          RESOLVED_BUNDLE_ID="$PROFILE_BUNDLE_ID"
+          if [ -n "$REQUESTED_BUNDLE_ID" ] && [ "$REQUESTED_BUNDLE_ID" != "$PROFILE_BUNDLE_ID" ]; then
+            echo "::error ::Provisioning profile bundle identifier $PROFILE_BUNDLE_ID does not match requested bundle identifier $REQUESTED_BUNDLE_ID. Update the configured secrets or upload a matching provisioning profile."
+            exit 1
+          fi
+
           if [ -n "$REQUESTED_BUNDLE_ID" ]; then
-            if [ "$REQUESTED_BUNDLE_ID" = "$PROFILE_BUNDLE_ID" ]; then
-              RESOLVED_BUNDLE_ID="$REQUESTED_BUNDLE_ID"
-            else
-              echo "::warning ::Requested bundle identifier $REQUESTED_BUNDLE_ID does not match provisioning profile bundle $PROFILE_BUNDLE_ID. Using provisioning profile identifier."
-            fi
+            RESOLVED_BUNDLE_ID="$REQUESTED_BUNDLE_ID"
+          else
+            RESOLVED_BUNDLE_ID="$PROFILE_BUNDLE_ID"
           fi
 
           RESOLVED_TEAM_ID="${TEAM_ID:-}"
-          if [ -z "$RESOLVED_TEAM_ID" ]; then
-            RESOLVED_TEAM_ID="$PROFILE_TEAM_ID"
+          if [ -n "$RESOLVED_TEAM_ID" ] && [ -n "$PROFILE_TEAM_ID" ] && [ "$RESOLVED_TEAM_ID" != "$PROFILE_TEAM_ID" ]; then
+            echo "::error ::Provisioning profile team identifier $PROFILE_TEAM_ID does not match TEAM_ID secret $RESOLVED_TEAM_ID. Update the configured secrets or upload a matching provisioning profile."
+            exit 1
           fi
 
           if [ -z "$RESOLVED_TEAM_ID" ]; then
-            echo "::error ::Unable to determine Apple team identifier from secrets or provisioning profile."
-            exit 1
+            if [ -n "$PROFILE_TEAM_ID" ]; then
+              RESOLVED_TEAM_ID="$PROFILE_TEAM_ID"
+            else
+              echo "::error ::Unable to determine Apple team identifier from secrets or provisioning profile."
+              exit 1
+            fi
           fi
 
           echo "bundle_id=$RESOLVED_BUNDLE_ID" >> "$GITHUB_OUTPUT"
