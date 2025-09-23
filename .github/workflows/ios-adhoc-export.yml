@@ -70,17 +70,47 @@ jobs:
         run: |
           python - <<'PY'
           import base64
+          import binascii
           import os
+          import sys
           from pathlib import Path
+
+          REQUIRED_ENV_VARS = {
+              "P12_BASE64": "signing/cert.p12",
+              "MOBILEPROVISION_BASE64": "signing/profile.mobileprovision",
+          }
 
           signing_dir = Path("signing")
           signing_dir.mkdir(parents=True, exist_ok=True)
 
-          with open(signing_dir / "cert.p12", "wb") as cert_file:
-              cert_file.write(base64.b64decode(os.environ["P12_BASE64"]))
+          def decode_secret(env_var: str, output_path: Path) -> None:
+              value = os.environ.get(env_var)
+              if not value:
+                  sys.stderr.write(
+                      f"::error ::Missing signing secret {env_var}. "
+                      "Add it to the repository secrets before rerunning.\n"
+                  )
+                  sys.exit(1)
 
-          with open(signing_dir / "profile.mobileprovision", "wb") as profile_file:
-              profile_file.write(base64.b64decode(os.environ["MOBILEPROVISION_BASE64"]))
+              try:
+                  decoded = base64.b64decode(value)
+              except binascii.Error as exc:
+                  sys.stderr.write(
+                      f"::error ::Secret {env_var} is not valid base64: {exc}\n"
+                  )
+                  sys.exit(1)
+
+              if not decoded:
+                  sys.stderr.write(
+                      f"::error ::Secret {env_var} decoded to 0 bytes. "
+                      "Verify the uploaded file and try again.\n"
+                  )
+                  sys.exit(1)
+
+              output_path.write_bytes(decoded)
+
+          for env_var, relative_path in REQUIRED_ENV_VARS.items():
+              decode_secret(env_var, Path(relative_path))
           PY
 
       - name: Import certificate & provisioning profile
