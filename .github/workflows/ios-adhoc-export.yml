@@ -13,11 +13,15 @@ jobs:
     runs-on: macos-15
 
     env:
+      NODE_VERSION: "20"
+      RUBY_VERSION: "3.2"
+      XCODE_VERSION: "16.4"
       SCHEME: monGARS
       CONFIGURATION: Release
       ARCHIVE_PATH: build/monGARS.xcarchive
       DERIVED_DATA: build/DerivedData
       RESULT_BUNDLE: build/DerivedData/ResultBundle_build.xcresult
+      WORKSPACE: ios/monGARS.xcworkspace
 
       BUNDLE_ID_PREFIX: anardoni.export
       BUNDLE_ID_SUFFIX: ${{ secrets.BUNDLE_ID_SUFFIX }}
@@ -34,10 +38,71 @@ jobs:
       - name: Checkout
         uses: actions/checkout@v4
 
+      - name: Select Xcode ${{ env.XCODE_VERSION }}
+        run: |
+          sudo xcode-select -s "/Applications/Xcode_${XCODE_VERSION}.app"
+          xcodebuild -version
+
+      - name: Download bundled MLX model
+        run: ./scripts/ci/download-mlx-model.sh
+
+      - name: Set up Node ${{ env.NODE_VERSION }}
+        uses: actions/setup-node@v5
+        with:
+          node-version: ${{ env.NODE_VERSION }}
+          cache: npm
+          cache-dependency-path: package-lock.json
+
+      - name: Install JS dependencies
+        run: npm ci
+
+      - name: Set up Ruby ${{ env.RUBY_VERSION }}
+        uses: ruby/setup-ruby@v1
+        with:
+          ruby-version: ${{ env.RUBY_VERSION }}
+          bundler-cache: true
+          working-directory: ios
+
+      - name: Cache Pods
+        uses: actions/cache@v4
+        with:
+          path: ios/Pods
+          key: pods-${{ runner.os }}-${{ hashFiles('ios/Podfile.lock') }}
+          restore-keys: pods-${{ runner.os }}-
+
+      - name: Install XcodeGen
+        run: |
+          if ! command -v xcodegen >/dev/null 2>&1; then
+            brew install xcodegen
+          fi
+
+      - name: Generate Xcode project
+        working-directory: ios
+        run: xcodegen generate
+
+      - name: Install CocoaPods
+        id: install_pods
+        working-directory: ios
+        run: |
+          set -euo pipefail
+          if bundle exec pod install --repo-update; then
+            exit 0
+          fi
+          echo "bundle exec pod install failed; retrying with system pod"
+          pod install --repo-update
+
+      - name: Verify workspace
+        run: |
+          if [ ! -d "$WORKSPACE" ]; then
+            echo "::error ::Expected workspace $WORKSPACE to exist after pod install."
+            exit 1
+          fi
+
       - name: Prepare scripts
         run: |
-          mkdir -p scripts signing
-          cat > scripts/import_signing.sh <<'BASH'
+          SCRIPTS_DIR="$RUNNER_TEMP/signing-scripts"
+          mkdir -p "$SCRIPTS_DIR" signing
+          cat > "$SCRIPTS_DIR/import_signing.sh" <<'BASH'
           #!/usr/bin/env bash
           set -euo pipefail
           P12_PATH="$1"; P12_PASSWORD="$2"; MP_PATH="$3"; KC_NAME="$4"; KC_PASS="$5"
@@ -56,9 +121,9 @@ jobs:
           echo "PROFILE_UUID=$UUID" >> "$GITHUB_ENV"
           echo "KEYCHAIN_PATH=$KC_PATH" >> "$GITHUB_ENV"
           BASH
-          chmod +x scripts/import_signing.sh
+          chmod +x "$SCRIPTS_DIR/import_signing.sh"
 
-          cat > scripts/export_ipa.sh <<'BASH'
+          cat > "$SCRIPTS_DIR/export_ipa.sh" <<'BASH'
           #!/usr/bin/env bash
           set -euo pipefail
           ARCHIVE_PATH="$1"; EXPORT_OPTS="$2"; EXPORT_DIR="$3"
@@ -66,7 +131,8 @@ jobs:
           xcodebuild -exportArchive -archivePath "$ARCHIVE_PATH" -exportPath "$EXPORT_DIR" -exportOptionsPlist "$EXPORT_OPTS" -allowProvisioningUpdates
           ls -la "$EXPORT_DIR"
           BASH
-          chmod +x scripts/export_ipa.sh
+          chmod +x "$SCRIPTS_DIR/export_ipa.sh"
+          echo "SIGNING_SCRIPTS_DIR=$SCRIPTS_DIR" >> "$GITHUB_ENV"
 
       - name: Decode signing files
         run: |
@@ -117,7 +183,7 @@ jobs:
 
       - name: Import certificate & provisioning profile
         run: |
-          bash scripts/import_signing.sh \
+          bash "$SIGNING_SCRIPTS_DIR/import_signing.sh" \
             signing/cert.p12 \
             "$P12_PASSWORD" \
             signing/profile.mobileprovision \
@@ -138,6 +204,7 @@ jobs:
           rm -rf "$ARCHIVE_PATH" "$DERIVED_DATA" "$RESULT_BUNDLE" || true
           BUNDLE_ID="${BUNDLE_ID_PREFIX}.${BUNDLE_ID_SUFFIX}"
           xcodebuild \
+            -workspace "$WORKSPACE" \
             -scheme "$SCHEME" \
             -configuration "$CONFIGURATION" \
             -archivePath "$ARCHIVE_PATH" \
@@ -174,7 +241,7 @@ jobs:
 
       - name: Export IPA
         run: |
-          bash scripts/export_ipa.sh "$ARCHIVE_PATH" exportOptions.plist export
+          bash "$SIGNING_SCRIPTS_DIR/export_ipa.sh" "$ARCHIVE_PATH" exportOptions.plist export
 
       - name: Upload IPA
         uses: actions/upload-artifact@v4
@@ -185,4 +252,4 @@ jobs:
       - name: Cleanup keychain
         if: always()
         run: |
-          security delete-keychain "${KEYCHAIN_PATH:-$KEYCHAIN_NAME}" || true
+          security delete-keychain "${KEYCHAIN_PATH:-$HOME/Library/Keychains/$KEYCHAIN_NAME}" || true
