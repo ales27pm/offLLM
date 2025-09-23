@@ -9,6 +9,7 @@ on:
 jobs:
   build-adhoc:
     runs-on: macos-15
+    environment: offLLM
 
     env:
       SCHEME: monGARS
@@ -72,8 +73,44 @@ jobs:
 
       - name: Decode signing files
         run: |
-          printf '%s' "$P12_BASE64" | base64 --decode > signing/cert.p12
-          printf '%s' "$MOBILEPROVISION_BASE64" | base64 --decode > signing/profile.mobileprovision
+          python - <<'PY'
+          import base64
+          import binascii
+          import os
+          import sys
+          from pathlib import Path
+
+          secrets_to_paths = {
+              "P12_BASE64": Path("signing/cert.p12"),
+              "MOBILEPROVISION_BASE64": Path("signing/profile.mobileprovision"),
+          }
+
+          for env_var, output_path in secrets_to_paths.items():
+              value = os.environ.get(env_var)
+              if not value:
+                  sys.stderr.write(
+                      f"::error ::Missing signing secret {env_var}. "
+                      "Add it to the repository or environment secrets before rerunning.\n"
+                  )
+                  sys.exit(1)
+
+              try:
+                  decoded = base64.b64decode(value)
+              except binascii.Error as exc:
+                  sys.stderr.write(
+                      f"::error ::Secret {env_var} is not valid base64: {exc}\n"
+                  )
+                  sys.exit(1)
+
+              if not decoded:
+                  sys.stderr.write(
+                      f"::error ::Secret {env_var} decoded to 0 bytes. "
+                      "Verify the uploaded file and try again.\n"
+                  )
+                  sys.exit(1)
+
+              output_path.write_bytes(decoded)
+          PY
 
       - name: Import certificate & provisioning profile
         run: |
