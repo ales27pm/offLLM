@@ -10,19 +10,41 @@ platform :ios do
   lane :build_dev_ipa do
     # Inputs via ENV:
     # BUNDLE_ID, TEAM_ID, P12_BASE64, P12_PASSWORD, MOBILEPROVISION_BASE64, KEYCHAIN_PASSWORD
-    app_identifier = ENV["BUNDLE_ID"] || UI.user_error!("Missing BUNDLE_ID")
-    team_id        = ENV["TEAM_ID"]    || UI.user_error!("Missing TEAM_ID")
-    keychain_pwd   = ENV["KEYCHAIN_PASSWORD"] || (Time.now.to_i.to_s + "k")
+    fetch_env = lambda do |key, strip: false, label: nil|
+      value = ENV[key]
+      value = value.strip if strip && value
+      if value.nil? || value.empty?
+        UI.user_error!("Missing #{label || key}")
+      end
+      value
+    end
+
+    decode_base64 = lambda do |key|
+      raw = fetch_env.call(key)
+      normalized = raw.gsub(/\s+/, "")
+      begin
+        Base64.strict_decode64(normalized)
+      rescue ArgumentError => e
+        UI.user_error!("Invalid #{key}: #{e.message}")
+      end
+    end
+
+    app_identifier = fetch_env.call("BUNDLE_ID", strip: true)
+    team_id        = fetch_env.call("TEAM_ID", strip: true)
+    keychain_pwd   = ENV["KEYCHAIN_PASSWORD"]&.strip
+    keychain_pwd   = keychain_pwd unless keychain_pwd&.empty?
+    keychain_pwd ||= (Time.now.to_i.to_s + "k")
     keychain_name  = "ci-temp.keychain-db"
     signing_dir    = Dir.mktmpdir("signing-")
     p12_path       = File.join(signing_dir, "dev.p12")
     mp_path        = File.join(signing_dir, "dev.mobileprovision")
+    mp_plist_path  = nil
 
     begin
       # Decode secrets
-      File.binwrite(p12_path, Base64.decode64(ENV.fetch("P12_BASE64")))
+      File.binwrite(p12_path, decode_base64.call("P12_BASE64"))
       File.chmod(0o600, p12_path)
-      File.binwrite(mp_path,  Base64.decode64(ENV.fetch("MOBILEPROVISION_BASE64")))
+      File.binwrite(mp_path,  decode_base64.call("MOBILEPROVISION_BASE64"))
       File.chmod(0o600, mp_path)
 
       # Create an ephemeral keychain
@@ -37,18 +59,23 @@ platform :ios do
       # Import P12
       import_certificate(
         certificate_path: p12_path,
-        certificate_password: ENV.fetch("P12_PASSWORD"),
+        certificate_password: fetch_env.call("P12_PASSWORD"),
         keychain_name: keychain_name,
         keychain_password: keychain_pwd
       )
 
       # Mobileprovision install
       # Decode the profile to read UUID & Name
-      uuid = sh("security cms -D -i #{mp_path.shellescape} | /usr/libexec/PlistBuddy -c 'Print UUID' /dev/stdin").strip
-      profile_name = sh("security cms -D -i #{mp_path.shellescape} | /usr/libexec/PlistBuddy -c 'Print Name' /dev/stdin").strip
-      sh "mkdir -p ~/Library/MobileDevice/Provisioning\\ Profiles"
-      sh "cp #{mp_path.shellescape} ~/Library/MobileDevice/Provisioning\\ Profiles/#{uuid}.mobileprovision"
-      sh "chmod 600 ~/Library/MobileDevice/Provisioning\\ Profiles/#{uuid}.mobileprovision"
+      mp_plist_path = File.join(signing_dir, "dev.mobileprovision.plist")
+      sh "security cms -D -i #{mp_path.shellescape} > #{mp_plist_path.shellescape}"
+      File.chmod(0o600, mp_plist_path)
+      uuid = sh("/usr/libexec/PlistBuddy -c 'Print UUID' #{mp_plist_path.shellescape}").strip
+      profile_name = sh("/usr/libexec/PlistBuddy -c 'Print Name' #{mp_plist_path.shellescape}").strip
+      provisioning_dir = File.expand_path("~/Library/MobileDevice/Provisioning Profiles")
+      FileUtils.mkdir_p(provisioning_dir)
+      installed_profile = File.join(provisioning_dir, "#{uuid}.mobileprovision")
+      FileUtils.cp(mp_path, installed_profile)
+      File.chmod(0o600, installed_profile)
 
       # Pods handled in CI via Bundler; no-op here
       UI.message("Skipping pod install (handled in CI)")
@@ -76,46 +103,47 @@ platform :ios do
           -archivePath "#{archive}" | xcbeautify
       BASH
 
-    # ExportOptions.plist (development)
-    export_plist = "build/exportOptions.plist"
-    File.write(export_plist, <<~PLIST)
-      <?xml version="1.0" encoding="UTF-8"?>
-      <!DOCTYPE plist PUBLIC "-//Apple//DTD PLIST 1.0//EN" "http://www.apple.com/DTDs/PropertyList-1.0.dtd">
-      <plist version="1.0"><dict>
-        <key>method</key><string>development</string>
-        <key>compileBitcode</key><false/>
-        <key>provisioningProfiles</key>
-        <dict>
-          <key>#{app_identifier}</key><string>#{profile_name}</string>
-        </dict>
-        <key>signingStyle</key><string>manual</string>
-        <key>destination</key><string>export</string>
-      </dict></plist>
-    PLIST
+        # ExportOptions.plist (development)
+        export_plist = "build/exportOptions.plist"
+        FileUtils.mkdir_p(File.dirname(export_plist))
+        File.binwrite(export_plist, <<~PLIST)
+          <?xml version="1.0" encoding="UTF-8"?>
+          <!DOCTYPE plist PUBLIC "-//Apple//DTD PLIST 1.0//EN" "http://www.apple.com/DTDs/PropertyList-1.0.dtd">
+          <plist version="1.0"><dict>
+            <key>method</key><string>development</string>
+            <key>compileBitcode</key><false/>
+            <key>provisioningProfiles</key>
+            <dict>
+              <key>#{app_identifier}</key><string>#{profile_name}</string>
+            </dict>
+            <key>signingStyle</key><string>manual</string>
+            <key>destination</key><string>export</string>
+          </dict></plist>
+        PLIST
 
-    ipa_dir = "build/output"
-    sh "mkdir -p #{ipa_dir}"
+        ipa_dir = "build/output"
+        FileUtils.mkdir_p(ipa_dir)
 
-      # Export signed IPA with pipefail
-      sh <<~BASH
-        set -euo pipefail
-        xcodebuild -exportArchive \
-          -archivePath "#{archive}" \
-          -exportOptionsPlist "#{export_plist}" \
-          -exportPath "#{ipa_dir}" | xcbeautify
-      BASH
+        # Export signed IPA with pipefail
+        sh <<~BASH
+          set -euo pipefail
+          xcodebuild -exportArchive \
+            -archivePath "#{archive}" \
+            -exportOptionsPlist "#{export_plist}" \
+            -exportPath "#{ipa_dir}" | xcbeautify
+        BASH
 
-      # Verify bundle + signature
-      app_path = sh(%Q[/usr/libexec/PlistBuddy -c 'Print :ApplicationProperties:ApplicationPath' "#{archive}/Info.plist"]).strip
-      full_app = File.join(archive, app_path)
-      sh %Q[ls -la "#{full_app}"]
-      sh %Q[test -f "#{full_app}/main.jsbundle"] # ensure RN bundle exists
-      if ENV["CI_DEBUG"] == "1"
-        sh %Q[codesign -dv --verbose=4 "#{full_app}" || true]
-        sh %Q[security cms -D -i "#{full_app}/embedded.mobileprovision" | /usr/bin/plutil -p - | head -n 200 || true]
-      end
+        # Verify bundle + signature
+        app_path = sh(%Q[/usr/libexec/PlistBuddy -c 'Print :ApplicationProperties:ApplicationPath' "#{archive}/Info.plist"]).strip
+        full_app = File.join(archive, app_path)
+        sh %Q[ls -la "#{full_app}"]
+        sh %Q[test -f "#{full_app}/main.jsbundle"] # ensure RN bundle exists
+        if ENV["CI_DEBUG"] == "1"
+          sh %Q[codesign -dv --verbose=4 "#{full_app}" || true]
+          sh %Q[security cms -D -i "#{full_app}/embedded.mobileprovision" | /usr/bin/plutil -p - | head -n 200 || true]
+        end
 
-      UI.success("IPA ready in #{ipa_dir}")
+        UI.success("IPA ready in #{ipa_dir}")
     ensure
       begin
         delete_keychain(name: keychain_name)
@@ -129,6 +157,12 @@ platform :ios do
         FileUtils.remove_entry(signing_dir) if signing_dir && Dir.exist?(signing_dir)
       rescue StandardError => e
         UI.important("Signing artifact cleanup skipped: #{e.message}")
+      end
+
+      begin
+        FileUtils.rm_f(mp_plist_path) if mp_plist_path && File.exist?(mp_plist_path)
+      rescue StandardError => e
+        UI.important("Mobileprovision plist cleanup skipped: #{e.message}")
       end
     end
   end
