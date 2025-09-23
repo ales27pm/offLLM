@@ -8,6 +8,8 @@ on:
 
 jobs:
   build-adhoc:
+    environment:
+      name: offLLM
     runs-on: macos-15
 
     env:
@@ -88,7 +90,7 @@ jobs:
               if not value:
                   sys.stderr.write(
                       f"::error ::Missing signing secret {env_var}. "
-                      "Add it to the repository secrets before rerunning.\n"
+                      "Add it to the repository or environment secrets before rerunning.\n"
                   )
                   sys.exit(1)
 
