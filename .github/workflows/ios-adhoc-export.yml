@@ -23,7 +23,9 @@ jobs:
       RESULT_BUNDLE: build/DerivedData/ResultBundle_build.xcresult
       WORKSPACE: ios/monGARS.xcworkspace
 
-      BUNDLE_IDENTIFIER: anardoni.export.monGARS
+      BUNDLE_IDENTIFIER: ${{ secrets.BUNDLE_IDENTIFIER != '' && secrets.BUNDLE_IDENTIFIER || 'anardoni.export.monGARS' }}
+      BUNDLE_ID_PREFIX: ${{ secrets.BUNDLE_ID_PREFIX }}
+      BUNDLE_ID_SUFFIX: ${{ secrets.BUNDLE_ID_SUFFIX }}
       TEAM_ID: ${{ secrets.TEAM_ID }}
 
       KEYCHAIN_NAME: build-signing.keychain-db
@@ -223,16 +225,46 @@ jobs:
           PROFILE_BUNDLE_ID="${{ steps.profile.outputs.bundle_id }}"
           PROFILE_TEAM_ID="${{ steps.profile.outputs.team_id }}"
 
-          REQUESTED_BUNDLE_ID="${BUNDLE_IDENTIFIER:-}"
+          PREFIX="${BUNDLE_ID_PREFIX:-}"
+          SUFFIX="${BUNDLE_ID_SUFFIX:-}"
+          REQUESTED_BUNDLE_ID=""
+
+          if [ -n "$PREFIX" ] || [ -n "$SUFFIX" ]; then
+            if [ -z "$PREFIX" ]; then
+              echo "::error ::BUNDLE_ID_SUFFIX is set but BUNDLE_ID_PREFIX is empty. Provide both or omit the suffix secret."
+              exit 1
+            fi
+            CLEAN_PREFIX="${PREFIX%.}"
+            if [ -n "$SUFFIX" ]; then
+              CLEAN_SUFFIX="${SUFFIX#.}"
+              REQUESTED_BUNDLE_ID="$CLEAN_PREFIX.$CLEAN_SUFFIX"
+            else
+              REQUESTED_BUNDLE_ID="$CLEAN_PREFIX"
+            fi
+          elif [ -n "${BUNDLE_IDENTIFIER:-}" ]; then
+            REQUESTED_BUNDLE_ID="$BUNDLE_IDENTIFIER"
+          fi
 
           if [ -z "$PROFILE_BUNDLE_ID" ]; then
             echo "::error ::Provisioning profile did not expose an application identifier."
             exit 1
           fi
 
-          if [ -n "$REQUESTED_BUNDLE_ID" ] && [ "$REQUESTED_BUNDLE_ID" != "$PROFILE_BUNDLE_ID" ]; then
-            echo "::error ::Provisioning profile bundle identifier $PROFILE_BUNDLE_ID does not match requested bundle identifier $REQUESTED_BUNDLE_ID. Update the configured secrets or upload a matching provisioning profile."
-            exit 1
+          if [ -n "$REQUESTED_BUNDLE_ID" ] && [ -n "$PROFILE_BUNDLE_ID" ]; then
+            MATCHED="false"
+            if [ "$REQUESTED_BUNDLE_ID" = "$PROFILE_BUNDLE_ID" ]; then
+              MATCHED="true"
+            elif [[ "$PROFILE_BUNDLE_ID" == *"*" ]]; then
+              PROFILE_PREFIX="${PROFILE_BUNDLE_ID%%\*}"
+              if [[ "$REQUESTED_BUNDLE_ID" == "$PROFILE_PREFIX"* ]]; then
+                MATCHED="true"
+              fi
+            fi
+
+            if [ "$MATCHED" != "true" ]; then
+              echo "::error ::Provisioning profile bundle identifier $PROFILE_BUNDLE_ID does not match requested bundle identifier $REQUESTED_BUNDLE_ID. Update the configured secrets or upload a matching provisioning profile."
+              exit 1
+            fi
           fi
 
           if [ -n "$REQUESTED_BUNDLE_ID" ]; then
