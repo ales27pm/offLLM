@@ -97,6 +97,26 @@ targets:
           DEBUG_INFORMATION_FORMAT: dwarf-with-dsym
 
     scripts:
+      - name: Bundle React Native code and images
+        shell: /bin/bash
+        script: |
+          set -euo pipefail
+          export NODE_BINARY="${NODE_BINARY:-node}"
+          export RCT_METRO_PORT="${RCT_METRO_PORT:-8081}"
+          if [[ "${CONFIGURATION}" == "Release" ]]; then
+            export EXTRA_PACKAGER_ARGS="${EXTRA_PACKAGER_ARGS:---minify}"
+          fi
+          "${SRCROOT}/../node_modules/react-native/scripts/react-native-xcode.sh"
+        inputFiles:
+          - "${SRCROOT}/../index.js"
+          - "${SRCROOT}/../package.json"
+          - "${SRCROOT}/../app.json"
+          - "${SRCROOT}/../babel.config.js"
+          - "${SRCROOT}/../metro.config.js"
+          - "${SRCROOT}/../node_modules/react-native/scripts/react-native-xcode.sh"
+        outputFiles:
+          - "${DERIVED_FILE_DIR}/bundle-react-native.stamp"
+        runOnlyForDeploymentPostprocessing: false
       - name: Purge legacy RCTDeprecation caches
         script: |
           bash "${PROJECT_DIR}/scripts/purge-rctdeprecation-caches.sh"
