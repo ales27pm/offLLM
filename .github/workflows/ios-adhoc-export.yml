@@ -23,8 +23,7 @@ jobs:
       RESULT_BUNDLE: build/DerivedData/ResultBundle_build.xcresult
       WORKSPACE: ios/monGARS.xcworkspace
 
-      BUNDLE_ID_PREFIX: anardoni.export
-      BUNDLE_ID_SUFFIX: ${{ secrets.BUNDLE_ID_SUFFIX }}
+      BUNDLE_IDENTIFIER: anardoni.export.monGARS
       TEAM_ID: ${{ secrets.TEAM_ID }}
 
       KEYCHAIN_NAME: build-signing.keychain-db
@@ -224,16 +223,7 @@ jobs:
           PROFILE_BUNDLE_ID="${{ steps.profile.outputs.bundle_id }}"
           PROFILE_TEAM_ID="${{ steps.profile.outputs.team_id }}"
 
-          REQUESTED_BUNDLE_ID=""
-          if [ -n "${BUNDLE_ID_SUFFIX:-}" ]; then
-            if [ -n "${BUNDLE_ID_PREFIX:-}" ]; then
-              REQUESTED_BUNDLE_ID="${BUNDLE_ID_PREFIX}.${BUNDLE_ID_SUFFIX}"
-            else
-              REQUESTED_BUNDLE_ID="${BUNDLE_ID_SUFFIX}"
-            fi
-          elif [ -n "${BUNDLE_ID_PREFIX:-}" ]; then
-            REQUESTED_BUNDLE_ID="${BUNDLE_ID_PREFIX}"
-          fi
+          REQUESTED_BUNDLE_ID="${BUNDLE_IDENTIFIER:-}"
 
           if [ -z "$PROFILE_BUNDLE_ID" ]; then
             echo "::error ::Provisioning profile did not expose an application identifier."
