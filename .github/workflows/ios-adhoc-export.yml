@@ -227,22 +227,58 @@ jobs:
 
           PREFIX="${BUNDLE_ID_PREFIX:-}"
           SUFFIX="${BUNDLE_ID_SUFFIX:-}"
-          REQUESTED_BUNDLE_ID=""
+          REQUESTED_BUNDLE_ID="${BUNDLE_IDENTIFIER:-}"
 
-          if [ -n "$PREFIX" ] || [ -n "$SUFFIX" ]; then
-            if [ -z "$PREFIX" ]; then
-              echo "::error ::BUNDLE_ID_SUFFIX is set but BUNDLE_ID_PREFIX is empty. Provide both or omit the suffix secret."
-              exit 1
-            fi
+          if [ -n "$PREFIX" ]; then
             CLEAN_PREFIX="${PREFIX%.}"
             if [ -n "$SUFFIX" ]; then
               CLEAN_SUFFIX="${SUFFIX#.}"
+              if [ -z "$CLEAN_SUFFIX" ]; then
+                echo "::error ::BUNDLE_ID_SUFFIX resolved to an empty value after trimming dots."
+                exit 1
+              fi
               REQUESTED_BUNDLE_ID="$CLEAN_PREFIX.$CLEAN_SUFFIX"
             else
               REQUESTED_BUNDLE_ID="$CLEAN_PREFIX"
             fi
-          elif [ -n "${BUNDLE_IDENTIFIER:-}" ]; then
-            REQUESTED_BUNDLE_ID="$BUNDLE_IDENTIFIER"
+          elif [ -n "$SUFFIX" ]; then
+            CLEAN_SUFFIX="${SUFFIX#.}"
+            if [ -z "$CLEAN_SUFFIX" ]; then
+              echo "::error ::BUNDLE_ID_SUFFIX resolved to an empty value after trimming dots."
+              exit 1
+            fi
+
+            if [ -n "$REQUESTED_BUNDLE_ID" ]; then
+              BASE_SOURCE="BUNDLE_IDENTIFIER"
+              BASE="$REQUESTED_BUNDLE_ID"
+            else
+              BASE_SOURCE="provisioning profile"
+              BASE="$PROFILE_BUNDLE_ID"
+            fi
+
+            BASE="${BASE%%\*}"
+            BASE="${BASE%.}"
+
+            if [ -z "$BASE" ]; then
+              echo "::error ::Unable to derive bundle identifier prefix for suffix override. Set BUNDLE_ID_PREFIX or provide a full BUNDLE_IDENTIFIER."
+              exit 1
+            fi
+
+            if [[ "$BASE" == *."$CLEAN_SUFFIX" ]]; then
+              BASE="${BASE%.$CLEAN_SUFFIX}"
+            elif [ "$BASE_SOURCE" = "BUNDLE_IDENTIFIER" ] && [[ "$BASE" == *.*.* ]]; then
+              BASE="${BASE%.*}"
+            fi
+
+            BASE="${BASE%.}"
+
+            if [ -z "$BASE" ]; then
+              echo "::error ::Derived bundle identifier prefix was empty after normalization. Provide BUNDLE_ID_PREFIX or a full BUNDLE_IDENTIFIER."
+              exit 1
+            fi
+
+            REQUESTED_BUNDLE_ID="$BASE.$CLEAN_SUFFIX"
+            echo "::notice ::Derived bundle identifier prefix '$BASE' from $BASE_SOURCE for suffix override."
           fi
 
           if [ -z "$PROFILE_BUNDLE_ID" ]; then
