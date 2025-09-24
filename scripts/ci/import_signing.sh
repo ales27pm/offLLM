@@ -55,6 +55,15 @@ log() {
   printf '::notice ::%s\n' "$1"
 }
 
+cleanup_tmp_files() {
+  [[ -n "$KEYCHAIN_LIST_TMP" && -f "$KEYCHAIN_LIST_TMP" ]] && rm -f "$KEYCHAIN_LIST_TMP"
+  [[ -n "$PLIST_TMP" && -f "$PLIST_TMP" ]] && rm -f "$PLIST_TMP"
+}
+
+KEYCHAIN_LIST_TMP=""
+PLIST_TMP=""
+trap cleanup_tmp_files EXIT
+
 log "Importing signing assets into keychain: $KC_PATH"
 
 set -x
@@ -81,19 +90,20 @@ set +x
 security set-key-partition-list -S apple-tool:,apple: -s -k "$KC_PASS" "$KC_PATH" >/dev/null 2>&1 || true
 set -x
 
-FILTERED_KEYCHAINS=()
-while IFS= read -r line; do
-  # Trim leading whitespace and surrounding quotes.
-  line="$(printf '%s' "$line" | sed -e 's/^[[:space:]]*"//' -e 's/"$//')"
-  [[ -z "$line" || "$line" == "$KC_PATH" ]] && continue
-  FILTERED_KEYCHAINS+=("$line")
-done < <(security list-keychains -d user)
-
-if [[ ${#FILTERED_KEYCHAINS[@]} -gt 0 ]]; then
-  security list-keychains -d user -s "$KC_PATH" "${FILTERED_KEYCHAINS[@]}"
+KEYCHAIN_LIST_TMP="$(mktemp)"
+RESTORE_KEYCHAINS=("$KC_PATH")
+if security list-keychains -d user >"$KEYCHAIN_LIST_TMP"; then
+  while IFS= read -r line || [[ -n "$line" ]]; do
+    # Trim leading whitespace and surrounding quotes.
+    line="$(printf '%s' "$line" | sed -e 's/^[[:space:]]*"//' -e 's/"$//')"
+    [[ -z "$line" || "$line" == "$KC_PATH" ]] && continue
+    RESTORE_KEYCHAINS+=("$line")
+  done <"$KEYCHAIN_LIST_TMP"
 else
-  security list-keychains -d user -s "$KC_PATH"
+  log "Unable to read existing keychain search list; defaulting to $KC_PATH only"
 fi
+
+security list-keychains -d user -s "${RESTORE_KEYCHAINS[@]}"
 
 security default-keychain -s "$KC_PATH"
 
