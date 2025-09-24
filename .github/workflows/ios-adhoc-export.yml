@@ -1,0 +1,202 @@
+name: iOS AdHoc Signed IPA
+
+on:
+  workflow_dispatch:
+  push:
+    branches: [main, master]
+  pull_request:
+
+jobs:
+  build-adhoc:
+    if: ${{ github.event_name != 'pull_request' || github.event.pull_request.head.repo.full_name == github.repository }}
+    runs-on: macos-15
+    environment: offLLM
+
+    env:
+      SCHEME: monGARS
+      CONFIGURATION: Release
+      ARCHIVE_PATH: build/monGARS.xcarchive
+      DERIVED_DATA: build/DerivedData
+      RESULT_BUNDLE: build/DerivedData/ResultBundle_build.xcresult
+
+      BUNDLE_ID_PREFIX: anardoni.export
+      BUNDLE_ID_SUFFIX: ${{ secrets.BUNDLE_ID_SUFFIX }}
+      TEAM_ID: ${{ secrets.TEAM_ID }}
+
+      KEYCHAIN_NAME: build-signing.keychain-db
+
+    steps:
+      - name: Checkout
+        uses: actions/checkout@08eba0b27e820071cde6df949e0beb9ba4906955
+
+      - name: Decode signing files
+        env:
+          P12_BASE64: ${{ secrets.P12_BASE64 }}
+          MOBILEPROVISION_BASE64: ${{ secrets.MOBILEPROVISION_BASE64 }}
+        run: |
+          python - <<'PY'
+          import base64
+          import binascii
+          import os
+          import sys
+          from pathlib import Path
+
+          secrets_to_paths = {
+              "P12_BASE64": Path("signing/cert.p12"),
+              "MOBILEPROVISION_BASE64": Path("signing/profile.mobileprovision"),
+          }
+
+          for env_var, output_path in secrets_to_paths.items():
+              value = os.environ.get(env_var)
+              if not value:
+                  sys.stderr.write(
+                      f"::error ::Missing signing secret {env_var}. "
+                      "Add it to the repository or environment secrets before rerunning.\n"
+                  )
+                  sys.exit(1)
+
+              try:
+                  decoded = base64.b64decode(value, validate=True)
+              except binascii.Error as exc:
+                  sys.stderr.write(
+                      f"::error ::Secret {env_var} is not valid base64: {exc}\n"
+                  )
+                  sys.exit(1)
+
+              if not decoded:
+                  sys.stderr.write(
+                      f"::error ::Secret {env_var} decoded to 0 bytes. "
+                      "Verify the uploaded file and try again.\n"
+                  )
+                  sys.exit(1)
+
+              output_path.parent.mkdir(parents=True, exist_ok=True)
+              output_path.write_bytes(decoded)
+              try:
+                  output_path.chmod(0o600)
+              except Exception:
+                  pass
+          PY
+
+      - name: Import certificate & provisioning profile
+        env:
+          P12_PASSWORD: ${{ secrets.P12_PASSWORD }}
+          KEYCHAIN_PASSWORD: ${{ secrets.KEYCHAIN_PASSWORD }}
+        run: |
+          bash scripts/ci/import_signing.sh \
+            signing/cert.p12 \
+            "$P12_PASSWORD" \
+            signing/profile.mobileprovision \
+            "$KEYCHAIN_NAME" \
+            "$KEYCHAIN_PASSWORD"
+
+      - name: Sanitize signing files
+        run: |
+          rm -rf signing || true
+
+      - name: Xcode Archive (manual signing)
+        run: |
+          set -euxo pipefail
+          rm -rf "$ARCHIVE_PATH" "$DERIVED_DATA" "$RESULT_BUNDLE" || true
+          : "${BUNDLE_ID_SUFFIX:?BUNDLE_ID_SUFFIX is required and must not be empty}"
+          BUNDLE_ID="${BUNDLE_ID_PREFIX}.${BUNDLE_ID_SUFFIX}"
+          KEYCHAIN_PATH="${KEYCHAIN_PATH:?KEYCHAIN_PATH not set by signing import step}"
+          echo "RESOLVED_BUNDLE_ID=$BUNDLE_ID" >> "$GITHUB_ENV"
+          xcodebuild \
+            -scheme "$SCHEME" \
+            -configuration "$CONFIGURATION" \
+            -archivePath "$ARCHIVE_PATH" \
+            -destination "generic/platform=iOS" \
+            -derivedDataPath "$DERIVED_DATA" \
+            -resultBundlePath "$RESULT_BUNDLE" \
+            archive \
+            CODE_SIGN_STYLE=Manual \
+            DEVELOPMENT_TEAM="${TEAM_ID}" \
+            PRODUCT_BUNDLE_IDENTIFIER="$BUNDLE_ID" \
+            PROVISIONING_PROFILE_SPECIFIER="${PROFILE_NAME:?PROFILE_NAME not exported by signing import step}" \
+            OTHER_CODE_SIGN_FLAGS="--keychain $KEYCHAIN_PATH"
+
+      - name: Create exportOptions.plist
+        run: |
+          BUNDLE_ID="${RESOLVED_BUNDLE_ID:-${BUNDLE_ID_PREFIX}.${BUNDLE_ID_SUFFIX}}"
+          cat > exportOptions.plist <<PLIST
+          <?xml version="1.0" encoding="UTF-8"?>
+          <!DOCTYPE plist PUBLIC "-//Apple//DTD PLIST 1.0//EN" "http://www.apple.com/DTDs/PropertyList-1.0.dtd">
+          <plist version="1.0">
+          <dict>
+            <key>method</key><string>ad-hoc</string>
+            <key>signingStyle</key><string>manual</string>
+            <key>teamID</key><string>${TEAM_ID}</string>
+            <key>stripSwiftSymbols</key><true/>
+            <key>destination</key><string>export</string>
+            <key>provisioningProfiles</key>
+            <dict>
+              <key>${BUNDLE_ID}</key><string>${PROFILE_NAME}</string>
+            </dict>
+          </dict>
+          </plist>
+          PLIST
+
+      - name: Export IPA
+        run: |
+          bash scripts/ci/export_ipa.sh "$ARCHIVE_PATH" exportOptions.plist export
+
+      - name: Upload IPA
+        uses: actions/upload-artifact@ea165f8d65b6e75b540449e92b4886f43607fa02
+        with:
+          name: monGARS-AdHoc-IPA
+          path: export/*.ipa
+
+      - name: Upload Xcode result bundle
+        if: always()
+        uses: actions/upload-artifact@ea165f8d65b6e75b540449e92b4886f43607fa02
+        with:
+          name: monGARS-xcresult
+          path: ${{ env.RESULT_BUNDLE }}
+          if-no-files-found: warn
+
+      - name: Upload exportOptions.plist
+        if: always()
+        uses: actions/upload-artifact@ea165f8d65b6e75b540449e92b4886f43607fa02
+        with:
+          name: exportOptions
+          path: exportOptions.plist
+          if-no-files-found: warn
+
+      - name: Cleanup keychain
+        if: always()
+        run: |
+          LOGIN_KC="$HOME/Library/Keychains/login.keychain-db"
+          [ -f "$LOGIN_KC" ] || LOGIN_KC="$HOME/Library/Keychains/login.keychain"
+          SYSTEM_KC="/Library/Keychains/System.keychain"
+          KC_PATH="${KEYCHAIN_PATH:-$HOME/Library/Keychains/$KEYCHAIN_NAME}"
+
+          if [ -n "${ORIGINAL_DEFAULT_KEYCHAIN:-}" ]; then
+            security default-keychain -s "$ORIGINAL_DEFAULT_KEYCHAIN" || true
+          else
+            security default-keychain -s "$LOGIN_KC" || true
+          fi
+
+          if [ -n "${ORIGINAL_KEYCHAIN_LIST:-}" ]; then
+            OLDIFS=$IFS
+            IFS=$'\n'
+            RESTORE_LIST=()
+            while IFS= read -r line; do
+              [ -z "$line" ] && continue
+              RESTORE_LIST+=("$line")
+            done <<< "$ORIGINAL_KEYCHAIN_LIST"
+            IFS=$OLDIFS
+            if [ "${#RESTORE_LIST[@]}" -gt 0 ]; then
+              security list-keychains -d user -s "${RESTORE_LIST[@]}" || true
+            fi
+          else
+            FALLBACK_LIST=("$LOGIN_KC")
+            [ -f "$SYSTEM_KC" ] && FALLBACK_LIST+=("$SYSTEM_KC")
+            security list-keychains -d user -s "${FALLBACK_LIST[@]}" || true
+          fi
+
+          security delete-keychain "$KC_PATH" || true
+          rm -rf signing || true
+          if [ -n "${PROFILE_UUID:-}" ]; then
+            rm -f "$HOME/Library/MobileDevice/Provisioning Profiles/${PROFILE_UUID}.mobileprovision" || true
+          fi
