@@ -147,6 +147,22 @@ jobs:
           name: monGARS-AdHoc-IPA
           path: export/*.ipa
 
+      - name: Upload Xcode result bundle
+        if: always()
+        uses: actions/upload-artifact@ea165f8d65b6e75b540449e92b4886f43607fa02
+        with:
+          name: monGARS-xcresult
+          path: ${{ env.RESULT_BUNDLE }}
+          if-no-files-found: warn
+
+      - name: Upload exportOptions.plist
+        if: always()
+        uses: actions/upload-artifact@ea165f8d65b6e75b540449e92b4886f43607fa02
+        with:
+          name: exportOptions
+          path: exportOptions.plist
+          if-no-files-found: warn
+
       - name: Cleanup keychain
         if: always()
         run: |

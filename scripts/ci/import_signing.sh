@@ -19,6 +19,20 @@ MP_PATH="$3"
 KC_ARG="$4"
 KC_PASS="$5"
 
+# Mask secrets in GitHub Actions logs
+echo "::add-mask::$P12_PASSWORD"
+echo "::add-mask::$KC_PASS"
+
+if [[ ! -f "$P12_PATH" ]]; then
+  echo "::error ::P12 not found at $P12_PATH" >&2
+  exit 1
+fi
+
+if [[ ! -f "$MP_PATH" ]]; then
+  echo "::error ::Provisioning profile not found at $MP_PATH" >&2
+  exit 1
+fi
+
 resolve_keychain_path() {
   local arg="$1"
   case "$arg" in
@@ -67,13 +81,13 @@ set +x
 security set-key-partition-list -S apple-tool:,apple: -s -k "$KC_PASS" "$KC_PATH" >/dev/null 2>&1 || true
 set -x
 
-mapfile -t EXISTING_KEYCHAINS < <(security list-keychains -d user | sed -e 's/^[[:space:]]*"//' -e 's/"$//')
 FILTERED_KEYCHAINS=()
-for keychain in "${EXISTING_KEYCHAINS[@]}"; do
-  [[ -z "$keychain" ]] && continue
-  [[ "$keychain" == "$KC_PATH" ]] && continue
-  FILTERED_KEYCHAINS+=("$keychain")
-done
+while IFS= read -r line; do
+  # Trim leading whitespace and surrounding quotes.
+  line="$(printf '%s' "$line" | sed -e 's/^[[:space:]]*"//' -e 's/"$//')"
+  [[ -z "$line" || "$line" == "$KC_PATH" ]] && continue
+  FILTERED_KEYCHAINS+=("$line")
+done < <(security list-keychains -d user)
 
 if [[ ${#FILTERED_KEYCHAINS[@]} -gt 0 ]]; then
   security list-keychains -d user -s "$KC_PATH" "${FILTERED_KEYCHAINS[@]}"

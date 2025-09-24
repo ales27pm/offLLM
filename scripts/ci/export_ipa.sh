@@ -3,11 +3,26 @@
 # Usage: export_ipa.sh <archive-path> <export-options-plist> <export-directory>
 
 set -euo pipefail
-set -x
+if [[ $# -ne 3 ]]; then
+  echo "::error ::Usage: $0 <archive-path> <export-options-plist> <export-directory>" >&2
+  exit 2
+fi
 
 ARCHIVE_PATH="$1"
 EXPORT_OPTS="$2"
 EXPORT_DIR="$3"
+
+if [[ ! -d "$ARCHIVE_PATH" ]]; then
+  echo "::error ::Archive not found (expected directory): $ARCHIVE_PATH" >&2
+  exit 1
+fi
+
+if [[ ! -f "$EXPORT_OPTS" ]]; then
+  echo "::error ::exportOptions.plist not found: $EXPORT_OPTS" >&2
+  exit 1
+fi
+
+set -x
 
 mkdir -p "$EXPORT_DIR"
 
