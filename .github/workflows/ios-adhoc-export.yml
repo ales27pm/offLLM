@@ -18,6 +18,7 @@ jobs:
       ARCHIVE_PATH: build/monGARS.xcarchive
       DERIVED_DATA: build/DerivedData
       RESULT_BUNDLE: build/DerivedData/ResultBundle_build.xcresult
+      XCRESULT_JSON: ""
 
       BUNDLE_ID_PREFIX: a.export
       BUNDLE_ID_SUFFIX: monGARS
@@ -103,6 +104,29 @@ jobs:
       - name: Install XcodeGen
         run: brew install xcodegen
 
+      - name: Install xcresulttool
+        run: |
+          set -euo pipefail
+          if xcrun --find xcresulttool >/dev/null 2>&1; then
+            echo "xcresulttool available via xcrun"
+            exit 0
+          fi
+
+          if ! command -v brew >/dev/null 2>&1; then
+            echo "::warning ::Homebrew unavailable; cannot install xcresulttool"
+            exit 0
+          fi
+
+          if ! brew tap chargepoint/xcresulttool; then
+            echo "::warning ::Failed to tap chargepoint/xcresulttool; xcresulttool may be unavailable"
+          fi
+
+          if ! brew list xcresulttool >/dev/null 2>&1; then
+            if ! brew install xcresulttool; then
+              echo "::warning ::brew install xcresulttool failed; xcresulttool may be unavailable"
+            fi
+          fi
+
       - name: Generate Xcode project
         run: |
           set -euo pipefail
@@ -183,12 +207,38 @@ jobs:
           name: monGARS-AdHoc-IPA
           path: export/*.ipa
 
+      - name: Convert xcresult to JSON
+        if: always()
+        run: |
+          set -euo pipefail
+          bundle_path="${RESULT_BUNDLE}"
+          if [ ! -d "${bundle_path}" ]; then
+            echo "::warning ::xcresult bundle ${bundle_path} missing; skipping JSON conversion"
+            exit 0
+          fi
+
+          json_path="${bundle_path}.json"
+          if xcrun xcresulttool get --format json --path "${bundle_path}" > "${json_path}"; then
+            echo "XCRESULT_JSON=${json_path}" >> "$GITHUB_ENV"
+          else
+            echo "::warning ::Failed to convert ${bundle_path} to JSON"
+            rm -f "${json_path}" || true
+          fi
+
       - name: Upload Xcode result bundle
         if: always()
         uses: actions/upload-artifact@ea165f8d65b6e75b540449e92b4886f43607fa02
         with:
           name: monGARS-xcresult
           path: ${{ env.RESULT_BUNDLE }}
+          if-no-files-found: warn
+
+      - name: Upload xcresult JSON
+        if: ${{ always() && env.XCRESULT_JSON != '' }}
+        uses: actions/upload-artifact@ea165f8d65b6e75b540449e92b4886f43607fa02
+        with:
+          name: monGARS-xcresult-json
+          path: ${{ env.XCRESULT_JSON }}
           if-no-files-found: warn
 
       - name: Upload exportOptions.plist
