@@ -156,7 +156,7 @@ if [[ -n "$DEFAULT_OUT" ]]; then
   ORIGINAL_DEFAULT_KEYCHAIN="$(printf '%s' "$DEFAULT_OUT" | sed -e 's/^[[:space:]]*"//' -e 's/"$//')"
   if [[ -n "$ORIGINAL_DEFAULT_KEYCHAIN" ]]; then
     {
-      echo "ORIGINAL_DEFAULT_KEYCHAIN<<'EOF'"
+      echo "ORIGINAL_DEFAULT_KEYCHAIN<<EOF"
       printf '%s\n' "$ORIGINAL_DEFAULT_KEYCHAIN"
       echo "EOF"
     } >>"$GITHUB_ENV"
@@ -178,7 +178,7 @@ if security list-keychains -d user >"$KEYCHAIN_LIST_TMP"; then
   done <"$KEYCHAIN_LIST_TMP"
   if [[ ${#ORIGINAL_KEYCHAINS[@]} -gt 0 ]]; then
     {
-      echo "ORIGINAL_KEYCHAIN_LIST<<'EOF'"
+      echo "ORIGINAL_KEYCHAIN_LIST<<EOF"
       printf '%s\n' "${ORIGINAL_KEYCHAINS[@]}"
       echo "EOF"
     } >>"$GITHUB_ENV"
