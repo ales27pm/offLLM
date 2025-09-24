@@ -166,12 +166,36 @@ jobs:
       - name: Cleanup keychain
         if: always()
         run: |
-          KC_PATH="${KEYCHAIN_PATH:-$HOME/Library/Keychains/$KEYCHAIN_NAME}"
-          security delete-keychain "$KC_PATH" || true
           LOGIN_KC="$HOME/Library/Keychains/login.keychain-db"
           [ -f "$LOGIN_KC" ] || LOGIN_KC="$HOME/Library/Keychains/login.keychain"
-          security default-keychain -s "$LOGIN_KC" || true
-          security list-keychains -d user -s "$LOGIN_KC" || true
+          SYSTEM_KC="/Library/Keychains/System.keychain"
+          KC_PATH="${KEYCHAIN_PATH:-$HOME/Library/Keychains/$KEYCHAIN_NAME}"
+
+          if [ -n "${ORIGINAL_DEFAULT_KEYCHAIN:-}" ]; then
+            security default-keychain -s "$ORIGINAL_DEFAULT_KEYCHAIN" || true
+          else
+            security default-keychain -s "$LOGIN_KC" || true
+          fi
+
+          if [ -n "${ORIGINAL_KEYCHAIN_LIST:-}" ]; then
+            OLDIFS=$IFS
+            IFS=$'\n'
+            RESTORE_LIST=()
+            while IFS= read -r line; do
+              [ -z "$line" ] && continue
+              RESTORE_LIST+=("$line")
+            done <<< "$ORIGINAL_KEYCHAIN_LIST"
+            IFS=$OLDIFS
+            if [ "${#RESTORE_LIST[@]}" -gt 0 ]; then
+              security list-keychains -d user -s "${RESTORE_LIST[@]}" || true
+            fi
+          else
+            FALLBACK_LIST=("$LOGIN_KC")
+            [ -f "$SYSTEM_KC" ] && FALLBACK_LIST+=("$SYSTEM_KC")
+            security list-keychains -d user -s "${FALLBACK_LIST[@]}" || true
+          fi
+
+          security delete-keychain "$KC_PATH" || true
           rm -rf signing || true
           if [ -n "${PROFILE_UUID:-}" ]; then
             rm -f "$HOME/Library/MobileDevice/Provisioning Profiles/${PROFILE_UUID}.mobileprovision" || true

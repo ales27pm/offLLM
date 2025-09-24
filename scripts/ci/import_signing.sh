@@ -4,6 +4,7 @@
 # Usage: import_signing.sh <p12-path> <p12-password> <mobileprovision-path> <keychain-name-or-path> <keychain-password>
 # - Supports keychain arguments that are names, absolute paths, relative paths, or home-relative paths.
 # - Emits PROFILE_UUID and KEYCHAIN_PATH for downstream GitHub Actions steps.
+# - Persists ORIGINAL_KEYCHAIN_LIST and ORIGINAL_DEFAULT_KEYCHAIN so cleanup steps can restore prior macOS keychain state.
 # - Enables verbose logging via `set -x` while masking sensitive arguments.
 
 set -euo pipefail
@@ -33,6 +34,16 @@ if [[ ! -f "$MP_PATH" ]]; then
   exit 1
 fi
 
+if [[ -z "${KC_ARG// }" ]]; then
+  echo "::error ::Keychain name or path must be provided" >&2
+  exit 1
+fi
+
+if [[ -z "${KC_PASS// }" ]]; then
+  echo "::error ::Keychain password must not be empty" >&2
+  exit 1
+fi
+
 resolve_keychain_path() {
   local arg="$1"
   case "$arg" in
@@ -55,6 +66,14 @@ log() {
   printf '::notice ::%s\n' "$1"
 }
 
+KEYCHAIN_CREATED=0
+SEARCH_LIST_UPDATED=0
+DEFAULT_KEYCHAIN_UPDATED=0
+KEYCHAIN_LIST_TMP=""
+PLIST_TMP=""
+ORIGINAL_DEFAULT_KEYCHAIN=""
+ORIGINAL_KEYCHAINS=()
+
 cleanup_tmp_files() {
   if [[ -n "$KEYCHAIN_LIST_TMP" && -f "$KEYCHAIN_LIST_TMP" ]]; then
     rm -f "$KEYCHAIN_LIST_TMP"
@@ -64,9 +83,44 @@ cleanup_tmp_files() {
   fi
 }
 
-KEYCHAIN_LIST_TMP=""
-PLIST_TMP=""
-trap cleanup_tmp_files EXIT
+cleanup() {
+  local exit_code=$1
+  trap - EXIT
+  set +x
+  set +e
+  cleanup_tmp_files
+  if [[ $exit_code -ne 0 ]]; then
+    if [[ $DEFAULT_KEYCHAIN_UPDATED -eq 1 ]]; then
+      if [[ -n "$ORIGINAL_DEFAULT_KEYCHAIN" ]]; then
+        security default-keychain -s "$ORIGINAL_DEFAULT_KEYCHAIN" >/dev/null 2>&1 || true
+      else
+        local login_kc="$HOME/Library/Keychains/login.keychain-db"
+        [[ -f "$login_kc" ]] || login_kc="$HOME/Library/Keychains/login.keychain"
+        security default-keychain -s "$login_kc" >/dev/null 2>&1 || true
+      fi
+    fi
+    if [[ $SEARCH_LIST_UPDATED -eq 1 ]]; then
+      if [[ ${#ORIGINAL_KEYCHAINS[@]} -gt 0 ]]; then
+        security list-keychains -d user -s "${ORIGINAL_KEYCHAINS[@]}" >/dev/null 2>&1 || true
+      else
+        local login_kc="$HOME/Library/Keychains/login.keychain-db"
+        [[ -f "$login_kc" ]] || login_kc="$HOME/Library/Keychains/login.keychain"
+        local system_kc="/Library/Keychains/System.keychain"
+        if [[ -f "$system_kc" ]]; then
+          security list-keychains -d user -s "$login_kc" "$system_kc" >/dev/null 2>&1 || true
+        else
+          security list-keychains -d user -s "$login_kc" >/dev/null 2>&1 || true
+        fi
+      fi
+    fi
+    if [[ $KEYCHAIN_CREATED -eq 1 ]]; then
+      security delete-keychain "$KC_PATH" >/dev/null 2>&1 || true
+    fi
+  fi
+  exit "$exit_code"
+}
+
+trap 'cleanup $?' EXIT
 
 log "Importing signing assets into keychain: $KC_PATH"
 
@@ -76,6 +130,7 @@ security delete-keychain "$KC_PATH" >/dev/null 2>&1 || true
 
 set +x
 security create-keychain -p "$KC_PASS" "$KC_PATH"
+KEYCHAIN_CREATED=1
 set -x
 
 set +x
@@ -94,22 +149,49 @@ set +x
 security set-key-partition-list -S apple-tool:,apple: -s -k "$KC_PASS" "$KC_PATH" >/dev/null 2>&1 || true
 set -x
 
+set +x
+DEFAULT_OUT="$(security default-keychain 2>/dev/null || true)"
+set -x
+if [[ -n "$DEFAULT_OUT" ]]; then
+  ORIGINAL_DEFAULT_KEYCHAIN="$(printf '%s' "$DEFAULT_OUT" | sed -e 's/^[[:space:]]*"//' -e 's/"$//')"
+  if [[ -n "$ORIGINAL_DEFAULT_KEYCHAIN" ]]; then
+    {
+      echo "ORIGINAL_DEFAULT_KEYCHAIN<<'EOF'"
+      printf '%s\n' "$ORIGINAL_DEFAULT_KEYCHAIN"
+      echo "EOF"
+    } >>"$GITHUB_ENV"
+  fi
+else
+  log "Unable to determine current default keychain; cleanup will fall back to login keychain"
+fi
+
 KEYCHAIN_LIST_TMP="$(mktemp)"
 RESTORE_KEYCHAINS=("$KC_PATH")
 if security list-keychains -d user >"$KEYCHAIN_LIST_TMP"; then
   while IFS= read -r line || [[ -n "$line" ]]; do
     # Trim leading whitespace and surrounding quotes.
     line="$(printf '%s' "$line" | sed -e 's/^[[:space:]]*"//' -e 's/"$//')"
-    [[ -z "$line" || "$line" == "$KC_PATH" ]] && continue
+    [[ -z "$line" ]] && continue
+    ORIGINAL_KEYCHAINS+=("$line")
+    [[ "$line" == "$KC_PATH" ]] && continue
     RESTORE_KEYCHAINS+=("$line")
   done <"$KEYCHAIN_LIST_TMP"
+  if [[ ${#ORIGINAL_KEYCHAINS[@]} -gt 0 ]]; then
+    {
+      echo "ORIGINAL_KEYCHAIN_LIST<<'EOF'"
+      printf '%s\n' "${ORIGINAL_KEYCHAINS[@]}"
+      echo "EOF"
+    } >>"$GITHUB_ENV"
+  fi
 else
   log "Unable to read existing keychain search list; defaulting to $KC_PATH only"
 fi
 
 security list-keychains -d user -s "${RESTORE_KEYCHAINS[@]}"
+SEARCH_LIST_UPDATED=1
 
 security default-keychain -s "$KC_PATH"
+DEFAULT_KEYCHAIN_UPDATED=1
 
 PP_DIR="$HOME/Library/MobileDevice/Provisioning Profiles"
 mkdir -p "$PP_DIR"
