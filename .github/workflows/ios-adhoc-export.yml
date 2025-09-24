@@ -218,12 +218,54 @@ jobs:
           fi
 
           json_path="${bundle_path}.json"
-          if xcrun xcresulttool get --format json --path "${bundle_path}" > "${json_path}"; then
+          tmp_err="$(mktemp)"
+
+          supports_legacy="unknown"
+          if help_output="$(xcrun xcresulttool get --help 2>&1)"; then
+            if printf '%s' "$help_output" | grep -qi -- '--legacy'; then
+              supports_legacy="yes"
+            else
+              supports_legacy="no"
+            fi
+          fi
+
+          try_legacy_first="yes"
+          if [ "$supports_legacy" = "no" ]; then
+            try_legacy_first="no"
+          fi
+
+          convert_variant() {
+            local variant="$1"
+            if [ "$variant" = "legacy" ]; then
+              xcrun xcresulttool get --format json --legacy --path "${bundle_path}" >"${json_path}" 2>"$tmp_err"
+            else
+              xcrun xcresulttool get --format json --path "${bundle_path}" >"${json_path}" 2>"$tmp_err"
+            fi
+          }
+
+          success=0
+          if [ "$try_legacy_first" = "yes" ]; then
+            if convert_variant legacy; then
+              success=1
+            elif convert_variant modern; then
+              success=1
+            fi
+          else
+            if convert_variant modern; then
+              success=1
+            elif convert_variant legacy; then
+              success=1
+            fi
+          fi
+
+          if [ "$success" -eq 1 ]; then
             echo "XCRESULT_JSON=${json_path}" >> "$GITHUB_ENV"
           else
-            echo "::warning ::Failed to convert ${bundle_path} to JSON"
+            echo "::warning ::Failed to convert ${bundle_path} to JSON: $(cat "$tmp_err" 2>/dev/null || true)"
             rm -f "${json_path}" || true
           fi
+
+          rm -f "$tmp_err" || true
 
       - name: Upload Xcode result bundle
         if: always()
