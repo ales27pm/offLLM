@@ -66,6 +66,44 @@ log() {
   printf '::notice ::%s\n' "$1"
 }
 
+append_github_env_lines() {
+  local key="$1"
+  shift || true
+
+  local env_file="${GITHUB_ENV:-}"
+  if [[ -z "$env_file" ]]; then
+    return 0
+  fi
+
+  if [[ -z "$key" || "$key" == *"="* ]]; then
+    printf '::warning ::Skipping write: invalid env var name "%s"\n' "$key" >&2
+    return 0
+  fi
+
+  local restore_xtrace=0
+  if [[ $- == *x* ]]; then
+    restore_xtrace=1
+    set +x
+  fi
+
+  local delim="EOF_$(python3 -c 'import secrets; print(secrets.token_hex(8))')"
+  {
+    printf '%s<<%s\n' "$key" "$delim"
+    if [[ $# -gt 0 ]]; then
+      printf '%s\n' "$@"
+    else
+      printf '\n'
+    fi
+    printf '%s\n' "$delim"
+  } >>"$env_file"
+
+  if [[ $restore_xtrace -eq 1 ]]; then
+    set -x
+  fi
+
+  return 0
+}
+
 KEYCHAIN_CREATED=0
 SEARCH_LIST_UPDATED=0
 DEFAULT_KEYCHAIN_UPDATED=0
@@ -155,11 +193,7 @@ set -x
 if [[ -n "$DEFAULT_OUT" ]]; then
   ORIGINAL_DEFAULT_KEYCHAIN="$(printf '%s' "$DEFAULT_OUT" | sed -e 's/^[[:space:]]*"//' -e 's/"$//')"
   if [[ -n "$ORIGINAL_DEFAULT_KEYCHAIN" ]]; then
-    {
-      echo "ORIGINAL_DEFAULT_KEYCHAIN<<'EOF'"
-      printf '%s\n' "$ORIGINAL_DEFAULT_KEYCHAIN"
-      echo "EOF"
-    } >>"$GITHUB_ENV"
+    append_github_env_lines "ORIGINAL_DEFAULT_KEYCHAIN" "$ORIGINAL_DEFAULT_KEYCHAIN"
   fi
 else
   log "Unable to determine current default keychain; cleanup will fall back to login keychain"
@@ -177,15 +211,32 @@ if security list-keychains -d user >"$KEYCHAIN_LIST_TMP"; then
     RESTORE_KEYCHAINS+=("$line")
   done <"$KEYCHAIN_LIST_TMP"
   if [[ ${#ORIGINAL_KEYCHAINS[@]} -gt 0 ]]; then
-    {
-      echo "ORIGINAL_KEYCHAIN_LIST<<'EOF'"
-      printf '%s\n' "${ORIGINAL_KEYCHAINS[@]}"
-      echo "EOF"
-    } >>"$GITHUB_ENV"
+    append_github_env_lines "ORIGINAL_KEYCHAIN_LIST" "${ORIGINAL_KEYCHAINS[@]}"
   fi
 else
   log "Unable to read existing keychain search list; defaulting to $KC_PATH only"
 fi
+
+add_keychain_if_exists() {
+  local candidate="$1"
+  if [[ -z "$candidate" || ! -e "$candidate" ]]; then
+    return 0
+  fi
+  local already_present=0
+  for existing in "${RESTORE_KEYCHAINS[@]}"; do
+    if [[ "$existing" == "$candidate" ]]; then
+      already_present=1
+      break
+    fi
+  done
+  if [[ $already_present -eq 0 ]]; then
+    RESTORE_KEYCHAINS+=("$candidate")
+  fi
+  return 0
+}
+
+add_keychain_if_exists "/Library/Keychains/System.keychain"
+add_keychain_if_exists "/System/Library/Keychains/SystemRootCertificates.keychain"
 
 security list-keychains -d user -s "${RESTORE_KEYCHAINS[@]}"
 SEARCH_LIST_UPDATED=1
@@ -212,9 +263,9 @@ cp "$MP_PATH" "$PP_DIR/$UUID.mobileprovision"
 rm -f "$PLIST_TMP"
 
 set +x
-echo "PROFILE_UUID=$UUID" >> "$GITHUB_ENV"
-echo "PROFILE_NAME=$PROFILE_NAME" >> "$GITHUB_ENV"
-echo "KEYCHAIN_PATH=$KC_PATH" >> "$GITHUB_ENV"
+append_github_env_lines "PROFILE_UUID" "$UUID"
+append_github_env_lines "PROFILE_NAME" "$PROFILE_NAME"
+append_github_env_lines "KEYCHAIN_PATH" "$KC_PATH"
 set -x
 
 log "Installed provisioning profile $PROFILE_NAME ($UUID)"
