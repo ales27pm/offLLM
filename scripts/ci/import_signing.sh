@@ -217,6 +217,27 @@ else
   log "Unable to read existing keychain search list; defaulting to $KC_PATH only"
 fi
 
+add_keychain_if_exists() {
+  local candidate="$1"
+  if [[ -z "$candidate" || ! -e "$candidate" ]]; then
+    return 0
+  fi
+  local already_present=0
+  for existing in "${RESTORE_KEYCHAINS[@]}"; do
+    if [[ "$existing" == "$candidate" ]]; then
+      already_present=1
+      break
+    fi
+  done
+  if [[ $already_present -eq 0 ]]; then
+    RESTORE_KEYCHAINS+=("$candidate")
+  fi
+  return 0
+}
+
+add_keychain_if_exists "/Library/Keychains/System.keychain"
+add_keychain_if_exists "/System/Library/Keychains/SystemRootCertificates.keychain"
+
 security list-keychains -d user -s "${RESTORE_KEYCHAINS[@]}"
 SEARCH_LIST_UPDATED=1
 
