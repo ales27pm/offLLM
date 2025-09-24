@@ -8,6 +8,7 @@ on:
 
 jobs:
   build-adhoc:
+    if: ${{ github.event_name != 'pull_request' || github.event.pull_request.head.repo.full_name == github.repository }}
     runs-on: macos-15
     environment: offLLM
 
@@ -23,55 +24,15 @@ jobs:
       TEAM_ID: ${{ secrets.TEAM_ID }}
 
       KEYCHAIN_NAME: build-signing.keychain-db
-      KEYCHAIN_PASSWORD: ${{ secrets.KEYCHAIN_PASSWORD }}
-
-      P12_BASE64: ${{ secrets.P12_BASE64 }}
-      P12_PASSWORD: ${{ secrets.P12_PASSWORD }}
-      MOBILEPROVISION_BASE64: ${{ secrets.MOBILEPROVISION_BASE64 }}
 
     steps:
       - name: Checkout
-        uses: actions/checkout@v4
-
-      - name: Prepare scripts
-        run: |
-          mkdir -p scripts signing
-          cat > scripts/import_signing.sh <<'BASH'
-          #!/usr/bin/env bash
-          set -euo pipefail
-          P12_PATH="$1"; P12_PASSWORD="$2"; MP_PATH="$3"; KC_NAME="$4"; KC_PASS="$5"
-          if [[ "$KC_NAME" == /* ]]; then
-            KC_PATH="$KC_NAME"
-          else
-            KC_PATH="$HOME/Library/Keychains/$KC_NAME"
-          fi
-          security create-keychain -p "$KC_PASS" "$KC_PATH"
-          security set-keychain-settings -lut 21600 "$KC_PATH"
-          security unlock-keychain -p "$KC_PASS" "$KC_PATH"
-          security import "$P12_PATH" -k "$KC_PATH" -P "$P12_PASSWORD" -T /usr/bin/codesign -T /usr/bin/security
-          security set-key-partition-list -S apple-tool:,apple: -s -k "$KC_PASS" "$KC_PATH" || true
-          security list-keychains -d user -s "$KC_PATH"
-          security default-keychain -s "$KC_PATH"
-          PP_DIR="$HOME/Library/MobileDevice/Provisioning Profiles"; mkdir -p "$PP_DIR"
-          PLIST_TMP=$(mktemp); security cms -D -i "$MP_PATH" > "$PLIST_TMP"
-          UUID=$(/usr/libexec/PlistBuddy -c 'Print UUID' "$PLIST_TMP")
-          cp "$MP_PATH" "$PP_DIR/$UUID.mobileprovision"
-          echo "PROFILE_UUID=$UUID" >> "$GITHUB_ENV"
-          echo "KEYCHAIN_PATH=$KC_PATH" >> "$GITHUB_ENV"
-          BASH
-          chmod +x scripts/import_signing.sh
-
-          cat > scripts/export_ipa.sh <<'BASH'
-          #!/usr/bin/env bash
-          set -euo pipefail
-          ARCHIVE_PATH="$1"; EXPORT_OPTS="$2"; EXPORT_DIR="$3"
-          mkdir -p "$EXPORT_DIR"
-          xcodebuild -exportArchive -archivePath "$ARCHIVE_PATH" -exportPath "$EXPORT_DIR" -exportOptionsPlist "$EXPORT_OPTS" -allowProvisioningUpdates
-          ls -la "$EXPORT_DIR"
-          BASH
-          chmod +x scripts/export_ipa.sh
+        uses: actions/checkout@08eba0b27e820071cde6df949e0beb9ba4906955
 
       - name: Decode signing files
+        env:
+          P12_BASE64: ${{ secrets.P12_BASE64 }}
+          MOBILEPROVISION_BASE64: ${{ secrets.MOBILEPROVISION_BASE64 }}
         run: |
           python - <<'PY'
           import base64
@@ -95,7 +56,7 @@ jobs:
                   sys.exit(1)
 
               try:
-                  decoded = base64.b64decode(value)
+                  decoded = base64.b64decode(value, validate=True)
               except binascii.Error as exc:
                   sys.stderr.write(
                       f"::error ::Secret {env_var} is not valid base64: {exc}\n"
@@ -109,32 +70,38 @@ jobs:
                   )
                   sys.exit(1)
 
+              output_path.parent.mkdir(parents=True, exist_ok=True)
               output_path.write_bytes(decoded)
+              try:
+                  output_path.chmod(0o600)
+              except Exception:
+                  pass
           PY
 
       - name: Import certificate & provisioning profile
+        env:
+          P12_PASSWORD: ${{ secrets.P12_PASSWORD }}
+          KEYCHAIN_PASSWORD: ${{ secrets.KEYCHAIN_PASSWORD }}
         run: |
-          bash scripts/import_signing.sh \
+          bash scripts/ci/import_signing.sh \
             signing/cert.p12 \
             "$P12_PASSWORD" \
             signing/profile.mobileprovision \
             "$KEYCHAIN_NAME" \
             "$KEYCHAIN_PASSWORD"
 
-      - name: Resolve profile name
-        id: profile
+      - name: Sanitize signing files
         run: |
-          PROFILE_PLIST=$(mktemp)
-          /usr/bin/security cms -D -i signing/profile.mobileprovision > "$PROFILE_PLIST"
-          PROFILE_NAME=$(/usr/libexec/PlistBuddy -c 'Print Name' "$PROFILE_PLIST")
-          echo "name=$PROFILE_NAME" >> $GITHUB_OUTPUT
+          rm -rf signing || true
 
       - name: Xcode Archive (manual signing)
         run: |
           set -euxo pipefail
           rm -rf "$ARCHIVE_PATH" "$DERIVED_DATA" "$RESULT_BUNDLE" || true
+          : "${BUNDLE_ID_SUFFIX:?BUNDLE_ID_SUFFIX is required and must not be empty}"
           BUNDLE_ID="${BUNDLE_ID_PREFIX}.${BUNDLE_ID_SUFFIX}"
           KEYCHAIN_PATH="${KEYCHAIN_PATH:?KEYCHAIN_PATH not set by signing import step}"
+          echo "RESOLVED_BUNDLE_ID=$BUNDLE_ID" >> "$GITHUB_ENV"
           xcodebuild \
             -scheme "$SCHEME" \
             -configuration "$CONFIGURATION" \
@@ -146,11 +113,12 @@ jobs:
             CODE_SIGN_STYLE=Manual \
             DEVELOPMENT_TEAM="${TEAM_ID}" \
             PRODUCT_BUNDLE_IDENTIFIER="$BUNDLE_ID" \
-            PROVISIONING_PROFILE_SPECIFIER="${{ steps.profile.outputs.name }}" \
+            PROVISIONING_PROFILE_SPECIFIER="${PROFILE_NAME:?PROFILE_NAME not exported by signing import step}" \
             OTHER_CODE_SIGN_FLAGS="--keychain $KEYCHAIN_PATH"
 
       - name: Create exportOptions.plist
         run: |
+          BUNDLE_ID="${RESOLVED_BUNDLE_ID:-${BUNDLE_ID_PREFIX}.${BUNDLE_ID_SUFFIX}}"
           cat > exportOptions.plist <<PLIST
           <?xml version="1.0" encoding="UTF-8"?>
           <!DOCTYPE plist PUBLIC "-//Apple//DTD PLIST 1.0//EN" "http://www.apple.com/DTDs/PropertyList-1.0.dtd">
@@ -159,12 +127,11 @@ jobs:
             <key>method</key><string>ad-hoc</string>
             <key>signingStyle</key><string>manual</string>
             <key>teamID</key><string>${TEAM_ID}</string>
-            <key>compileBitcode</key><false/>
             <key>stripSwiftSymbols</key><true/>
             <key>destination</key><string>export</string>
             <key>provisioningProfiles</key>
             <dict>
-              <key>${BUNDLE_ID_PREFIX}.${BUNDLE_ID_SUFFIX}</key><string>${{ steps.profile.outputs.name }}</string>
+              <key>${BUNDLE_ID}</key><string>${PROFILE_NAME}</string>
             </dict>
           </dict>
           </plist>
@@ -172,10 +139,10 @@ jobs:
 
       - name: Export IPA
         run: |
-          bash scripts/export_ipa.sh "$ARCHIVE_PATH" exportOptions.plist export
+          bash scripts/ci/export_ipa.sh "$ARCHIVE_PATH" exportOptions.plist export
 
       - name: Upload IPA
-        uses: actions/upload-artifact@v4
+        uses: actions/upload-artifact@ea165f8d65b6e75b540449e92b4886f43607fa02
         with:
           name: monGARS-AdHoc-IPA
           path: export/*.ipa
@@ -183,4 +150,13 @@ jobs:
       - name: Cleanup keychain
         if: always()
         run: |
-          security delete-keychain "${KEYCHAIN_PATH:-$KEYCHAIN_NAME}" || true
+          KC_PATH="${KEYCHAIN_PATH:-$HOME/Library/Keychains/$KEYCHAIN_NAME}"
+          security delete-keychain "$KC_PATH" || true
+          LOGIN_KC="$HOME/Library/Keychains/login.keychain-db"
+          [ -f "$LOGIN_KC" ] || LOGIN_KC="$HOME/Library/Keychains/login.keychain"
+          security default-keychain -s "$LOGIN_KC" || true
+          security list-keychains -d user -s "$LOGIN_KC" || true
+          rm -rf signing || true
+          if [ -n "${PROFILE_UUID:-}" ]; then
+            rm -f "$HOME/Library/MobileDevice/Provisioning Profiles/${PROFILE_UUID}.mobileprovision" || true
+          fi
