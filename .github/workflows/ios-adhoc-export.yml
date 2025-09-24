@@ -221,48 +221,46 @@ jobs:
           json_path="${bundle_path}.json"
           tmp_err="$(mktemp)"
 
-          supports_legacy="unknown"
-          if help_output="$(xcrun xcresulttool get --help 2>&1)"; then
-            if printf '%s' "$help_output" | grep -qi -- '--legacy'; then
-              supports_legacy="yes"
-            else
-              supports_legacy="no"
-            fi
-          fi
+          run_conversion() {
+            local subcommand="$1"
+            local legacy_flag="$2"
 
-          try_legacy_first="yes"
-          if [ "$supports_legacy" = "no" ]; then
-            try_legacy_first="no"
-          fi
-
-          convert_variant() {
-            local variant="$1"
-            if [ "$variant" = "legacy" ]; then
-              xcrun xcresulttool get --format json --legacy --path "${bundle_path}" >"${json_path}" 2>"$tmp_err"
-            else
-              xcrun xcresulttool get --format json --path "${bundle_path}" >"${json_path}" 2>"$tmp_err"
+            local args=(xcrun xcresulttool get)
+            if [ -n "$subcommand" ]; then
+              args+=("$subcommand")
             fi
+            if [ -n "$legacy_flag" ]; then
+              args+=("$legacy_flag")
+            fi
+            args+=(--format json --path "${bundle_path}")
+
+            echo "Attempting: ${args[*]}"
+            if "${args[@]}" >"${json_path}" 2>"$tmp_err"; then
+              return 0
+            fi
+            return 1
           }
 
           success=0
-          if [ "$try_legacy_first" = "yes" ]; then
-            if convert_variant legacy; then
-              success=1
-            elif convert_variant modern; then
-              success=1
-            fi
-          else
-            if convert_variant modern; then
-              success=1
-            elif convert_variant legacy; then
-              success=1
-            fi
-          fi
+          last_err=""
+
+          for subcommand in object ""; do
+            for legacy_flag in "" --legacy; do
+              if run_conversion "$subcommand" "$legacy_flag"; then
+                success=1
+                break 2
+              fi
+              last_err="$(cat "$tmp_err" 2>/dev/null || true)"
+            done
+          done
 
           if [ "$success" -eq 1 ]; then
             echo "XCRESULT_JSON=${json_path}" >> "$GITHUB_ENV"
           else
-            echo "::warning ::Failed to convert ${bundle_path} to JSON: $(cat "$tmp_err" 2>/dev/null || true)"
+            if [ -z "$last_err" ]; then
+              last_err="xcresulttool returned a non-zero status"
+            fi
+            echo "::warning ::Failed to convert ${bundle_path} to JSON: ${last_err}"
             rm -f "${json_path}" || true
           fi
 
