@@ -56,8 +56,12 @@ log() {
 }
 
 cleanup_tmp_files() {
-  [[ -n "$KEYCHAIN_LIST_TMP" && -f "$KEYCHAIN_LIST_TMP" ]] && rm -f "$KEYCHAIN_LIST_TMP"
-  [[ -n "$PLIST_TMP" && -f "$PLIST_TMP" ]] && rm -f "$PLIST_TMP"
+  if [[ -n "$KEYCHAIN_LIST_TMP" && -f "$KEYCHAIN_LIST_TMP" ]]; then
+    rm -f "$KEYCHAIN_LIST_TMP"
+  fi
+  if [[ -n "$PLIST_TMP" && -f "$PLIST_TMP" ]]; then
+    rm -f "$PLIST_TMP"
+  fi
 }
 
 KEYCHAIN_LIST_TMP=""
