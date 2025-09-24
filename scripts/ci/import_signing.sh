@@ -66,39 +66,6 @@ log() {
   printf '::notice ::%s\n' "$1"
 }
 
-append_github_env_lines() {
-  local key="$1"
-  shift || true
-
-  # Skip writes when GITHUB_ENV is not available (e.g., local execution).
-  local env_file="${GITHUB_ENV:-}"
-  if [[ -z "$env_file" ]]; then
-    return 0
-  fi
-
-  local restore_xtrace=0
-  if [[ $- == *x* ]]; then
-    restore_xtrace=1
-    set +x
-  fi
-
-  {
-    printf '%s<<EOF\n' "$key"
-    if [[ $# -gt 0 ]]; then
-      printf '%s\n' "$@"
-    else
-      printf '\n'
-    fi
-    printf 'EOF\n'
-  } >>"$env_file"
-
-  if [[ $restore_xtrace -eq 1 ]]; then
-    set -x
-  fi
-
-  return 0
-}
-
 KEYCHAIN_CREATED=0
 SEARCH_LIST_UPDATED=0
 DEFAULT_KEYCHAIN_UPDATED=0
@@ -187,8 +154,12 @@ DEFAULT_OUT="$(security default-keychain 2>/dev/null || true)"
 set -x
 if [[ -n "$DEFAULT_OUT" ]]; then
   ORIGINAL_DEFAULT_KEYCHAIN="$(printf '%s' "$DEFAULT_OUT" | sed -e 's/^[[:space:]]*"//' -e 's/"$//')"
-  if [[ -n "$ORIGINAL_DEFAULT_KEYCHAIN" ]]; then
-    append_github_env_lines "ORIGINAL_DEFAULT_KEYCHAIN" "$ORIGINAL_DEFAULT_KEYCHAIN"
+  if [[ -n "$ORIGINAL_DEFAULT_KEYCHAIN" && -n "${GITHUB_ENV:-}" ]]; then
+    {
+      echo "ORIGINAL_DEFAULT_KEYCHAIN<<EOF"
+      printf '%s\n' "$ORIGINAL_DEFAULT_KEYCHAIN"
+      echo "EOF"
+    } >> "$GITHUB_ENV"
   fi
 else
   log "Unable to determine current default keychain; cleanup will fall back to login keychain"
@@ -205,8 +176,12 @@ if security list-keychains -d user >"$KEYCHAIN_LIST_TMP"; then
     [[ "$line" == "$KC_PATH" ]] && continue
     RESTORE_KEYCHAINS+=("$line")
   done <"$KEYCHAIN_LIST_TMP"
-  if [[ ${#ORIGINAL_KEYCHAINS[@]} -gt 0 ]]; then
-    append_github_env_lines "ORIGINAL_KEYCHAIN_LIST" "${ORIGINAL_KEYCHAINS[@]}"
+  if [[ ${#ORIGINAL_KEYCHAINS[@]} -gt 0 && -n "${GITHUB_ENV:-}" ]]; then
+    {
+      echo "ORIGINAL_KEYCHAIN_LIST<<EOF"
+      printf '%s\n' "${ORIGINAL_KEYCHAINS[@]}"
+      echo "EOF"
+    } >> "$GITHUB_ENV"
   fi
 else
   log "Unable to read existing keychain search list; defaulting to $KC_PATH only"

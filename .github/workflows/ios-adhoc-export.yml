@@ -94,6 +94,24 @@ jobs:
         run: |
           rm -rf signing || true
 
+      - name: Install XcodeGen
+        run: brew install xcodegen
+
+      - name: Generate Xcode project
+        run: |
+          set -euo pipefail
+          npm ci
+          bundle install
+          xcodegen generate --spec ios/project.yml --project ios
+          bundle exec pod install --project-directory=ios --repo-update
+          ls -la ios
+          if [ -f ios/monGARS.xcodeproj/project.pbxproj ]; then
+            xcodebuild -list -project ios/monGARS.xcodeproj
+          else
+            echo "::error ::ios/monGARS.xcodeproj was not generated"
+            exit 1
+          fi
+
       - name: Xcode Archive (manual signing)
         run: |
           set -euxo pipefail
@@ -103,6 +121,7 @@ jobs:
           KEYCHAIN_PATH="${KEYCHAIN_PATH:?KEYCHAIN_PATH not set by signing import step}"
           echo "RESOLVED_BUNDLE_ID=$BUNDLE_ID" >> "$GITHUB_ENV"
           xcodebuild \
+            -workspace ios/monGARS.xcworkspace \
             -scheme "$SCHEME" \
             -configuration "$CONFIGURATION" \
             -archivePath "$ARCHIVE_PATH" \
