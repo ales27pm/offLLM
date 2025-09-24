@@ -19,8 +19,8 @@ jobs:
       DERIVED_DATA: build/DerivedData
       RESULT_BUNDLE: build/DerivedData/ResultBundle_build.xcresult
 
-      BUNDLE_ID_PREFIX: anardoni.export
-      BUNDLE_ID_SUFFIX: ${{ secrets.BUNDLE_ID_SUFFIX }}
+      BUNDLE_ID_PREFIX: a.export
+      BUNDLE_ID_SUFFIX: monGARS
       TEAM_ID: ${{ secrets.TEAM_ID }}
 
       KEYCHAIN_NAME: build-signing.keychain-db
@@ -139,6 +139,7 @@ jobs:
             DEVELOPMENT_TEAM="${TEAM_ID}" \
             PRODUCT_BUNDLE_IDENTIFIER="$BUNDLE_ID" \
             PROVISIONING_PROFILE_SPECIFIER="${PROFILE_NAME:?PROFILE_NAME not exported by signing import step}" \
+            CODE_SIGN_IDENTITY="Apple Distribution" \
             OTHER_CODE_SIGN_FLAGS="--keychain $KEYCHAIN_PATH"
 
       - name: Create exportOptions.plist
@@ -149,7 +150,7 @@ jobs:
           <!DOCTYPE plist PUBLIC "-//Apple//DTD PLIST 1.0//EN" "http://www.apple.com/DTDs/PropertyList-1.0.dtd">
           <plist version="1.0">
           <dict>
-            <key>method</key><string>ad-hoc</string>
+            <key>method</key><string>release-testing</string>
             <key>signingStyle</key><string>manual</string>
             <key>teamID</key><string>${TEAM_ID}</string>
             <key>stripSwiftSymbols</key><true/>
