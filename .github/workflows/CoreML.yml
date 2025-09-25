@@ -127,13 +127,12 @@ jobs:
               ]
               outputs = [ct.TensorType(name="logits", dtype=np.float16)]
 
-              # Convert to Core ML without explicit StateParam, relying on registered buffers
+              # Convert to Core ML, relying on registered buffers as static initial states
               mlmodel = ct.convert(
                   traced_model,
                   inputs=inputs,
                   outputs=outputs,
                   minimum_deployment_target=ct.target.iOS18,
-                  convert_to_state_dict=True,  # Enable stateful conversion
                   skip_model_load=True,
               )
 
@@ -146,7 +145,7 @@ jobs:
               )
               quantized_mlmodel = ct.optimize.coreml.linear_quantize_weights(mlmodel, config=quant_config)
 
-              # Save model as mlpackage for stateful
+              # Save model as mlpackage for stateful compatibility
               quantized_mlmodel.save("Dolphin3.0-Llama3.2-3B.mlpackage")
               print("Model conversion successful")
           except Exception as e:
