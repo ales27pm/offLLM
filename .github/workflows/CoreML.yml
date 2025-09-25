@@ -137,14 +137,14 @@ jobs:
               )
 
               # Quantization
-              from coremltools.optimize.coreml import OpLinearQuantizerConfig, linear_quantize_weights
+              from coremltools.optimize.coreml import OpLinearQuantizerConfig
               quant_config = OpLinearQuantizerConfig(
                   mode="linear_symmetric",
-                  number_of_bits=4,
+                  dtype=OpLinearQuantizerConfig.Dtype.INT4,
                   granularity="per_block",
                   block_size=32,
               )
-              quantized_mlmodel = linear_quantize_weights(mlmodel, quant_config)
+              quantized_mlmodel = ct.optimize.coreml.linear_quantize_weights(mlmodel, config=quant_config)
 
               # Save model
               quantized_mlmodel.save("Dolphin3.0-Llama3.2-3B.mlmodel")
