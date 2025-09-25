@@ -1,65 +1,115 @@
-      import torch
-      from transformers import LlamaForCausalLM, AutoConfig
-      import coremltools as ct
-      import numpy as np
+name: Convert Dolphin to Core ML
 
-      model_id = "cognitivecomputations/Dolphin3.0-Llama3.2-3B"
-      config = AutoConfig.from_pretrained(model_id)
-      torch_model = LlamaForCausalLM.from_pretrained(model_id, torch_dtype=torch.float16).eval()
+on:
+  push:
+    branches:
+      - main
 
-      class BaselineLlamaForCausalLM(torch.nn.Module):
-          def __init__(self, model):
-              super().__init__()
-              self.model = model
+jobs:
+  convert:
+    runs-on: macos-latest
+    environment: offLLM
+    steps:
+      - name: Checkout repository
+        uses: actions/checkout@v4
 
-          @torch.no_grad()
-          def forward(self, input_ids: torch.LongTensor, attention_mask: torch.LongTensor) -> torch.Tensor:
-              out = self.model(input_ids=input_ids, attention_mask=attention_mask, use_cache=False)
-              return out.logits
+      - name: Set up Python
+        uses: actions/setup-python@v5
+        with:
+          python-version: '3.11'
 
-      wrapper = BaselineLlamaForCausalLM(torch_model)
+      - name: Install dependencies
+        run: |
+          pip install torch==2.2.0 transformers==4.44.2 coremltools==7.2 numpy==1.26.4 huggingface-hub==0.25.1
 
-      batch_size, context_size = 1, 2048
-      input_shape = (batch_size, context_size)
-      example_input_ids = torch.zeros(input_shape, dtype=torch.int64)
-      example_attention_mask = torch.zeros(input_shape, dtype=torch.int64)
+      - name: Convert model to Core ML
+        env:
+          HF_TOKEN: ${{ secrets.HF_TOKEN }}
+        run: |
+          python - <<'EOF'
+          import os
+          from huggingface_hub import login
+          import torch
+          from transformers import LlamaForCausalLM, AutoConfig
+          import coremltools as ct
+          import numpy as np
 
-      traced_model = torch.jit.trace(wrapper, (example_input_ids, example_attention_mask))
+          token = os.getenv("HF_TOKEN")
+          if not token:
+              print("Error: HF_TOKEN environment variable is not set.")
+              exit(1)
 
-      inputs = [
-          ct.TensorType(name="input_ids", shape=input_shape, dtype=np.int32),
-          ct.TensorType(name="attention_mask", shape=input_shape, dtype=np.int32),
-      ]
-      outputs = [ct.TensorType(name="logits", dtype=np.float16)]
+          try:
+              login(token=token)
+              print("Successfully logged in to Hugging Face")
+          except Exception as e:
+              print(f"Failed to log in to Hugging Face: {e}")
+              exit(1)
 
-      mlmodel = ct.convert(
-          traced_model,
-          inputs=inputs,
-          outputs=outputs,
-          minimum_deployment_target=ct.target.macOS13,
-          skip_model_load=True,
-      )
+          try:
+              model_id = "cognitivecomputations/Dolphin3.0-Llama3.2-3B"
+              config = AutoConfig.from_pretrained(model_id)
+              torch_model = LlamaForCausalLM.from_pretrained(model_id, torch_dtype=torch.float16).eval()
 
-      # Quantization
-      quant_config = ct.optimize.coreml.OpLinearQuantizerConfig(
-          mode="linear_symmetric",
-          dtype=ct.optimize.coreml.data_types.int4,
-          granularity="per_block",
-          block_size=32,
-      )
-      quantized_mlmodel = ct.optimize.coreml.linear_quantize_weights(mlmodel, config=quant_config)
+              class BaselineLlamaForCausalLM(torch.nn.Module):
+                  def __init__(self, model):
+                      super().__init__()
+                      self.model = model
 
-      quantized_mlmodel.save("Dolphin3.0-Llama3.2-3B.mlmodel")
-      EOF
-  - name: Commit the converted model
-    run: |
-      git config user.name github-actions
-      git config user.email github-actions@github.com
-      git add Dolphin3.0-Llama3.2-3B.mlmodel
-      git commit -m "Add converted Core ML model" || echo "No changes to commit"
-      git push
-  - name: Upload artifact
-    uses: actions/upload-artifact@v4
-    with:
-      name: coreml-model
-      path: Dolphin3.0-Llama3.2-3B.mlmodel
+                  @torch.no_grad()
+                  def forward(self, input_ids: torch.LongTensor, attention_mask: torch.LongTensor) -> torch.Tensor:
+                      out = self.model(input_ids=input_ids, attention_mask=attention_mask, use_cache=False)
+                      return out.logits
+
+              wrapper = BaselineLlamaForCausalLM(torch_model)
+
+              batch_size, context_size = 1, 2048
+              input_shape = (batch_size, context_size)
+              example_input_ids = torch.zeros(input_shape, dtype=torch.int64)
+              example_attention_mask = torch.zeros(input_shape, dtype=torch.int64)
+
+              traced_model = torch.jit.trace(wrapper, (example_input_ids, example_attention_mask))
+
+              inputs = [
+                  ct.TensorType(name="input_ids", shape=input_shape, dtype=np.int32),
+                  ct.TensorType(name="attention_mask", shape=input_shape, dtype=np.int32),
+              ]
+              outputs = [ct.TensorType(name="logits", dtype=np.float16)]
+
+              mlmodel = ct.convert(
+                  traced_model,
+                  inputs=inputs,
+                  outputs=outputs,
+                  minimum_deployment_target=ct.target.macOS13,
+                  skip_model_load=True,
+              )
+
+              quant_config = ct.optimize.coreml.OpLinearQuantizerConfig(
+                  mode="linear_symmetric",
+                  dtype=ct.optimize.coreml.data_types.int4,
+                  granularity="per_block",
+                  block_size=32,
+              )
+              quantized_mlmodel = ct.optimize.coreml.linear_quantize_weights(mlmodel, config=quant_config)
+
+              quantized_mlmodel.save("Dolphin3.0-Llama3.2-3B.mlmodel")
+              print("Model conversion successful")
+          except Exception as e:
+              print(f"Error during conversion: {e}")
+              exit(1)
+          EOF
+
+      - name: Commit the converted model
+        run: |
+          git config user.name github-actions
+          git config user.email github-actions@github.com
+          git add Dolphin3.0-Llama3.2-3B.mlmodel
+          git commit -m "Add converted Core ML model" || echo "No changes to commit"
+          git push
+        continue-on-error: true
+
+      - name: Upload artifact
+        uses: actions/upload-artifact@v4
+        with:
+          name: coreml-model
+          path: Dolphin3.0-Llama3.2-3B.mlmodel
