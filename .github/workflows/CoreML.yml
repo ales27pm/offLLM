@@ -2,7 +2,7 @@ name: Convert Dolphin to Core ML
 
 on:
   push:
-    branches: [ main ]
+    branches: [main]
 
 jobs:
   convert:
@@ -16,7 +16,7 @@ jobs:
       - name: Set up Python
         uses: actions/setup-python@v5
         with:
-          python-version: '3.11'
+          python-version: "3.11"
 
       - name: Install dependencies
         run: |
