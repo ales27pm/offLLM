@@ -1,186 +1,111 @@
-name: Convert Dolphin to Core ML
+- name: Convert model to Core ML
+  env:
+    HF_TOKEN: ${{ secrets.HF_TOKEN }}
+  run: |
+    python - <<'EOF'
+    import os, warnings
+    from typing import Any, Optional, Sequence
+    from huggingface_hub import login
+    import torch, numpy as np
+    import coremltools as ct
+    from transformers import LlamaForCausalLM, AutoConfig
+    from transformers.cache_utils import Cache
 
-on:
-  push:
-    branches:
-      - main
+    warnings.filterwarnings("ignore", category=FutureWarning)
 
-jobs:
-  convert:
-    runs-on: macos-latest
-    environment: offLLM
-    steps:
-      - name: Checkout repository
-        uses: actions/checkout@v4
+    token = os.getenv("HF_TOKEN")
+    if not token:
+        raise SystemExit("Error: HF_TOKEN environment variable is not set.")
+    login(token=token)
+    print("HF login OK")
 
-      - name: Set up Python
-        uses: actions/setup-python@v5
-        with:
-          python-version: '3.11'
+    class SliceUpdateKeyValueCache(Cache):
+        def __init__(self, *, shape, dtype=torch.float32):
+            super().__init__()
+            self.register_buffer("k", torch.zeros(shape, dtype=dtype))
+            self.register_buffer("v", torch.zeros(shape, dtype=dtype))
+        def __len__(self): return self.k.shape[3]
+        def update(self, k_state, v_state, layer_idx, cache_kwargs=None):
+            position = (cache_kwargs or {}).get("cache_position", None)
+            assert position is not None, "cache_position required to update cache."
+            begin = self.k.shape[3]; end = begin + position.shape[-1]
+            self.k[layer_idx, :, :k_state.shape[1], begin:end, :] = k_state
+            self.v[layer_idx, :, :v_state.shape[1], begin:end, :] = v_state
+            return self.k[layer_idx, :, :, :end, :], self.v[layer_idx, :, :, :end, :]
+        def get_seq_length(self, _=0): return self.k.shape[3]
 
-      - name: Install dependencies
-        run: |
-          pip install --upgrade pip
-          pip install \
-            torch==2.2.0 \
-            transformers==4.44.2 \
-            coremltools==8.0 \
-            numpy==1.26.4 \
-            huggingface-hub==0.25.1
+    model_id = "cognitivecomputations/Dolphin3.0-Llama3.2-3B"
+    _ = AutoConfig.from_pretrained(model_id)
+    base = LlamaForCausalLM.from_pretrained(model_id, torch_dtype=torch.float16)
+    base.eval()
 
-      - name: Convert model to Core ML
-        env:
-          HF_TOKEN: ${{ secrets.HF_TOKEN }}
-        run: |
-          python - <<'EOF'
-          import os
-          import warnings
-          from typing import Any, Optional, Sequence
-          from huggingface_hub import login
-          import torch
-          from transformers import LlamaForCausalLM, AutoConfig
-          from transformers.cache_utils import Cache
-          import coremltools as ct
-          import numpy as np
+    # Wrap with stateful KV cache
+    num_layers = len(base.model.layers)
+    num_kv_heads = base.config.num_key_value_heads
+    head_dim = base.config.hidden_size // base.config.num_attention_heads
+    batch_size, context_size = 1, 256
+    kv_cache_shape = (num_layers, batch_size, num_kv_heads, context_size, head_dim)
 
-          warnings.filterwarnings("ignore", category=FutureWarning)
+    class KvWrapper(torch.nn.Module):
+        def __init__(self, model):
+            super().__init__()
+            self.model = model
+            self.kv_cache = SliceUpdateKeyValueCache(shape=kv_cache_shape, dtype=torch.float16)
+        @torch.no_grad()
+        def forward(self, input_ids, attention_mask, cache_position):
+            out = self.model(
+                input_ids=input_ids,
+                attention_mask=attention_mask,
+                past_key_values=self.kv_cache,
+                cache_position=cache_position,
+                use_cache=True,
+            )
+            return out.logits
 
-          token = os.getenv("HF_TOKEN")
-          if not token:
-            print("Error: HF_TOKEN environment variable is not set.")
-            raise SystemExit(1)
+    wrapper = KvWrapper(base).eval()
 
-          # Login (read-only is fine)
-          login(token=token)
-          print("Successfully logged in to Hugging Face")
+    # Example inputs: int32 to match Core ML specs
+    bs = batch_size
+    ex_ids  = torch.zeros((bs,1), dtype=torch.int32)
+    ex_mask = torch.ones((bs,1),  dtype=torch.int32)
+    ex_pos  = torch.tensor([0],   dtype=torch.int32)
 
-          class SliceUpdateKeyValueCache(Cache):
-              def __init__(self, *, shape: Sequence[int], dtype: torch.dtype = torch.float32) -> None:
-                  super().__init__()
-                  self.register_buffer("k", torch.zeros(shape, dtype=dtype))
-                  self.register_buffer("v", torch.zeros(shape, dtype=dtype))
+    with torch.inference_mode():
+        traced = torch.jit.trace(wrapper, (ex_ids, ex_mask, ex_pos), check_trace=False)
 
-              def __len__(self) -> int:
-                  return self.k.shape[3]
+    seq = ct.RangeDim(lower_bound=1, upper_bound=context_size, default=1)
+    inputs = [
+      ct.TensorType(name="input_ids",      shape=(bs, seq), dtype=np.int32),
+      ct.TensorType(name="attention_mask", shape=(bs, seq), dtype=np.int32),
+      ct.TensorType(name="cache_position", shape=(seq,),    dtype=np.int32),
+    ]
+    outputs = [ct.TensorType(name="logits", dtype=np.float16)]
 
-              def update(self, k_state: torch.Tensor, v_state: torch.Tensor, layer_idx: int,
-                         cache_kwargs: Optional[dict[str, Any]] = None) -> tuple[torch.Tensor, torch.Tensor]:
-                  position = cache_kwargs.get("cache_position", None)
-                  assert position is not None, "cache_position required to update cache."
-                  begin = self.k.shape[3]
-                  end = begin + position.shape[-1]
-                  self.k[layer_idx, :, : k_state.shape[1], begin:end, :] = k_state
-                  self.v[layer_idx, :, : v_state.shape[1], begin:end, :] = v_state
-                  k_state = self.k[layer_idx, :, :, :end, :]
-                  v_state = self.v[layer_idx, :, :, :end, :]
-                  return k_state, v_state
+    mlmodel = ct.convert(
+      traced,
+      inputs=inputs,
+      outputs=outputs,
+      compute_units=ct.ComputeUnit.CPU_AND_NE,     # good default on macOS runners
+      minimum_deployment_target=ct.target.iOS18,   # matches modern ANE paths
+      skip_model_load=True,
+    )
 
-              def get_seq_length(self, _: int = 0) -> int:
-                  return self.k.shape[3]
-
-          try:
-              model_id = "cognitivecomputations/Dolphin3.0-Llama3.2-3B"
-              _ = AutoConfig.from_pretrained(model_id)
-              torch_model = LlamaForCausalLM.from_pretrained(
-                  model_id,
-                  torch_dtype=torch.float16
-              )
-              torch_model.eval()  # important
-
-              # KV cache wrapper (stateful)
-              num_layers = len(torch_model.model.layers)
-              num_kv_heads = torch_model.config.num_key_value_heads
-              head_dim = torch_model.config.hidden_size // torch_model.config.num_attention_heads
-              batch_size, context_size = 1, 256
-              kv_cache_shape = (num_layers, batch_size, num_kv_heads, context_size, head_dim)
-
-              class KvCacheStateLlamaForCausalLM(torch.nn.Module):
-                  def __init__(self, model):
-                      super().__init__()
-                      self.model = model
-                      self.kv_cache = SliceUpdateKeyValueCache(shape=kv_cache_shape, dtype=torch.float16)
-
-                  @torch.no_grad()
-                  def forward(self,
-                              input_ids: torch.Tensor,
-                              attention_mask: torch.Tensor,
-                              cache_position: torch.Tensor) -> torch.Tensor:
-                      out = self.model(
-                          input_ids=input_ids,
-                          attention_mask=attention_mask,
-                          past_key_values=self.kv_cache,
-                          cache_position=cache_position,
-                          use_cache=True,
-                      )
-                      return out.logits
-
-              wrapper = KvCacheStateLlamaForCausalLM(torch_model)
-              wrapper.eval()  # ensure eval on the traced module as well
-
-              # Example inputs: int32 to match Core ML specs we set below
-              input_shape = (batch_size, 1)
-              example_input_ids = torch.zeros(input_shape, dtype=torch.int32)
-              example_attention_mask = torch.ones(input_shape, dtype=torch.int32)
-              example_cache_position = torch.tensor([0], dtype=torch.int32)
-
-              # Trace (stateful; disable strict trace checks)
-              with torch.inference_mode():
-                  traced = torch.jit.trace(
-                      wrapper,
-                      (example_input_ids, example_attention_mask, example_cache_position),
-                      check_trace=False
-                  )
-
-              # Flexible sequence dim
-              seq_dim = ct.RangeDim(lower_bound=1, upper_bound=context_size, default=1)
-              inputs = [
-                  ct.TensorType(name="input_ids",      shape=(batch_size, seq_dim), dtype=np.int32),
-                  ct.TensorType(name="attention_mask", shape=(batch_size, seq_dim), dtype=np.int32),
-                  ct.TensorType(name="cache_position", shape=(seq_dim,),           dtype=np.int32),
-              ]
-              outputs = [ct.TensorType(name="logits", dtype=np.float16)]
-
-              mlmodel = ct.convert(
-                  traced,
-                  inputs=inputs,
-                  outputs=outputs,
-                  compute_units=ct.ComputeUnit.CPU_AND_NE,  # good default on CI macs
-                  minimum_deployment_target=ct.target.iOS18,
-                  skip_model_load=True,
-              )
-
-              # Quantization (coremltools==8.0): pass dtype as STRING
-              from coremltools.optimize.coreml import linear_quantize_weights, OpLinearQuantizerConfig
-              quant_config = OpLinearQuantizerConfig(
-                  mode="linear_symmetric",
-                  dtype="int4",           # or "int8" if you prefer
-                  granularity="per_block",
-                  block_size=32,
-              )
-              qmodel = linear_quantize_weights(mlmodel, config=quant_config)
-
-              out_name = "Dolphin3.0-Llama3.2-3B.mlmodel"
-              qmodel.save(out_name)
-              print(f"Model conversion successful -> {out_name}")
-
-          except Exception as e:
-              print(f"Error during conversion: {e}")
-              raise
-          EOF
-
-      # (Optional) Commit via Git LFS; otherwise skip committing giant binaries
-      # - name: Commit the converted model (skip if you don't use Git LFS)
-      #   run: |
-      #     git config user.name github-actions
-      #     git config user.email github-actions@github.com
-      #     git lfs install
-      #     git add Dolphin3.0-Llama3.2-3B.mlmodel
-      #     git commit -m "Add converted Core ML model" || echo "No changes to commit"
-      #     git push
-      #   continue-on-error: true
-
-      - name: Upload artifact
-        uses: actions/upload-artifact@v4
-        with:
-          name: coreml-model
-          path: Dolphin3.0-Llama3.2-3B.mlmodel
+    # --- v8-aligned quantization (kwargs) ---
+    from coremltools.optimize.coreml import linear_quantize_weights
+    try:
+        qmodel = linear_quantize_weights(
+            mlmodel,
+            nbits=4,
+            quantization_mode="linear_symmetric",
+            granularity="per_block",
+            block_size=32,
+        )
+        out = "Dolphin3.0-Llama3.2-3B.mlmodel"
+        qmodel.save(out)
+        print(f"Saved INT4 model -> {out}")
+    except Exception as e:
+        print(f"Quantization failed ({e}); exporting FP16.")
+        out = "Dolphin3.0-Llama3.2-3B-fp16.mlmodel"
+        mlmodel.save(out)
+        print(f"Saved FP16 model -> {out}")
+    EOF
