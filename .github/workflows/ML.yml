@@ -63,7 +63,7 @@ jobs:
 
               wrapper = BaselineLlamaForCausalLM(torch_model)
 
-              batch_size, context_size = 1, 2048
+              batch_size, context_size = 1, 512
               input_shape = (batch_size, context_size)
               example_input_ids = torch.zeros(input_shape, dtype=torch.int64)
               example_attention_mask = torch.zeros(input_shape, dtype=torch.int64)
