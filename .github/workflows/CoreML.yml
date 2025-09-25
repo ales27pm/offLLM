@@ -127,7 +127,7 @@ jobs:
               ]
               outputs = [ct.TensorType(name="logits", dtype=np.float16)]
 
-              # Convert to Core ML, relying on registered buffers as static initial states
+              # Convert to Core ML
               mlmodel = ct.convert(
                   traced_model,
                   inputs=inputs,
@@ -136,14 +136,13 @@ jobs:
                   skip_model_load=True,
               )
 
-              # Quantization
-              quant_config = ct.optimize.coreml.OpLinearQuantizerConfig(
-                  mode="linear_symmetric",
-                  dtype=ct.optimize.coreml.data_types.int4,
-                  granularity="per_block",
-                  block_size=32,
+              # Quantization with OptimizationConfig
+              from coremltools.optimize.coreml import OptimizationConfig
+              quant_config = OptimizationConfig(
+                  global_config=OptimizationConfig.GlobalConfig(mode="linear_quantization", weight_dtype="int8"),
+                  layer_config=None,
               )
-              quantized_mlmodel = ct.optimize.coreml.linear_quantize_weights(mlmodel, config=quant_config)
+              quantized_mlmodel = ct.optimize.coreml.optimize_weights(mlmodel, config=quant_config)
 
               # Save model as mlpackage for stateful compatibility
               quantized_mlmodel.save("Dolphin3.0-Llama3.2-3B.mlpackage")
