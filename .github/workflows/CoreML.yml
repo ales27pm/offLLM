@@ -61,7 +61,7 @@ jobs:
                   self.register_buffer("v", torch.zeros(shape, dtype=dtype))
 
               def __len__(self) -> int:
-                  return self.k.shape[3]  # Return the current sequence length (number of tokens)
+                  return self.k.shape[3]
 
               def update(self, k_state: torch.Tensor, v_state: torch.Tensor, layer_idx: int, cache_kwargs: Optional[dict[str, Any]] = None) -> tuple[torch.Tensor, torch.Tensor]:
                   position = cache_kwargs.get("cache_position", None)
@@ -87,7 +87,7 @@ jobs:
               num_layers = len(torch_model.model.layers)
               num_kv_heads = torch_model.config.num_key_value_heads
               head_dim = torch_model.config.hidden_size // torch_model.config.num_attention_heads
-              batch_size, context_size = 1, 2048
+              batch_size, context_size = 1, 512  # Reduced to avoid memory issues
               kv_cache_shape = (num_layers, batch_size, num_kv_heads, context_size, head_dim)
 
               class KvCacheStateLlamaForCausalLM(torch.nn.Module):
@@ -110,9 +110,9 @@ jobs:
               wrapper = KvCacheStateLlamaForCausalLM(torch_model)
 
               # Define input shapes (use example with seq_len=1 for extend phase)
-              input_shape = (batch_size, 1)  # Dynamic for extend
+              input_shape = (batch_size, 1)
               example_input_ids = torch.zeros(input_shape, dtype=torch.int64)
-              example_attention_mask = torch.ones(input_shape, dtype=torch.int64)  # Use ones for attention mask
+              example_attention_mask = torch.ones(input_shape, dtype=torch.int64)
               example_cache_position = torch.tensor([0], dtype=torch.int64)
 
               # Trace the model with check_trace=False to handle stateful components
@@ -136,16 +136,18 @@ jobs:
                   skip_model_load=True,
               )
 
-              # Quantization with OptimizationConfig
-              from coremltools.optimize.coreml import OptimizationConfig
-              quant_config = OptimizationConfig(
-                  global_config=OptimizationConfig.GlobalConfig(mode="linear_quantization", weight_dtype="int8"),
-                  layer_config=None,
+              # Quantization
+              from coremltools.optimize.coreml import OpLinearQuantizerConfig, linear_quantize_weights
+              quant_config = OpLinearQuantizerConfig(
+                  mode="linear_symmetric",
+                  number_of_bits=4,
+                  granularity="per_block",
+                  block_size=32,
               )
-              quantized_mlmodel = ct.optimize.coreml.optimize_weights(mlmodel, config=quant_config)
+              quantized_mlmodel = linear_quantize_weights(mlmodel, quant_config)
 
-              # Save model as mlpackage for stateful compatibility
-              quantized_mlmodel.save("Dolphin3.0-Llama3.2-3B.mlpackage")
+              # Save model
+              quantized_mlmodel.save("Dolphin3.0-Llama3.2-3B.mlmodel")
               print("Model conversion successful")
           except Exception as e:
               print(f"Error during conversion: {e}")
@@ -156,7 +158,7 @@ jobs:
         run: |
           git config user.name github-actions
           git config user.email github-actions@github.com
-          git add Dolphin3.0-Llama3.2-3B.mlpackage
+          git add Dolphin3.0-Llama3.2-3B.mlmodel
           git commit -m "Add converted Core ML model" || echo "No changes to commit"
           git push
         continue-on-error: true
@@ -165,4 +167,4 @@ jobs:
         uses: actions/upload-artifact@v4
         with:
           name: coreml-model
-          path: Dolphin3.0-Llama3.2-3B.mlpackage
+          path: Dolphin3.0-Llama3.2-3B.mlmodel
