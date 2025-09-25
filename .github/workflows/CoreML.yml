@@ -54,11 +54,14 @@ jobs:
               print(f"Failed to log in to Hugging Face: {e}")
               exit(1)
 
-          class SliceUpdateKeyValueCache(torch.nn.Module):
+          class SliceUpdateKeyValueCache(Cache):
               def __init__(self, *, shape: Sequence[int], dtype: torch.dtype = torch.float32) -> None:
                   super().__init__()
                   self.register_buffer("k", torch.zeros(shape, dtype=dtype))
                   self.register_buffer("v", torch.zeros(shape, dtype=dtype))
+
+              def __len__(self) -> int:
+                  return self.k.shape[3]  # Return the current sequence length (number of tokens)
 
               def update(self, k_state: torch.Tensor, v_state: torch.Tensor, layer_idx: int, cache_kwargs: Optional[dict[str, Any]] = None) -> tuple[torch.Tensor, torch.Tensor]:
                   position = cache_kwargs.get("cache_position", None)
@@ -124,16 +127,13 @@ jobs:
               ]
               outputs = [ct.TensorType(name="logits", dtype=np.float16)]
 
-              # Convert to Core ML with state params for KV cache
+              # Convert to Core ML without explicit StateParam, relying on registered buffers
               mlmodel = ct.convert(
                   traced_model,
                   inputs=inputs,
                   outputs=outputs,
-                  state_params=[
-                      ct.StateParam(name="kv_cache.k"),
-                      ct.StateParam(name="kv_cache.v"),
-                  ],
                   minimum_deployment_target=ct.target.iOS18,
+                  convert_to_state_dict=True,  # Enable stateful conversion
                   skip_model_load=True,
               )
 
