@@ -8,6 +8,7 @@ on:
 jobs:
   convert:
     runs-on: macos-latest
+    environment: offLLM  # Specify the environment to access its secrets
     steps:
       - name: Checkout repository
         uses: actions/checkout@v4
@@ -19,11 +20,11 @@ jobs:
 
       - name: Install dependencies
         run: |
-          pip install torch==2.2.0 transformers coremltools==7.2 numpy huggingface-hub
+          pip install torch==2.2.0 transformers==4.44.2 coremltools==7.2 numpy==1.26.4 huggingface-hub==0.25.1
 
       - name: Convert model to Core ML
         env:
-          HF_TOKEN: ${{ secrets.HF_TOKEN }}
+          HF_TOKEN: ${{ secrets.HF_TOKEN }}  # This will now use the offLLM environment's HF_TOKEN
         run: |
           python - <<'EOF'
           import os
