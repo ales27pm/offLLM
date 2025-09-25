@@ -8,7 +8,7 @@ on:
 jobs:
   convert:
     runs-on: macos-latest
-    environment: offLLM  # Specify the environment to access its secrets
+    environment: offLLM
     steps:
       - name: Checkout repository
         uses: actions/checkout@v4
@@ -24,7 +24,7 @@ jobs:
 
       - name: Convert model to Core ML
         env:
-          HF_TOKEN: ${{ secrets.HF_TOKEN }}  # This will now use the offLLM environment's HF_TOKEN
+          HF_TOKEN: ${{ secrets.HF_TOKEN }}
         run: |
           python - <<'EOF'
           import os
@@ -49,10 +49,11 @@ jobs:
               exit(1)
 
           try:
-              # Load model
+              # Load model (no quantization training by default)
               model_id = "cognitivecomputations/Dolphin3.0-Llama3.2-3B"
               config = AutoConfig.from_pretrained(model_id)
               torch_model = LlamaForCausalLM.from_pretrained(model_id, torch_dtype=torch.float16).eval()
+              # Note: _is_quantized_training_enabled is deprecated; using hf_quantizer.is_trainable if needed in future
 
               # Wrap model for TorchScript
               class BaselineLlamaForCausalLM(torch.nn.Module):
@@ -60,6 +61,7 @@ jobs:
                       super().__init__()
                       self.model = model
 
+                  @torch.jit.script_method  # Use script_method for control flow support
                   @torch.no_grad()
                   def forward(self, input_ids: torch.LongTensor, attention_mask: torch.LongTensor) -> torch.Tensor:
                       out = self.model(input_ids=input_ids, attention_mask=attention_mask, use_cache=False)
@@ -73,8 +75,8 @@ jobs:
               example_input_ids = torch.zeros(input_shape, dtype=torch.int64)
               example_attention_mask = torch.zeros(input_shape, dtype=torch.int64)
 
-              # Trace model
-              traced_model = torch.jit.trace(wrapper, (example_input_ids, example_attention_mask))
+              # Script the model instead of tracing
+              scripted_model = torch.jit.script(wrapper)
 
               # Define Core ML inputs and outputs
               inputs = [
@@ -85,7 +87,7 @@ jobs:
 
               # Convert to Core ML
               mlmodel = ct.convert(
-                  traced_model,
+                  scripted_model,
                   inputs=inputs,
                   outputs=outputs,
                   minimum_deployment_target=ct.target.macOS13,
