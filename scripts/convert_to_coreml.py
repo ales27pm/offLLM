@@ -6,7 +6,7 @@ import warnings
 import coremltools as ct
 import numpy as np
 import torch
-from transformers import AutoConfig, AutoModelForCausalLM
+from transformers import AutoModelForCausalLM
 from transformers.cache_utils import Cache
 
 warnings.filterwarnings("ignore", category=FutureWarning)
@@ -17,29 +17,49 @@ class SliceUpdateKeyValueCache(Cache):
         super().__init__()
         self.register_buffer("k", torch.zeros(shape, dtype=dtype))
         self.register_buffer("v", torch.zeros(shape, dtype=dtype))
+        self.register_buffer(
+            "_current_length",
+            torch.zeros(shape[0], dtype=torch.int32),
+            persistent=False,
+        )
 
     def __len__(self):
-        return self.k.shape[3]
+        return int(self._current_length.max().item())
 
     def update(self, k_state, v_state, layer_idx, cache_kwargs=None):
         position = (cache_kwargs or {}).get("cache_position", None)
         if position is None:
             raise ValueError("cache_position required")
-        begin = self.k.shape[3]
-        end = begin + position.shape[-1]
-        self.k[layer_idx, :, : k_state.shape[1], begin:end, :] = k_state
-        self.v[layer_idx, :, : v_state.shape[1], begin:end, :] = v_state
+        position = torch.as_tensor(position)
+        if position.ndim > 1:
+            position = position.reshape(-1)
+        start = int(position.min().item())
+        end = int(position.max().item() + 1)
+        seq_len = k_state.shape[2]
+        if end - start != seq_len:
+            raise ValueError(
+                "cache_position must describe a contiguous range matching the incoming sequence length"
+            )
+        if end > self.k.shape[3]:
+            raise ValueError("cache_position exceeds allocated cache size")
+        self.k[layer_idx, :, : k_state.shape[1], start:end, :] = k_state
+        self.v[layer_idx, :, : v_state.shape[1], start:end, :] = v_state
+        current = max(int(self._current_length[layer_idx].item()), end)
+        self._current_length[layer_idx] = torch.tensor(
+            current,
+            device=self._current_length.device,
+            dtype=self._current_length.dtype,
+        )
         return (
-            self.k[layer_idx, :, :, :end, :],
-            self.v[layer_idx, :, :, :end, :],
+            self.k[layer_idx, :, :, :current, :],
+            self.v[layer_idx, :, :, :current, :],
         )
 
     def get_seq_length(self, _=0):
-        return self.k.shape[3]
+        return int(self._current_length.max().item())
 
 
-def convert(hf_model_path: str, out_prefix: str) -> None:
-    AutoConfig.from_pretrained(hf_model_path)
+def convert(hf_model_path: str, out_prefix: str, artifacts_path: str) -> None:
     base_model = AutoModelForCausalLM.from_pretrained(
         hf_model_path,
         torch_dtype=torch.float16,
@@ -126,14 +146,25 @@ def convert(hf_model_path: str, out_prefix: str) -> None:
     )
     save(int4_model, "int4b32")
 
-    with open("coreml_artifacts.json", "w", encoding="utf-8") as handle:
+    with open(artifacts_path, "w", encoding="utf-8") as handle:
         json.dump({"artifacts": artifacts}, handle, indent=2)
-    print("Artifacts:", json.dumps(artifacts, indent=2))
+    print(
+        f"Artifacts written to {artifacts_path}:",
+        json.dumps(artifacts, indent=2),
+    )
 
 
 if __name__ == "__main__":
     parser = argparse.ArgumentParser()
     parser.add_argument("--hf_model", required=True)
     parser.add_argument("--out_prefix", required=True)
+    parser.add_argument(
+        "--artifacts_path",
+        default="coreml_artifacts.json",
+        help=(
+            "Path to write coreml_artifacts.json (default: current working "
+            "directory/coreml_artifacts.json)"
+        ),
+    )
     arguments = parser.parse_args()
-    convert(arguments.hf_model, arguments.out_prefix)
+    convert(arguments.hf_model, arguments.out_prefix, arguments.artifacts_path)

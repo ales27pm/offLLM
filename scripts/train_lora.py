@@ -48,18 +48,34 @@ def main() -> None:
         raise FileNotFoundError(f"Dataset not found: {args.train_file}")
 
     tokenizer = AutoTokenizer.from_pretrained(args.base_model, use_fast=True)
-    tokenizer.pad_token = tokenizer.eos_token
+    if tokenizer.pad_token is None:
+        tokenizer.pad_token = tokenizer.eos_token
 
     dataset = load_dataset("json", data_files=args.train_file, split="train")
 
     def _validate(record: dict) -> dict:
-        if {
-            "instruction",
-            "expected_tool_call",
-            "expected_answer",
-        } - record.keys():
+        required_keys = {"instruction", "expected_tool_call", "expected_answer"}
+        missing_keys = required_keys - record.keys()
+        if missing_keys:
             raise ValueError(
-                "Each JSONL record must include 'instruction', 'expected_tool_call', and 'expected_answer'."
+                "Each JSONL record must include 'instruction', 'expected_tool_call', and 'expected_answer'. "
+                f"Missing: {missing_keys}"
+            )
+        if not isinstance(record["instruction"], str):
+            raise ValueError(
+                "Value for 'instruction' must be a string, "
+                f"got {type(record['instruction']).__name__}."
+            )
+        tool_value = record["expected_tool_call"]
+        if not isinstance(tool_value, (str, dict)):
+            raise ValueError(
+                "Value for 'expected_tool_call' must be a string or object, "
+                f"got {type(tool_value).__name__}."
+            )
+        if not isinstance(record["expected_answer"], str):
+            raise ValueError(
+                "Value for 'expected_answer' must be a string, "
+                f"got {type(record['expected_answer']).__name__}."
             )
         return record
 
