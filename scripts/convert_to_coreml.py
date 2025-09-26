@@ -1,12 +1,12 @@
-import argparse
-import json
 import os
-import warnings
-
-import coremltools as ct
+import json
+import argparse
 import numpy as np
 import torch
-from transformers import AutoModelForCausalLM
+import warnings
+import coremltools as ct
+import coremltools.optimize as cto
+from transformers import AutoModelForCausalLM, AutoConfig
 from transformers.cache_utils import Cache
 
 warnings.filterwarnings("ignore", category=FutureWarning)
@@ -59,60 +59,98 @@ class SliceUpdateKeyValueCache(Cache):
         return int(self._current_length.max().item())
 
 
-def convert(hf_model_path: str, out_prefix: str, artifacts_path: str) -> None:
+def convert(
+    hf_model_path: str,
+    out_prefix: str,
+    artifacts_path: str = "coreml_artifacts.json",
+):
+    config = AutoConfig.from_pretrained(hf_model_path)
     base_model = AutoModelForCausalLM.from_pretrained(
         hf_model_path,
         torch_dtype=torch.float16,
     )
     base_model.eval()
 
-    num_layers = len(base_model.model.layers)
-    num_kv_heads = base_model.config.num_key_value_heads
-    head_dim = base_model.config.hidden_size // base_model.config.num_attention_heads
-    batch_size, cache_ctx = 1, 256
-    kv_shape = (num_layers, batch_size, num_kv_heads, cache_ctx, head_dim)
+    num_layers = getattr(config, "num_hidden_layers", None)
+    if num_layers is None:
+        base_layers = getattr(getattr(base_model, "model", None), "layers", None)
+        if base_layers is None:
+            raise AttributeError(
+                "Unable to determine number of decoder layers from model or config",
+            )
+        num_layers = len(base_layers)
+    num_key_value_heads = getattr(config, "num_key_value_heads", None)
+    if num_key_value_heads is None:
+        num_key_value_heads = getattr(
+            config,
+            "num_attention_heads",
+            getattr(config, "n_head", None),
+        )
+    if num_key_value_heads is None:
+        raise AttributeError(
+            "Model config is missing num_key_value_heads/num_attention_heads information",
+        )
+    num_attention_heads = getattr(
+        config,
+        "num_attention_heads",
+        getattr(config, "n_head", None),
+    )
+    if num_attention_heads is None:
+        raise AttributeError(
+            "Model config is missing num_attention_heads/n_head information",
+        )
+    head_dim = config.hidden_size // num_attention_heads
+    batch_size, context_length = 1, 256
+    kv_shape = (
+        num_layers,
+        batch_size,
+        num_key_value_heads,
+        context_length,
+        head_dim,
+    )
 
     class Wrapper(torch.nn.Module):
-        def __init__(self, module: torch.nn.Module):
+        def __init__(self, model):
             super().__init__()
-            self.module = module
+            self.model = model
             self.kv = SliceUpdateKeyValueCache(shape=kv_shape, dtype=torch.float16)
 
         @torch.no_grad()
         def forward(self, input_ids, attention_mask, cache_position):
-            output = self.module(
+            out = self.model(
                 input_ids=input_ids,
                 attention_mask=attention_mask,
                 past_key_values=self.kv,
                 cache_position=cache_position,
                 use_cache=True,
             )
-            return output.logits
+            return out.logits
 
-    wrapper = Wrapper(base_model).eval()
-    example_ids = torch.zeros((batch_size, 1), dtype=torch.int32)
-    example_mask = torch.ones((batch_size, 1), dtype=torch.int32)
-    example_pos = torch.tensor([0], dtype=torch.int32)
+    wrapped_model = Wrapper(base_model).eval()
+    example_input_ids = torch.zeros((batch_size, 1), dtype=torch.int32)
+    example_attention_mask = torch.ones((batch_size, 1), dtype=torch.int32)
+    example_cache_position = torch.tensor([0], dtype=torch.int32)
 
     with torch.inference_mode():
         traced = torch.jit.trace(
-            wrapper,
-            (example_ids, example_mask, example_pos),
+            wrapped_model,
+            (example_input_ids, example_attention_mask, example_cache_position),
             check_trace=False,
         )
 
-    seq_dim = ct.RangeDim(lower_bound=1, upper_bound=cache_ctx, default=1)
+    sequence_range = ct.RangeDim(lower_bound=1, upper_bound=context_length, default=1)
     inputs = [
-        ct.TensorType("input_ids", (batch_size, seq_dim), np.int32),
-        ct.TensorType("attention_mask", (batch_size, seq_dim), np.int32),
-        ct.TensorType("cache_position", (seq_dim,), np.int32),
+        ct.TensorType("input_ids", (batch_size, sequence_range), np.int32),
+        ct.TensorType("attention_mask", (batch_size, sequence_range), np.int32),
+        ct.TensorType("cache_position", (sequence_range,), np.int32),
     ]
     outputs = [ct.TensorType("logits", dtype=np.float16)]
 
-    mlmodel = ct.convert(
+    mlpackage_model = ct.convert(
         traced,
         inputs=inputs,
         outputs=outputs,
+        convert_to="mlprogram",
         compute_units=ct.ComputeUnit.CPU_AND_NE,
         minimum_deployment_target=ct.target.iOS18,
         skip_model_load=True,
@@ -120,34 +158,48 @@ def convert(hf_model_path: str, out_prefix: str, artifacts_path: str) -> None:
 
     artifacts = []
 
-    def save(model, suffix: str) -> None:
-        filename = f"{out_prefix}-{suffix}.mlmodel"
-        model.save(filename)
-        artifacts.append({"file": filename, "bytes": os.path.getsize(filename)})
+    def save_package(model, suffix):
+        name = f"{out_prefix}-{suffix}.mlpackage"
+        model.save(name)
+        total_bytes = 0
+        for root, _, files in os.walk(name):
+            for file_name in files:
+                total_bytes += os.path.getsize(os.path.join(root, file_name))
+        artifacts.append({"file": name, "bytes": total_bytes})
 
-    save(mlmodel, "fp16")
+    quantization_steps = [
+        ("fp16", lambda m: m),
+        (
+            "int8",
+            lambda m: cto.coreml.linear_quantize_weights(
+                m,
+                config=cto.coreml.OptimizationConfig(
+                    global_config=cto.coreml.OpLinearQuantizerConfig(
+                        mode="linear_symmetric",
+                    ),
+                ),
+            ),
+        ),
+        (
+            "int4-lut",
+            lambda m: cto.coreml.palettize_weights(
+                m,
+                config=cto.coreml.OptimizationConfig(
+                    global_config=cto.coreml.OpPalettizerConfig(
+                        mode="kmeans",
+                        nbits=4,
+                    ),
+                ),
+            ),
+        ),
+    ]
 
-    from coremltools.optimize.coreml import linear_quantize_weights
+    for suffix, quantize in quantization_steps:
+        model_to_save = quantize(mlpackage_model)
+        save_package(model_to_save, suffix)
 
-    int8_model = linear_quantize_weights(
-        mlmodel,
-        nbits=8,
-        quantization_mode="linear_symmetric",
-        granularity="per_channel",
-    )
-    save(int8_model, "int8")
-
-    int4_model = linear_quantize_weights(
-        mlmodel,
-        nbits=4,
-        quantization_mode="linear_symmetric",
-        granularity="per_block",
-        block_size=32,
-    )
-    save(int4_model, "int4b32")
-
-    with open(artifacts_path, "w", encoding="utf-8") as handle:
-        json.dump({"artifacts": artifacts}, handle, indent=2)
+    with open(artifacts_path, "w") as f:
+        json.dump({"artifacts": artifacts}, f, indent=2)
     print(
         f"Artifacts written to {artifacts_path}:",
         json.dumps(artifacts, indent=2),
@@ -155,16 +207,9 @@ def convert(hf_model_path: str, out_prefix: str, artifacts_path: str) -> None:
 
 
 if __name__ == "__main__":
-    parser = argparse.ArgumentParser()
-    parser.add_argument("--hf_model", required=True)
-    parser.add_argument("--out_prefix", required=True)
-    parser.add_argument(
-        "--artifacts_path",
-        default="coreml_artifacts.json",
-        help=(
-            "Path to write coreml_artifacts.json (default: current working "
-            "directory/coreml_artifacts.json)"
-        ),
-    )
-    arguments = parser.parse_args()
-    convert(arguments.hf_model, arguments.out_prefix, arguments.artifacts_path)
+    ap = argparse.ArgumentParser()
+    ap.add_argument("--hf_model", required=True)
+    ap.add_argument("--out_prefix", required=True)
+    ap.add_argument("--artifacts_path", default="coreml_artifacts.json")
+    args = ap.parse_args()
+    convert(args.hf_model, args.out_prefix, args.artifacts_path)

@@ -130,12 +130,12 @@ jobs:
                   granularity="per_block",
                   block_size=32,
               )
-              out = "Dolphin3.0-Llama3.2-3B.mlmodel"
+              out = "Dolphin3.0-Llama3.2-3B.mlpackage"
               qmodel.save(out)
               print(f"Saved INT4 model -> {out}")
           except Exception as e:
               print(f"Quantization failed ({e}); exporting FP16.")
-              out = "Dolphin3.0-Llama3.2-3B-fp16.mlmodel"
+              out = "Dolphin3.0-Llama3.2-3B-fp16.mlpackage"
               mlmodel.save(out)
               print(f"Saved FP16 model -> {out}")
           EOF
@@ -145,6 +145,6 @@ jobs:
         with:
           name: coreml-model
           path: |
-            Dolphin3.0-Llama3.2-3B.mlmodel
-            Dolphin3.0-Llama3.2-3B-fp16.mlmodel
+            Dolphin3.0-Llama3.2-3B.mlpackage
+            Dolphin3.0-Llama3.2-3B-fp16.mlpackage
           if-no-files-found: ignore
