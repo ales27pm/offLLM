@@ -20,31 +20,28 @@ export async function simpleCache(key, fn, ttl = 5 * 60 * 1000) {
   const now = Date.now();
   const existing = cache.get(key);
 
-  if (existing) {
-    if (existing.promise) {
-      return existing.promise;
-    }
-
-    if (existing.expiresAt > now) {
-      return existing.value;
-    }
-
-    cache.delete(key);
+  if (existing && existing.expiresAt > now) {
+    return existing.promise.catch((error) => {
+      // When the underlying fetch fails, retry the call so each consumer
+      // receives its own error instance instead of a shared rejection.
+      return simpleCache(key, fn, ttl);
+    });
   }
 
-  const promise = Promise.resolve()
-    .then(() => fn())
-    .then((value) => {
-      cache.set(key, {
-        value,
+  const promise = (async () => {
+    try {
+      const value = await fn();
+      const resolvedEntry = {
+        promise: Promise.resolve(value),
         expiresAt: Date.now() + ttl,
-      });
+      };
+      cache.set(key, resolvedEntry);
       return value;
-    })
-    .catch((error) => {
+    } catch (error) {
       cache.delete(key);
       throw error;
-    });
+    }
+  })();
 
   cache.set(key, {
     promise,
@@ -61,43 +58,48 @@ export function rateLimiter(provider, fn, delay = 1000) {
     );
   }
 
-  const safeDelay = Math.max(0, delay);
+  const normalizedDelay = Number(delay);
+  if (!Number.isFinite(normalizedDelay)) {
+    return Promise.reject(
+      new TypeError("rateLimiter requires a finite delay in milliseconds"),
+    );
+  }
+
+  if (normalizedDelay < 0) {
+    return Promise.reject(
+      new RangeError("rateLimiter delay must be non-negative"),
+    );
+  }
+
+  const safeDelay = normalizedDelay;
 
   let state = rateLimiterState.get(provider);
   if (!state) {
     state = {
       queue: Promise.resolve(),
       lastInvocationTime: 0,
-      hasRun: false,
     };
     rateLimiterState.set(provider, state);
   }
 
-  const scheduled = state.queue
-    .catch(() => undefined)
-    .then(async () => {
-      const now = Date.now();
+  const run = async () => {
+    const now = Date.now();
+    const wait = safeDelay - (now - state.lastInvocationTime);
+    if (wait > 0) {
+      await waitFor(wait);
+    }
 
-      if (state.hasRun) {
-        const elapsed = now - state.lastInvocationTime;
-        const waitTime = safeDelay - elapsed;
-        if (waitTime > 0) {
-          await waitFor(waitTime);
-        }
-      }
+    state.lastInvocationTime = Date.now();
+    return fn();
+  };
 
-      state.lastInvocationTime = Date.now();
-      state.hasRun = true;
+  const scheduled = state.queue.then(run, () => run());
 
-      return fn();
+  state.queue = scheduled
+    .then(() => undefined)
+    .catch(() => {
+      state.queue = Promise.resolve();
     });
-
-  state.queue = scheduled.then(
-    (value) => value,
-    (error) => {
-      throw error;
-    },
-  );
 
   return scheduled;
 }

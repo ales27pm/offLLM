@@ -65,6 +65,29 @@ describe("cacheAndRate utilities", () => {
     resetCacheAndRateState();
   });
 
+  it("does not deduplicate errors for concurrent calls to simpleCache", async () => {
+    jest.setSystemTime(new Date("2024-01-01T00:00:00.000Z"));
+    const { simpleCache, resetCacheAndRateState } = loadModule();
+
+    const fn = jest
+      .fn()
+      .mockImplementation(() => Promise.reject(new Error("boom")));
+
+    const promise1 = simpleCache("key", fn, 1000).catch((error) => error);
+    const promise2 = simpleCache("key", fn, 1000).catch((error) => error);
+
+    const [err1, err2] = await Promise.all([promise1, promise2]);
+
+    expect(err1).toBeInstanceOf(Error);
+    expect(err2).toBeInstanceOf(Error);
+    expect(err1).not.toBe(err2);
+    expect(err1.message).toBe("boom");
+    expect(err2.message).toBe("boom");
+    expect(fn).toHaveBeenCalledTimes(2);
+
+    resetCacheAndRateState();
+  });
+
   it("propagates errors from delayed rate-limited executions and continues queueing", async () => {
     jest.setSystemTime(new Date("2024-01-01T00:00:00.000Z"));
     const { rateLimiter, resetCacheAndRateState } = loadModule();
@@ -115,6 +138,59 @@ describe("cacheAndRate utilities", () => {
     );
     expect(deltas).toEqual([0, 100, 200]);
     expect(fn).toHaveBeenCalledTimes(3);
+
+    resetCacheAndRateState();
+  });
+
+  it("maintains separate rate limiting queues for each provider", async () => {
+    jest.setSystemTime(new Date("2024-01-01T00:00:00.000Z"));
+    const { rateLimiter, resetCacheAndRateState } = loadModule();
+
+    const providerAInvocations = [];
+    const providerBInvocations = [];
+
+    const fnA = jest.fn().mockImplementation(() => {
+      providerAInvocations.push(Date.now());
+      return Promise.resolve(`A${providerAInvocations.length}`);
+    });
+
+    const fnB = jest.fn().mockImplementation(() => {
+      providerBInvocations.push(Date.now());
+      return Promise.resolve(`B${providerBInvocations.length}`);
+    });
+
+    const pA1 = rateLimiter("providerA", fnA, 100);
+    const pA2 = rateLimiter("providerA", fnA, 100);
+    const pA3 = rateLimiter("providerA", fnA, 100);
+
+    const pB1 = rateLimiter("providerB", fnB, 100);
+    const pB2 = rateLimiter("providerB", fnB, 100);
+    const pB3 = rateLimiter("providerB", fnB, 100);
+
+    await jest.advanceTimersByTimeAsync(300);
+
+    await expect(Promise.all([pA1, pA2, pA3])).resolves.toEqual([
+      "A1",
+      "A2",
+      "A3",
+    ]);
+    await expect(Promise.all([pB1, pB2, pB3])).resolves.toEqual([
+      "B1",
+      "B2",
+      "B3",
+    ]);
+
+    const deltasA = providerAInvocations.map((time, index) =>
+      index === 0 ? 0 : time - providerAInvocations[0],
+    );
+    const deltasB = providerBInvocations.map((time, index) =>
+      index === 0 ? 0 : time - providerBInvocations[0],
+    );
+
+    expect(deltasA).toEqual([0, 100, 200]);
+    expect(deltasB).toEqual([0, 100, 200]);
+    expect(fnA).toHaveBeenCalledTimes(3);
+    expect(fnB).toHaveBeenCalledTimes(3);
 
     resetCacheAndRateState();
   });
