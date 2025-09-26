@@ -39,7 +39,7 @@
 
 - Long-term memory persists through `VectorMemory`, which enforces encryption-at-rest, schema migrations, and storage limits before writing any payloads to disk, keeping sensitive recall data under quota and uniformly structured.【F:src/memory/VectorMemory.ts†L1-L136】
 - Encryption is handled with AES-256-GCM inside `EncryptionService`, guaranteeing authenticated ciphertext for every memory record the persistence layer stores or retrieves.【F:src/services/encryption.ts†L1-L30】
-- External-provider calls respect API governance through `getApiKeys`/`validate`, while `simpleCache` and `rateLimiter` throttle requests so trust policies (key presence, request pacing) are enforced even when tools are invoked in tight loops.【F:src/services/utils/apiKeys.js†L1-L23】【F:src/services/utils/cacheAndRate.js†L1-L27】
+- External-provider calls respect API governance through `getApiKeys`/`validate`, while `simpleCache` deduplicates concurrent fetches and `rateLimiter` serialises bursts so trust policies (key presence, request pacing) are enforced even when tools are invoked in tight loops.【F:src/services/utils/apiKeys.js†L1-L23】【F:src/services/utils/cacheAndRate.js†L9-L92】
 
 ## Bridging and Native Turbo Modules
 
