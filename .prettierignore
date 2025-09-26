@@ -14,6 +14,8 @@ ios/MyOfflineLLMApp/Resources/Models
 .github/workflows/ios-unsigned-device.yml
 # ignore disabled workflow files
 .github/workflows/*.yml.disabled
+# Prettier lacks a Java parser; skip Android sources so format:check can run
+android/**/*.java
 README.md
 CONTRIBUTING.md
 # keep architecture doc unformatted so inline diagrams remain stable
