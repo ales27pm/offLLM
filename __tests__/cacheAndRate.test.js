@@ -48,6 +48,23 @@ describe("cacheAndRate utilities", () => {
     resetCacheAndRateState();
   });
 
+  it("validates TTL inputs before caching", async () => {
+    const { simpleCache, resetCacheAndRateState } = loadModule();
+
+    const fn = jest.fn().mockResolvedValue("ok");
+
+    await expect(simpleCache("key", fn, Number.NaN)).rejects.toThrow(
+      "simpleCache requires a finite TTL in milliseconds",
+    );
+    await expect(simpleCache("key", fn, -1)).rejects.toThrow(
+      "simpleCache TTL must be non-negative",
+    );
+
+    expect(fn).not.toHaveBeenCalled();
+
+    resetCacheAndRateState();
+  });
+
   it("does not cache errors", async () => {
     jest.setSystemTime(new Date("2024-01-01T00:00:00.000Z"));
     const { simpleCache, resetCacheAndRateState } = loadModule();
@@ -61,6 +78,24 @@ describe("cacheAndRate utilities", () => {
     await expect(simpleCache("key", fn, 1000)).rejects.toBe(error);
     await expect(simpleCache("key", fn, 1000)).resolves.toBe("recovered");
     expect(fn).toHaveBeenCalledTimes(2);
+
+    resetCacheAndRateState();
+  });
+
+  it("rejects invalid delay values in the rate limiter", async () => {
+    const { rateLimiter, resetCacheAndRateState } = loadModule();
+
+    const fn = jest.fn().mockResolvedValue("ok");
+
+    await expect(rateLimiter("provider", fn, Number.NaN)).rejects.toThrow(
+      "rateLimiter requires a finite delay in milliseconds",
+    );
+
+    await expect(rateLimiter("provider", fn, -1)).rejects.toThrow(
+      "rateLimiter delay must be non-negative",
+    );
+
+    expect(fn).not.toHaveBeenCalled();
 
     resetCacheAndRateState();
   });
