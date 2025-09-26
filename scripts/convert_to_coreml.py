@@ -59,26 +59,65 @@ class SliceUpdateKeyValueCache(Cache):
         return int(self._current_length.max().item())
 
 
-def convert(hf_model_path: str, out_prefix: str):
-    cfg = AutoConfig.from_pretrained(hf_model_path)
-    base = AutoModelForCausalLM.from_pretrained(hf_model_path, torch_dtype=torch.float16)
-    base.eval()
+def convert(
+    hf_model_path: str,
+    out_prefix: str,
+    artifacts_path: str = "coreml_artifacts.json",
+):
+    config = AutoConfig.from_pretrained(hf_model_path)
+    base_model = AutoModelForCausalLM.from_pretrained(
+        hf_model_path,
+        torch_dtype=torch.float16,
+    )
+    base_model.eval()
 
-    num_layers = getattr(cfg, "num_hidden_layers", len(base.model.layers))
-    num_kv = getattr(cfg, "num_key_value_heads", base.config.num_key_value_heads)
-    head_dim = cfg.hidden_size // cfg.num_attention_heads
-    bs, ctx = 1, 256
-    kv_shape = (num_layers, bs, num_kv, ctx, head_dim)
+    num_layers = getattr(config, "num_hidden_layers", None)
+    if num_layers is None:
+        base_layers = getattr(getattr(base_model, "model", None), "layers", None)
+        if base_layers is None:
+            raise AttributeError(
+                "Unable to determine number of decoder layers from model or config",
+            )
+        num_layers = len(base_layers)
+    num_key_value_heads = getattr(config, "num_key_value_heads", None)
+    if num_key_value_heads is None:
+        num_key_value_heads = getattr(
+            config,
+            "num_attention_heads",
+            getattr(config, "n_head", None),
+        )
+    if num_key_value_heads is None:
+        raise AttributeError(
+            "Model config is missing num_key_value_heads/num_attention_heads information",
+        )
+    num_attention_heads = getattr(
+        config,
+        "num_attention_heads",
+        getattr(config, "n_head", None),
+    )
+    if num_attention_heads is None:
+        raise AttributeError(
+            "Model config is missing num_attention_heads/n_head information",
+        )
+    head_dim = config.hidden_size // num_attention_heads
+    batch_size, context_length = 1, 256
+    kv_shape = (
+        num_layers,
+        batch_size,
+        num_key_value_heads,
+        context_length,
+        head_dim,
+    )
 
     class Wrapper(torch.nn.Module):
-        def __init__(self, m):
+        def __init__(self, model):
             super().__init__()
-            self.m = m
+            self.model = model
             self.kv = SliceUpdateKeyValueCache(shape=kv_shape, dtype=torch.float16)
 
         @torch.no_grad()
         def forward(self, input_ids, attention_mask, cache_position):
-            out = self.m(
+            out = self.model(
                 input_ids=input_ids,
                 attention_mask=attention_mask,
                 past_key_values=self.kv,
@@ -87,23 +126,27 @@ def convert(hf_model_path: str, out_prefix: str):
             )
             return out.logits
 
-    w = Wrapper(base).eval()
-    ex_ids = torch.zeros((bs, 1), dtype=torch.int32)
-    ex_mask = torch.ones((bs, 1), dtype=torch.int32)
-    ex_pos = torch.tensor([0], dtype=torch.int32)
+    wrapped_model = Wrapper(base_model).eval()
+    example_input_ids = torch.zeros((batch_size, 1), dtype=torch.int32)
+    example_attention_mask = torch.ones((batch_size, 1), dtype=torch.int32)
+    example_cache_position = torch.tensor([0], dtype=torch.int32)
 
     with torch.inference_mode():
-        traced = torch.jit.trace(w, (ex_ids, ex_mask, ex_pos), check_trace=False)
+        traced = torch.jit.trace(
+            wrapped_model,
+            (example_input_ids, example_attention_mask, example_cache_position),
+            check_trace=False,
+        )
 
-    seq = ct.RangeDim(lower_bound=1, upper_bound=ctx, default=1)
+    sequence_range = ct.RangeDim(lower_bound=1, upper_bound=context_length, default=1)
     inputs = [
-        ct.TensorType("input_ids", (bs, seq), np.int32),
-        ct.TensorType("attention_mask", (bs, seq), np.int32),
-        ct.TensorType("cache_position", (seq,), np.int32),
+        ct.TensorType("input_ids", (batch_size, sequence_range), np.int32),
+        ct.TensorType("attention_mask", (batch_size, sequence_range), np.int32),
+        ct.TensorType("cache_position", (sequence_range,), np.int32),
     ]
     outputs = [ct.TensorType("logits", dtype=np.float16)]
 
-    ml = ct.convert(
+    mlpackage_model = ct.convert(
         traced,
         inputs=inputs,
         outputs=outputs,
@@ -115,31 +158,58 @@ def convert(hf_model_path: str, out_prefix: str):
 
     artifacts = []
 
-    def save_pkg(model, suffix):
+    def save_package(model, suffix):
         name = f"{out_prefix}-{suffix}.mlpackage"
         model.save(name)
-        artifacts.append({"file": name, "bytes": os.path.getsize(name)})
+        total_bytes = 0
+        for root, _, files in os.walk(name):
+            for file_name in files:
+                total_bytes += os.path.getsize(os.path.join(root, file_name))
+        artifacts.append({"file": name, "bytes": total_bytes})
 
-    save_pkg(ml, "fp16")
+    quantization_steps = [
+        ("fp16", lambda m: m),
+        (
+            "int8",
+            lambda m: cto.coreml.linear_quantize_weights(
+                m,
+                config=cto.coreml.OptimizationConfig(
+                    global_config=cto.coreml.OpLinearQuantizerConfig(
+                        mode="linear_symmetric",
+                    ),
+                ),
+            ),
+        ),
+        (
+            "int4-lut",
+            lambda m: cto.coreml.palettize_weights(
+                m,
+                config=cto.coreml.OptimizationConfig(
+                    global_config=cto.coreml.OpPalettizerConfig(
+                        mode="kmeans",
+                        nbits=4,
+                    ),
+                ),
+            ),
+        ),
+    ]
 
-    op_cfg_8 = cto.coreml.OpLinearQuantizerConfig(mode="linear_symmetric")
-    cfg_8 = cto.coreml.OptimizationConfig(global_config=op_cfg_8)
-    ml_int8 = cto.coreml.linear_quantize_weights(ml, config=cfg_8)
-    save_pkg(ml_int8, "int8")
+    for suffix, quantize in quantization_steps:
+        model_to_save = quantize(mlpackage_model)
+        save_package(model_to_save, suffix)
 
-    op_cfg_4 = cto.coreml.OpPalettizerConfig(mode="kmeans", nbits=4)
-    cfg_4 = cto.coreml.OptimizationConfig(global_config=op_cfg_4)
-    ml_int4 = cto.coreml.palettize_weights(ml, config=cfg_4)
-    save_pkg(ml_int4, "int4-lut")
-
-    with open("coreml_artifacts.json", "w") as f:
+    with open(artifacts_path, "w") as f:
         json.dump({"artifacts": artifacts}, f, indent=2)
-    print("Artifacts:", json.dumps(artifacts, indent=2))
+    print(
+        f"Artifacts written to {artifacts_path}:",
+        json.dumps(artifacts, indent=2),
+    )
 
 
 if __name__ == "__main__":
     ap = argparse.ArgumentParser()
     ap.add_argument("--hf_model", required=True)
     ap.add_argument("--out_prefix", required=True)
+    ap.add_argument("--artifacts_path", default="coreml_artifacts.json")
     args = ap.parse_args()
-    convert(args.hf_model, args.out_prefix)
+    convert(args.hf_model, args.out_prefix, args.artifacts_path)

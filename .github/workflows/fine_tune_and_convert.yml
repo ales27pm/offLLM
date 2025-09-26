@@ -112,7 +112,7 @@ jobs:
         with:
           name: coreml-matrix
           path: |
-            Dolphin3.0-Llama3.2-3B-fp16.mlmodel
-            Dolphin3.0-Llama3.2-3B-int8.mlmodel
-            Dolphin3.0-Llama3.2-3B-int4b32.mlmodel
+            Dolphin3.0-Llama3.2-3B-fp16.mlpackage
+            Dolphin3.0-Llama3.2-3B-int8.mlpackage
+            Dolphin3.0-Llama3.2-3B-int4-lut.mlpackage
             coreml_artifacts.json
