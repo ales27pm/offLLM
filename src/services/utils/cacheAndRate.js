@@ -29,11 +29,11 @@ export async function simpleCache(key, fn, ttl = 5 * 60 * 1000) {
   const now = Date.now();
   const existing = cache.get(key);
 
-  if (existing && existing.expiresAt > now) {
+  if (existing && (existing.expiresAt > now || existing.pending)) {
     return existing.promise.catch(() => {
       // When the underlying fetch fails, retry the call so each consumer
       // receives its own error instance instead of a shared rejection.
-      return simpleCache(key, fn, ttl);
+      return simpleCache(key, fn, normalizedTtl);
     });
   }
 
@@ -43,6 +43,7 @@ export async function simpleCache(key, fn, ttl = 5 * 60 * 1000) {
       const resolvedEntry = {
         promise: Promise.resolve(value),
         expiresAt: Date.now() + normalizedTtl,
+        pending: false,
       };
       cache.set(key, resolvedEntry);
       return value;
@@ -52,9 +53,14 @@ export async function simpleCache(key, fn, ttl = 5 * 60 * 1000) {
     }
   })();
 
+  // A TTL of 0 is allowed and effectively disables caching once the in-flight
+  // call settles. We still write the entry so concurrent callers reuse the
+  // pending promise, but the immediate expiration ensures fresh fetches after
+  // resolution.
   cache.set(key, {
     promise,
     expiresAt: now + normalizedTtl,
+    pending: true,
   });
 
   return promise;
