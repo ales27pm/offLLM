@@ -1,30 +1,105 @@
 const cache = new Map();
-const lastRequestTimes = new Map();
+
+const rateLimiterState = new Map();
+
+const waitFor = (ms) =>
+  new Promise((resolve) => {
+    setTimeout(resolve, ms);
+  });
+
+export function resetCacheAndRateState() {
+  cache.clear();
+  rateLimiterState.clear();
+}
 
 export async function simpleCache(key, fn, ttl = 5 * 60 * 1000) {
-  if (cache.has(key)) {
-    const entry = cache.get(key);
-    if (Date.now() - entry.timestamp < ttl) {
-      return entry.value;
-    }
+  if (typeof fn !== "function") {
+    throw new TypeError("simpleCache requires a function to execute");
   }
-  const value = await fn();
-  cache.set(key, { value, timestamp: Date.now() });
-  return value;
+
+  const now = Date.now();
+  const existing = cache.get(key);
+
+  if (existing && existing.expiresAt > now) {
+    return existing.promise.catch((error) => {
+      // When the underlying fetch fails, retry the call so each consumer
+      // receives its own error instance instead of a shared rejection.
+      return simpleCache(key, fn, ttl);
+    });
+  }
+
+  const promise = (async () => {
+    try {
+      const value = await fn();
+      const resolvedEntry = {
+        promise: Promise.resolve(value),
+        expiresAt: Date.now() + ttl,
+      };
+      cache.set(key, resolvedEntry);
+      return value;
+    } catch (error) {
+      cache.delete(key);
+      throw error;
+    }
+  })();
+
+  cache.set(key, {
+    promise,
+    expiresAt: now + ttl,
+  });
+
+  return promise;
 }
 
 export function rateLimiter(provider, fn, delay = 1000) {
-  const now = Date.now();
-  const last = lastRequestTimes.get(provider) || 0;
-  const remaining = delay - (now - last);
-  if (remaining > 0) {
-    return new Promise((resolve) => {
-      setTimeout(async () => {
-        lastRequestTimes.set(provider, Date.now());
-        resolve(await fn());
-      }, remaining);
-    });
+  if (typeof fn !== "function") {
+    return Promise.reject(
+      new TypeError("rateLimiter requires a function to execute"),
+    );
   }
-  lastRequestTimes.set(provider, now);
-  return fn();
+
+  const normalizedDelay = Number(delay);
+  if (!Number.isFinite(normalizedDelay)) {
+    return Promise.reject(
+      new TypeError("rateLimiter requires a finite delay in milliseconds"),
+    );
+  }
+
+  if (normalizedDelay < 0) {
+    return Promise.reject(
+      new RangeError("rateLimiter delay must be non-negative"),
+    );
+  }
+
+  const safeDelay = normalizedDelay;
+
+  let state = rateLimiterState.get(provider);
+  if (!state) {
+    state = {
+      queue: Promise.resolve(),
+      lastInvocationTime: 0,
+    };
+    rateLimiterState.set(provider, state);
+  }
+
+  const run = async () => {
+    const now = Date.now();
+    const wait = safeDelay - (now - state.lastInvocationTime);
+    if (wait > 0) {
+      await waitFor(wait);
+    }
+
+    state.lastInvocationTime = Date.now();
+    return fn();
+  };
+
+  const scheduled = state.queue.then(run, () => run());
+
+  state.queue = scheduled
+    .then(() => undefined)
+    .catch(() => {
+      state.queue = Promise.resolve();
+    });
+
+  return scheduled;
 }
