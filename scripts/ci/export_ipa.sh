@@ -187,8 +187,15 @@ if [[ -n "${TEAM_ID// }" ]]; then
   plutil -insert teamID -string "$TEAM_ID" "$EXPORT_OPTS"
 fi
 
-plutil -insert provisioningProfiles -xml '<dict/>' "$EXPORT_OPTS" || true
-plutil -insert "provisioningProfiles.${BUNDLE_IDENTIFIER}" -string "$PROFILE_NAME" "$EXPORT_OPTS"
+if [[ -z "${BUNDLE_IDENTIFIER:-}" || -z "${PROFILE_NAME:-}" ]]; then
+  echo "::error ::BUNDLE_IDENTIFIER or PROFILE_NAME is empty; cannot populate provisioningProfiles" >&2
+  exit 1
+fi
+
+plutil -insert provisioningProfiles -xml '<dict/>' "$EXPORT_OPTS" 2>/dev/null || true
+/usr/libexec/PlistBuddy -c "Add :provisioningProfiles dict" "$EXPORT_OPTS" 2>/dev/null || true
+/usr/libexec/PlistBuddy -c "Add :provisioningProfiles:${BUNDLE_IDENTIFIER} string ${PROFILE_NAME}" "$EXPORT_OPTS" 2>/dev/null || \
+  /usr/libexec/PlistBuddy -c "Set :provisioningProfiles:${BUNDLE_IDENTIFIER} ${PROFILE_NAME}" "$EXPORT_OPTS"
 
 if [[ "$METHOD" == "development" ]]; then
   cert_label="${DEV_LABEL:-}"
