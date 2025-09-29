@@ -153,6 +153,15 @@ jobs:
           echo "method=$METHOD" >> "$GITHUB_OUTPUT"
           echo "Using bundle id: $BUNDLE_ID, method: $METHOD"
 
+      - name: Show codesigning identities
+        run: |
+          set -euo pipefail
+          if [[ -n "${KEYCHAIN_PATH:-}" && -e "${KEYCHAIN_PATH}" ]]; then
+            security find-identity -p codesigning -v "${KEYCHAIN_PATH}" || true
+          else
+            security find-identity -p codesigning -v || true
+          fi
+
       - name: Generate ExportOptions.plist (robust; no /dev/stdin)
         working-directory: ${{ env.WORKING_DIR }}
         env:
@@ -178,9 +187,9 @@ jobs:
             IDS=$(security find-identity -p codesigning -v 2>/dev/null | sed -n 's/.*"\(.*\)".*/\1/p' || true)
           fi
           HAVE_DISTRIBUTION=0
-          if echo "$IDS" | grep -qE '^(Apple|iOS) Distribution$'; then HAVE_DISTRIBUTION=1; fi
+          if echo "$IDS" | grep -qE '^(Apple|iOS) Distribution(:|$)'; then HAVE_DISTRIBUTION=1; fi
           HAVE_DEVELOPMENT=0
-          if echo "$IDS" | grep -qE '^Apple Development$'; then HAVE_DEVELOPMENT=1; fi
+          if echo "$IDS" | grep -qE '^Apple Development(:|$)'; then HAVE_DEVELOPMENT=1; fi
 
           METHOD="${EXPORT_METHOD_IN:-development}"
           # Xcode 16: "ad-hoc" is deprecated -> "release-testing"
@@ -192,6 +201,10 @@ jobs:
               echo "::warning ::No Apple Distribution identity; falling back to development export"
               METHOD="development"
             fi
+          fi
+          if [[ "$METHOD" == "development" && $HAVE_DEVELOPMENT -eq 0 && $HAVE_DISTRIBUTION -eq 1 ]]; then
+            echo "::warning ::No Apple Development identity, but Distribution exists; switching to release-testing"
+            METHOD="release-testing"
           fi
           if [[ "$METHOD" == "development" && $HAVE_DEVELOPMENT -eq 0 ]]; then
             echo "::error ::No Apple Development identity found"
