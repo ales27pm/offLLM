@@ -20,15 +20,47 @@ env:
 
 jobs:
   signing_precheck:
-    if: github.event_name != 'workflow_dispatch' || inputs.require_signing == 'true'
     runs-on: ubuntu-latest
     outputs:
-      ready: ${{ steps.evaluate.outputs.ready }}
+      ready: ${{ steps.precheck_result.outputs.ready }}
+      message: ${{ steps.precheck_result.outputs.message }}
     steps:
+      - name: Determine signing requirement
+        id: require_signing
+        shell: bash
+        env:
+          EVENT_NAME: ${{ github.event_name }}
+          INPUT_REQUIRE_SIGNING: ${{ github.event_name == 'workflow_dispatch' && github.event.inputs.require_signing || '' }}
+        run: |
+          set -euo pipefail
+
+          raw_input="$INPUT_REQUIRE_SIGNING"
+          if [[ "$EVENT_NAME" != "workflow_dispatch" || -z "$raw_input" ]]; then
+            raw_input="true"
+          fi
+
+          normalized="$(printf '%s' "$raw_input" | tr '[:upper:]' '[:lower:]')"
+          case "$normalized" in
+            true|1|yes|on)
+              normalized="true"
+              ;;
+            false|0|no|off)
+              normalized="false"
+              ;;
+            *)
+              echo "::warning ::Unknown require_signing value '$raw_input'; defaulting to true."
+              normalized="true"
+              ;;
+          esac
+
+          echo "require_signing=$normalized" >>"$GITHUB_OUTPUT"
+
       - name: Checkout repository
+        if: ${{ steps.require_signing.outputs.require_signing == 'true' }}
         uses: actions/checkout@v4
 
       - name: Evaluate signing secrets
+        if: ${{ steps.require_signing.outputs.require_signing == 'true' }}
         id: evaluate
         uses: ./.github/actions/signing-secrets-check
         with:
@@ -40,9 +72,50 @@ jobs:
           KEYCHAIN_PASSWORD: ${{ secrets.KEYCHAIN_PASSWORD }}
           APPLE_TEAM_ID: ${{ secrets.APPLE_TEAM_ID }}
 
+      - name: Finalize signing precheck result
+        id: precheck_result
+        shell: bash
+        env:
+          REQUIRE_SIGNING: ${{ steps.require_signing.outputs.require_signing }}
+          READY: ${{ steps.evaluate.outputs.ready }}
+        run: |
+          set -euo pipefail
+
+          if [[ "$REQUIRE_SIGNING" != "true" ]]; then
+            echo "ready=false" >>"$GITHUB_OUTPUT"
+            echo "message=Signed build skipped via workflow input." >>"$GITHUB_OUTPUT"
+            exit 0
+          fi
+
+          ready_value="$READY"
+          if [[ -z "$ready_value" ]]; then
+            ready_value="false"
+          fi
+
+          if [[ "$ready_value" == "true" ]]; then
+            echo "message=All signing secrets detected; proceeding with signed build." >>"$GITHUB_OUTPUT"
+          else
+            echo "message=Missing signing secrets; skipping signed build." >>"$GITHUB_OUTPUT"
+          fi
+
+          echo "ready=$ready_value" >>"$GITHUB_OUTPUT"
+
+      - name: Summarize signing gate
+        if: ${{ always() }}
+        env:
+          READY: ${{ steps.precheck_result.outputs.ready }}
+          SUMMARY_MESSAGE: ${{ steps.precheck_result.outputs.message }}
+        run: |
+          {
+            echo "## Signing precheck"
+            echo ""
+            echo "- Ready: \`$READY\`"
+            echo "- Details: $SUMMARY_MESSAGE"
+          } >>"$GITHUB_STEP_SUMMARY"
+
   build:
     needs: signing_precheck
-    if: ${{ (github.event_name != 'pull_request' || github.event.pull_request.head.repo.full_name == github.repository) && needs.signing_precheck.outputs.ready == 'true' }}
+    if: ${{ (github.event_name != 'pull_request' || github.event.pull_request.head.repo.full_name == github.repository) && needs.signing_precheck.result == 'success' && needs.signing_precheck.outputs.ready == 'true' }}
     runs-on: macos-15
     timeout-minutes: 60
 
