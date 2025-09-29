@@ -21,7 +21,7 @@ jobs:
       KEYCHAIN_NAME: build-signing.keychain-db
       KEYCHAIN_PASSWORD: ${{ secrets.KEYCHAIN_PASSWORD }}
       P12_PASSWORD: ${{ secrets.P12_PASSWORD }}
-      SIGNING_CERTIFICATE: Apple Development
+      SIGNING_CERTIFICATE: Apple Distribution
 
     steps:
       - name: Checkout Repository
@@ -34,10 +34,47 @@ jobs:
           cache: "npm"
 
       - name: Set up Ruby
-        uses: ruby/setup-ruby@v1
+        uses: ruby/setup-ruby@0481980f17b760ef6bca5e8c55809102a0af1e5a # v1
         with:
           ruby-version: "3.2"
           bundler-cache: true
+
+      - name: Capture original keychain state
+        run: |
+          set -euo pipefail
+          DEFAULT_LINE="$(security default-keychain -d user 2>/dev/null || true)"
+          if [[ -n "${DEFAULT_LINE// }" ]]; then
+            DEFAULT_LINE="$(printf '%s' "$DEFAULT_LINE" | sed -e 's/^[[:space:]]*"//' -e 's/"$//')"
+            if [[ -n "$DEFAULT_LINE" ]]; then
+              {
+                echo "ORIGINAL_DEFAULT_KEYCHAIN<<EOF"
+                echo "$DEFAULT_LINE"
+                echo "EOF"
+              } >>"$GITHUB_ENV"
+            fi
+          fi
+
+          LIST_OUTPUT="$(security list-keychains -d user 2>/dev/null || true)"
+          if [[ -n "${LIST_OUTPUT// }" ]]; then
+            CLEANED="$(printf '%s\n' "$LIST_OUTPUT" | sed -e 's/^[[:space:]]*"//' -e 's/"$//')"
+            CLEANED="$(printf '%s\n' "$CLEANED" | sed '/^$/d')"
+            if [[ -n "$CLEANED" ]]; then
+              {
+                echo "ORIGINAL_KEYCHAIN_LIST<<EOF"
+                echo "$CLEANED"
+                echo "EOF"
+              } >>"$GITHUB_ENV"
+            fi
+          fi
+
+      - name: Cache CocoaPods
+        uses: actions/cache@0057852bfaa89a56745cba8c7296529d2fc39830 # v4
+        with:
+          path: |
+            ios/Pods
+            ~/Library/Caches/CocoaPods
+          key: ${{ runner.os }}-pods-${{ hashFiles('ios/Podfile.lock') }}
+          restore-keys: ${{ runner.os }}-pods-
 
       - name: Install Dependencies (Node + Pods)
         run: |
@@ -115,9 +152,6 @@ jobs:
           rm -rf signing || true
 
       - name: Build and Archive
-        env:
-          KEYCHAIN_PATH: ${{ env.KEYCHAIN_PATH }}
-          PROFILE_NAME: ${{ env.PROFILE_NAME }}
         run: |
           set -euo pipefail
           : "${TEAM_ID:?Missing TEAM_ID secret}"
@@ -130,6 +164,7 @@ jobs:
             -configuration "$CONFIGURATION" \
             -sdk iphoneos \
             -archivePath build/$SCHEME.xcarchive \
+            -derivedDataPath build/DerivedData \
             -destination "generic/platform=iOS" \
             CODE_SIGN_STYLE=Manual \
             DEVELOPMENT_TEAM="$TEAM_ID" \
@@ -140,8 +175,6 @@ jobs:
             archive
 
       - name: Create exportOptions.plist
-        env:
-          PROFILE_NAME: ${{ env.PROFILE_NAME }}
         run: |
           set -euo pipefail
           cat > exportOptions.plist <<EOF
@@ -180,10 +213,6 @@ jobs:
 
       - name: Cleanup signing keychain
         if: always()
-        env:
-          KEYCHAIN_PATH: ${{ env.KEYCHAIN_PATH }}
-          ORIGINAL_DEFAULT_KEYCHAIN: ${{ env.ORIGINAL_DEFAULT_KEYCHAIN }}
-          ORIGINAL_KEYCHAIN_LIST: ${{ env.ORIGINAL_KEYCHAIN_LIST }}
         run: |
           set -euo pipefail
           rm -rf signing || true

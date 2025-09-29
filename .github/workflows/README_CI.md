@@ -29,6 +29,8 @@ all artifacts are published via the workflow.
 - Python: 3.11
 - Dependencies: PyTorch 2.2, Transformers 4.44.2, Core ML Tools 8.0
 - Artifacts: `{fp16,int8,int4-lut}.mlpackage`, `coreml_artifacts.json`
+- Authentication: Set `HF_TOKEN` (or pass `--hf_token`) when working with
+  private/gated models so the script can authenticate with Hugging Face.
 
 ## Fine-tune (LoRA) + Convert
 

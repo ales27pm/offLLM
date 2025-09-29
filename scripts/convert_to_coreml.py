@@ -1,3 +1,16 @@
+"""
+Core ML conversion utility for Dolphin models.
+
+Environment:
+    HF_TOKEN (optional): Hugging Face access token required when the source
+    model is gated. You can also pass the same value via --hf_token when
+    invoking this script manually, for example:
+
+        HF_TOKEN=hf_xxx python scripts/convert_to_coreml.py \
+            --hf_model cognitivecomputations/Dolphin3.0-Llama3.2-3B \
+            --out_prefix build/Dolphin3
+"""
+
 import argparse
 import json
 import os
@@ -206,14 +219,18 @@ def convert(
         ),
     ]
 
+    last_successful_model = mlpackage_model
     for suffix, quantize in quantization_steps:
         try:
-            model_to_save = quantize(mlpackage_model)
-        except Exception as exc:
+            candidate = quantize(mlpackage_model)
+        except Exception as exc:  # noqa: BLE001 - upstream tooling raises many types
             print(
                 f"Quantization '{suffix}' failed ({exc}); exporting previous precision."
             )
-            model_to_save = mlpackage_model
+            model_to_save = last_successful_model
+        else:
+            model_to_save = candidate
+            last_successful_model = model_to_save
         save_package(model_to_save, suffix)
 
     with open(artifacts_path, "w") as f:
