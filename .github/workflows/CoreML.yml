@@ -33,118 +33,19 @@ jobs:
         env:
           HF_TOKEN: ${{ secrets.HF_TOKEN }}
         run: |
-          python - <<'EOF'
-          import os, warnings
-          from typing import Any, Optional, Sequence
-          from huggingface_hub import login
-          import torch, numpy as np
-          import coremltools as ct
-          from transformers import LlamaForCausalLM, AutoConfig
-          from transformers.cache_utils import Cache
-
-          warnings.filterwarnings("ignore", category=FutureWarning)
-
-          token = os.getenv("HF_TOKEN")
-          if not token:
-              raise SystemExit("Error: HF_TOKEN environment variable is not set.")
-          login(token=token)
-          print("HF login OK")
-
-          class SliceUpdateKeyValueCache(Cache):
-              def __init__(self, *, shape, dtype=torch.float32):
-                  super().__init__()
-                  self.register_buffer("k", torch.zeros(shape, dtype=dtype))
-                  self.register_buffer("v", torch.zeros(shape, dtype=dtype))
-              def __len__(self): return self.k.shape[3]
-              def update(self, k_state, v_state, layer_idx, cache_kwargs=None):
-                  position = (cache_kwargs or {}).get("cache_position", None)
-                  assert position is not None, "cache_position required to update cache."
-                  begin = self.k.shape[3]; end = begin + position.shape[-1]
-                  self.k[layer_idx, :, :k_state.shape[1], begin:end, :] = k_state
-                  self.v[layer_idx, :, :v_state.shape[1], begin:end, :] = v_state
-                  return self.k[layer_idx, :, :, :end, :], self.v[layer_idx, :, :, :end, :]
-              def get_seq_length(self, _=0): return self.k.shape[3]
-
-          model_id = "cognitivecomputations/Dolphin3.0-Llama3.2-3B"
-          _ = AutoConfig.from_pretrained(model_id)
-          base = LlamaForCausalLM.from_pretrained(model_id, torch_dtype=torch.float16)
-          base.eval()
-
-          # KV cache wrapper (stateful)
-          num_layers = len(base.model.layers)
-          num_kv_heads = base.config.num_key_value_heads
-          head_dim = base.config.hidden_size // base.config.num_attention_heads
-          batch_size, context_size = 1, 256
-          kv_cache_shape = (num_layers, batch_size, num_kv_heads, context_size, head_dim)
-
-          class KvWrapper(torch.nn.Module):
-              def __init__(self, model):
-                  super().__init__()
-                  self.model = model
-                  self.kv_cache = SliceUpdateKeyValueCache(shape=kv_cache_shape, dtype=torch.float16)
-              @torch.no_grad()
-              def forward(self, input_ids, attention_mask, cache_position):
-                  out = self.model(
-                      input_ids=input_ids,
-                      attention_mask=attention_mask,
-                      past_key_values=self.kv_cache,
-                      cache_position=cache_position,
-                      use_cache=True,
-                  )
-                  return out.logits
-
-          wrapper = KvWrapper(base).eval()
-
-          # Example inputs: int32 to match Core ML specs
-          ex_ids  = torch.zeros((batch_size,1), dtype=torch.int32)
-          ex_mask = torch.ones((batch_size,1),  dtype=torch.int32)
-          ex_pos  = torch.tensor([0],          dtype=torch.int32)
-
-          with torch.inference_mode():
-              traced = torch.jit.trace(wrapper, (ex_ids, ex_mask, ex_pos), check_trace=False)
-
-          seq = ct.RangeDim(lower_bound=1, upper_bound=context_size, default=1)
-          inputs = [
-              ct.TensorType(name="input_ids",      shape=(batch_size, seq), dtype=np.int32),
-              ct.TensorType(name="attention_mask", shape=(batch_size, seq), dtype=np.int32),
-              ct.TensorType(name="cache_position", shape=(seq,),           dtype=np.int32),
-          ]
-          outputs = [ct.TensorType(name="logits", dtype=np.float16)]
-
-          mlmodel = ct.convert(
-              traced,
-              inputs=inputs,
-              outputs=outputs,
-              compute_units=ct.ComputeUnit.CPU_AND_NE,
-              minimum_deployment_target=ct.target.iOS18,
-              skip_model_load=True,
-          )
-
-          # v8-aligned quantization (kwargs form)
-          from coremltools.optimize.coreml import linear_quantize_weights
-          try:
-              qmodel = linear_quantize_weights(
-                  mlmodel,
-                  nbits=4,
-                  quantization_mode="linear_symmetric",
-                  granularity="per_block",
-                  block_size=32,
-              )
-              out = "Dolphin3.0-Llama3.2-3B.mlpackage"
-              qmodel.save(out)
-              print(f"Saved INT4 model -> {out}")
-          except Exception as e:
-              print(f"Quantization failed ({e}); exporting FP16.")
-              out = "Dolphin3.0-Llama3.2-3B-fp16.mlpackage"
-              mlmodel.save(out)
-              print(f"Saved FP16 model -> {out}")
-          EOF
+          set -euo pipefail
+          MODEL_ID="cognitivecomputations/Dolphin3.0-Llama3.2-3B"
+          python scripts/convert_to_coreml.py \
+            --hf_model "${MODEL_ID}" \
+            --out_prefix "Dolphin3.0-Llama3.2-3B"
 
       - name: Upload artifact
         uses: actions/upload-artifact@v4
         with:
           name: coreml-model
           path: |
-            Dolphin3.0-Llama3.2-3B.mlpackage
             Dolphin3.0-Llama3.2-3B-fp16.mlpackage
-          if-no-files-found: ignore
+            Dolphin3.0-Llama3.2-3B-int8.mlpackage
+            Dolphin3.0-Llama3.2-3B-int4-lut.mlpackage
+            coreml_artifacts.json
+          if-no-files-found: error

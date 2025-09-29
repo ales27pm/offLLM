@@ -1,12 +1,27 @@
-import os
-import json
+"""
+Core ML conversion utility for Dolphin models.
+
+Environment:
+    HF_TOKEN (optional): Hugging Face access token required when the source
+    model is gated. You can also pass the same value via --hf_token when
+    invoking this script manually, for example:
+
+        HF_TOKEN=hf_xxx python scripts/convert_to_coreml.py \
+            --hf_model cognitivecomputations/Dolphin3.0-Llama3.2-3B \
+            --out_prefix build/Dolphin3
+"""
+
 import argparse
-import numpy as np
-import torch
+import json
+import os
 import warnings
+
 import coremltools as ct
 import coremltools.optimize as cto
-from transformers import AutoModelForCausalLM, AutoConfig
+import numpy as np
+import torch
+from huggingface_hub import login
+from transformers import AutoConfig, AutoModelForCausalLM
 from transformers.cache_utils import Cache
 
 warnings.filterwarnings("ignore", category=FutureWarning)
@@ -63,7 +78,17 @@ def convert(
     hf_model_path: str,
     out_prefix: str,
     artifacts_path: str = "coreml_artifacts.json",
+    hf_token: str | None = None,
 ):
+    if hf_token:
+        try:
+            login(token=hf_token)
+            print("Authenticated with Hugging Face Hub")
+        except Exception as exc:  # pragma: no cover - hub failures bubble up
+            raise RuntimeError(
+                "Failed to authenticate with Hugging Face Hub"
+            ) from exc
+
     config = AutoConfig.from_pretrained(hf_model_path)
     base_model = AutoModelForCausalLM.from_pretrained(
         hf_model_path,
@@ -194,8 +219,18 @@ def convert(
         ),
     ]
 
+    last_successful_model = mlpackage_model
     for suffix, quantize in quantization_steps:
-        model_to_save = quantize(mlpackage_model)
+        try:
+            candidate = quantize(mlpackage_model)
+        except Exception as exc:  # noqa: BLE001 - upstream tooling raises many types
+            print(
+                f"Quantization '{suffix}' failed ({exc}); exporting previous precision."
+            )
+            model_to_save = last_successful_model
+        else:
+            model_to_save = candidate
+            last_successful_model = model_to_save
         save_package(model_to_save, suffix)
 
     with open(artifacts_path, "w") as f:
@@ -211,5 +246,7 @@ if __name__ == "__main__":
     ap.add_argument("--hf_model", required=True)
     ap.add_argument("--out_prefix", required=True)
     ap.add_argument("--artifacts_path", default="coreml_artifacts.json")
+    ap.add_argument("--hf_token")
     args = ap.parse_args()
-    convert(args.hf_model, args.out_prefix, args.artifacts_path)
+    token = args.hf_token or os.getenv("HF_TOKEN")
+    convert(args.hf_model, args.out_prefix, args.artifacts_path, token)

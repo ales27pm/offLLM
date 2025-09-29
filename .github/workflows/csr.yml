@@ -1,7 +1,7 @@
 name: Generate CSR for Apple Developer
 
 on:
-  workflow_dispatch:  # Manual trigger
+  workflow_dispatch: # Manual trigger
 
 jobs:
   generate-csr:
