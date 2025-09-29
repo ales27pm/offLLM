@@ -233,33 +233,47 @@ jobs:
             exit 1
           fi
 
-          : > ExportOptions.plist
-          /usr/libexec/PlistBuddy -c "Add :method string $METHOD" ExportOptions.plist
-          /usr/libexec/PlistBuddy -c "Add :signingStyle string manual" ExportOptions.plist
-          if [[ -n "${TEAM_ID:-}" ]]; then
-            /usr/libexec/PlistBuddy -c "Add :teamID string $TEAM_ID" ExportOptions.plist
+          if ! command -v plutil >/dev/null 2>&1; then
+            echo "::error ::plutil command is required to build ExportOptions.plist" >&2
+            exit 1
           fi
-          /usr/libexec/PlistBuddy -c "Add :provisioningProfiles dict" ExportOptions.plist
-          /usr/libexec/PlistBuddy -c "Add :provisioningProfiles:${BUNDLE_ID} string ${PROFILE_NAME}" ExportOptions.plist
 
-          # Use a signingCertificate hint that matches what's actually in the keychain
+          rm -f ExportOptions.plist
+          plutil -create xml1 ExportOptions.plist
+          plutil -replace : -xml '<dict/>' ExportOptions.plist
+
+          plutil -insert method -string "$METHOD" ExportOptions.plist
+          plutil -insert signingStyle -string "manual" ExportOptions.plist
+
+          if [[ -n "${TEAM_ID:-}" ]]; then
+            plutil -insert teamID -string "$TEAM_ID" ExportOptions.plist
+          fi
+
+          plutil -insert provisioningProfiles -xml '<dict/>' ExportOptions.plist || true
+          plutil -insert "provisioningProfiles.${BUNDLE_ID}" -string "$PROFILE_NAME" ExportOptions.plist
+
+          cert_label=""
           if [[ "$METHOD" == "development" ]]; then
-            if [[ -n "$DEV_LABEL" ]]; then
-              /usr/libexec/PlistBuddy -c "Add :signingCertificate string ${DEV_LABEL}" ExportOptions.plist
-            else
-              /usr/libexec/PlistBuddy -c "Add :signingCertificate string Apple Development" ExportOptions.plist
+            cert_label="${DEV_LABEL:-}"
+            if [[ -z "${cert_label// }" ]]; then
+              cert_label="Apple Development"
             fi
           else
-            if [[ -n "$DIST_LABEL" ]]; then
-              /usr/libexec/PlistBuddy -c "Add :signingCertificate string ${DIST_LABEL}" ExportOptions.plist
-            else
-              /usr/libexec/PlistBuddy -c "Add :signingCertificate string Apple Distribution" ExportOptions.plist
+            cert_label="${DIST_LABEL:-}"
+            if [[ -z "${cert_label// }" ]]; then
+              cert_label="Apple Distribution"
             fi
           fi
-          /usr/libexec/PlistBuddy -c "Add :stripSwiftSymbols bool true" ExportOptions.plist
-          /usr/libexec/PlistBuddy -c "Add :compileBitcode bool false" ExportOptions.plist
+          plutil -insert signingCertificate -string "$cert_label" ExportOptions.plist
 
-          /usr/libexec/PlistBuddy -c "Print" ExportOptions.plist
+          plutil -insert stripSwiftSymbols -bool true ExportOptions.plist
+          plutil -insert compileBitcode -bool false ExportOptions.plist
+
+          if [[ -x /usr/libexec/PlistBuddy ]]; then
+            /usr/libexec/PlistBuddy -c "Print" ExportOptions.plist || plutil -p ExportOptions.plist
+          else
+            plutil -p ExportOptions.plist
+          fi
 
       - name: Build & Archive (signed)
         working-directory: ${{ env.WORKING_DIR }}
