@@ -25,6 +25,9 @@ jobs:
     outputs:
       ready: ${{ steps.evaluate.outputs.ready }}
     steps:
+      - name: Checkout repository
+        uses: actions/checkout@v4
+
       - name: Evaluate signing secrets
         id: evaluate
         uses: ./.github/actions/signing-secrets-check
