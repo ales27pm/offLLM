@@ -148,41 +148,72 @@ jobs:
         run: |
           set -euo pipefail
           BUNDLE_ID="${BUNDLE_ID:-com.offllm.monGARS}"
-          METHOD="${INPUT_METHOD:-${SECRET_METHOD:-ad-hoc}}"
+          METHOD="${INPUT_METHOD:-${SECRET_METHOD:-development}}"
           echo "bundle_id=$BUNDLE_ID" >> "$GITHUB_OUTPUT"
           echo "method=$METHOD" >> "$GITHUB_OUTPUT"
           echo "Using bundle id: $BUNDLE_ID, method: $METHOD"
 
-      - name: Patch ExportOptions.plist with provisioning mapping
+      - name: Generate ExportOptions.plist (robust; no /dev/stdin)
         working-directory: ${{ env.WORKING_DIR }}
         env:
+          TEAM_ID: ${{ secrets.TEAM_ID }}
           BUNDLE_ID: ${{ steps.meta.outputs.bundle_id }}
-          METHOD: ${{ steps.meta.outputs.method }}
+          EXPORT_METHOD_IN: ${{ steps.meta.outputs.method }}
         run: |
           set -euo pipefail
-          # Prefer repo file if present, otherwise create a minimal one
-          if [ -f export-options.plist ]; then
-            cp export-options.plist ExportOptions.plist
-          else
-            printf '%s\n' \
-              '<?xml version="1.0" encoding="UTF-8"?>' \
-              '<!DOCTYPE plist PUBLIC "-//Apple//DTD PLIST 1.0//EN" "http://www.apple.com/DTDs/PropertyList-1.0.dtd">' \
-              '<plist version="1.0"><dict>' \
-              '<key>method</key><string>ad-hoc</string>' \
-              '<key>signingStyle</key><string>manual</string>' \
-              '<key>stripSwiftSymbols</key><true/>' \
-              '<key>compileBitcode</key><false/>' \
-              '</dict></plist>' \
-              > ExportOptions.plist
+
+          # Derive PROFILE_NAME from the actual provisioning profile if not exported
+          if [[ -z "${PROFILE_NAME:-}" ]]; then
+            TMP_PLIST=$(mktemp)
+            security cms -D -i signing/profile.mobileprovision > "$TMP_PLIST"
+            PROFILE_NAME=$(/usr/libexec/PlistBuddy -c 'Print :Name' "$TMP_PLIST")
+            rm -f "$TMP_PLIST"
           fi
-          # Set method
-          /usr/libexec/PlistBuddy -c "Set :method ${METHOD}" ExportOptions.plist || true
-          # Map provisioningProfiles: { <bundle_id>: <profile_name> }
-          PROFILE_NAME=$(security cms -D -i signing/profile.mobileprovision | /usr/libexec/PlistBuddy -c 'Print :Name' /dev/stdin 2>/dev/null || true)
-          [ -z "$PROFILE_NAME" ] && PROFILE_NAME="$BUNDLE_ID"
-          /usr/libexec/PlistBuddy -c "Add :provisioningProfiles dict" ExportOptions.plist 2>/dev/null || true
-          /usr/libexec/PlistBuddy -c "Add :provisioningProfiles:${BUNDLE_ID} string ${PROFILE_NAME}" ExportOptions.plist 2>/dev/null || \
-          /usr/libexec/PlistBuddy -c "Set :provisioningProfiles:${BUNDLE_ID} ${PROFILE_NAME}" ExportOptions.plist
+
+          # Determine available codesigning identities
+          IDS=""
+          if [[ -n "${KEYCHAIN_PATH:-}" && -e "${KEYCHAIN_PATH}" ]]; then
+            IDS=$(security find-identity -p codesigning -v "${KEYCHAIN_PATH}" 2>/dev/null | sed -n 's/.*"\(.*\)".*/\1/p' || true)
+          else
+            IDS=$(security find-identity -p codesigning -v 2>/dev/null | sed -n 's/.*"\(.*\)".*/\1/p' || true)
+          fi
+          HAVE_DISTRIBUTION=0
+          if echo "$IDS" | grep -qE '^(Apple|iOS) Distribution$'; then HAVE_DISTRIBUTION=1; fi
+          HAVE_DEVELOPMENT=0
+          if echo "$IDS" | grep -qE '^Apple Development$'; then HAVE_DEVELOPMENT=1; fi
+
+          METHOD="${EXPORT_METHOD_IN:-development}"
+          # Xcode 16: "ad-hoc" is deprecated -> "release-testing"
+          if [[ "$METHOD" == "ad-hoc" ]]; then METHOD="release-testing"; fi
+
+          # Guard rails: fall back if required identity is missing
+          if [[ "$METHOD" == "release-testing" || "$METHOD" == "app-store" ]]; then
+            if [[ $HAVE_DISTRIBUTION -eq 0 ]]; then
+              echo "::warning ::No Apple Distribution identity; falling back to development export"
+              METHOD="development"
+            fi
+          fi
+          if [[ "$METHOD" == "development" && $HAVE_DEVELOPMENT -eq 0 ]]; then
+            echo "::error ::No Apple Development identity found"
+            exit 1
+          fi
+
+          : > ExportOptions.plist
+          /usr/libexec/PlistBuddy -c "Add :method string $METHOD" ExportOptions.plist
+          /usr/libexec/PlistBuddy -c "Add :signingStyle string manual" ExportOptions.plist
+          if [[ -n "${TEAM_ID:-}" ]]; then
+            /usr/libexec/PlistBuddy -c "Add :teamID string $TEAM_ID" ExportOptions.plist
+          fi
+          /usr/libexec/PlistBuddy -c "Add :provisioningProfiles dict" ExportOptions.plist
+          /usr/libexec/PlistBuddy -c "Add :provisioningProfiles:${BUNDLE_ID} string ${PROFILE_NAME}" ExportOptions.plist
+          if [[ "$METHOD" == "development" ]]; then
+            /usr/libexec/PlistBuddy -c "Add :signingCertificate string Apple Development" ExportOptions.plist
+          else
+            /usr/libexec/PlistBuddy -c "Add :signingCertificate string Apple Distribution" ExportOptions.plist
+          fi
+          /usr/libexec/PlistBuddy -c "Add :stripSwiftSymbols bool true" ExportOptions.plist
+          /usr/libexec/PlistBuddy -c "Add :compileBitcode bool false" ExportOptions.plist
+
           /usr/libexec/PlistBuddy -c "Print" ExportOptions.plist
 
       - name: Build & Archive (signed)
