@@ -9,6 +9,9 @@ outputs:
   ready:
     description: Indicates whether all required secrets were found.
     value: ${{ steps.evaluate.outputs.ready }}
+  missing:
+    description: Comma-separated list of any secrets that were not populated.
+    value: ${{ steps.evaluate.outputs.missing }}
 runs:
   using: composite
   steps:
@@ -26,14 +29,18 @@ runs:
         missing = [name for name in required if not os.environ.get(name)]
 
         output_path = os.environ["GITHUB_OUTPUT"]
+        joined = ", ".join(missing)
+
         with open(output_path, "a", encoding="utf-8") as fh:
             fh.write(f"ready={'false' if missing else 'true'}\n")
+            fh.write(f"missing={joined}\n")
 
         if missing:
-            joined = ", ".join(missing)
-            sys.stdout.write(
-                f"::warning ::Skipping signed build because the following secrets are not configured: {joined}\n"
+            message = (
+                "Signed build skipped; configure the following secrets to enable it: "
+                f"{joined}."
             )
+            sys.stdout.write(f"::notice ::{message}\n")
         else:
             sys.stdout.write(
                 "::notice ::All signing secrets detected; continuing with signed build.\n"

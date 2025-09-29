@@ -82,39 +82,62 @@ jobs:
         env:
           REQUIRE_SIGNING: ${{ steps.require_signing.outputs.require_signing }}
           READY: ${{ steps.evaluate.outputs.ready }}
+          MISSING: ${{ steps.evaluate.outputs.missing }}
         run: |
           set -euo pipefail
 
-          if [[ "$REQUIRE_SIGNING" != "true" ]]; then
-            echo "ready=false" >>"$GITHUB_OUTPUT"
-            echo "message=Signed build skipped via workflow input." >>"$GITHUB_OUTPUT"
-            exit 0
-          fi
+          python3 - <<'PY'
+          import os
 
-          ready_value="$READY"
-          if [[ -z "$ready_value" ]]; then
-            ready_value="false"
-          fi
+          require_signing = os.environ.get("REQUIRE_SIGNING", "").lower() == "true"
+          ready_raw = os.environ.get("READY", "")
+          missing_raw = os.environ.get("MISSING", "")
+          output_path = os.environ["GITHUB_OUTPUT"]
 
-          if [[ "$ready_value" == "true" ]]; then
-            echo "message=All signing secrets detected; proceeding with signed build." >>"$GITHUB_OUTPUT"
-          else
-            echo "message=Missing signing secrets; skipping signed build." >>"$GITHUB_OUTPUT"
-          fi
+          def normalize_missing(raw: str) -> str:
+              parts = [item.strip() for item in raw.split(",") if item.strip()]
+              return ", ".join(parts)
 
-          echo "ready=$ready_value" >>"$GITHUB_OUTPUT"
+          if not require_signing:
+              ready_value = "false"
+              message = "Signed build skipped via workflow input."
+              formatted_missing = ""
+          else:
+              ready_value = "true" if ready_raw == "true" else "false"
+              formatted_missing = normalize_missing(missing_raw)
+
+              if ready_value == "true":
+                  message = "All signing secrets detected; continuing with signed build."
+              elif formatted_missing:
+                  message = (
+                      "Signed build skipped; configure the following secrets to enable it: "
+                      f"{formatted_missing}."
+                  )
+              else:
+                  message = "Signed build skipped; required signing secrets are missing."
+
+          with open(output_path, "a", encoding="utf-8") as handle:
+              handle.write(f"ready={ready_value}\n")
+              handle.write(f"message={message}\n")
+              handle.write(f"missing_formatted={formatted_missing}\n")
+          PY
 
       - name: Summarize signing gate
         if: ${{ always() }}
         env:
           READY: ${{ steps.precheck_result.outputs.ready }}
           SUMMARY_MESSAGE: ${{ steps.precheck_result.outputs.message }}
+          MISSING: ${{ steps.precheck_result.outputs.missing_formatted }}
         run: |
           {
             echo "## Signing precheck"
             echo ""
             echo "- Ready: \`$READY\`"
             echo "- Details: $SUMMARY_MESSAGE"
+            missing_list="${MISSING:-}"
+            if [[ -n "${missing_list// }" ]]; then
+              echo "- Missing secrets: $missing_list"
+            fi
           } >>"$GITHUB_STEP_SUMMARY"
 
   build:
