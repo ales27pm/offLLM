@@ -94,44 +94,44 @@ jobs:
           set -euo pipefail
           mkdir -p signing
           python3 - <<'PY'
-            import base64
-            import binascii
-            import os
-            import sys
-            from pathlib import Path
+          import base64
+          import binascii
+          import os
+          import sys
+          from pathlib import Path
 
-            files = {
-                "P12_BASE64": Path("signing/cert.p12"),
-                "MOBILEPROVISION_BASE64": Path(
-                    f"signing/{os.environ['PROFILE_NAME']}"
-                ),
-            }
+          files = {
+              "P12_BASE64": Path("signing/cert.p12"),
+              "MOBILEPROVISION_BASE64": Path(
+                  f"signing/{os.environ['PROFILE_NAME']}"
+              ),
+          }
 
-            for env_var, output_path in files.items():
-                value = os.environ.get(env_var)
-                if not value:
-                    sys.stderr.write(
-                        f"::error ::Missing signing secret {env_var}.\n"
-                    )
-                    sys.exit(1)
-                try:
-                    decoded = base64.b64decode(value, validate=True)
-                except binascii.Error as exc:
-                    sys.stderr.write(
-                        f"::error ::Secret {env_var} is not valid base64: {exc}\n"
-                    )
-                    sys.exit(1)
-                if not decoded:
-                    sys.stderr.write(
-                        f"::error ::Secret {env_var} decoded to 0 bytes.\n"
-                    )
-                    sys.exit(1)
-                output_path.parent.mkdir(parents=True, exist_ok=True)
-                output_path.write_bytes(decoded)
-                try:
-                    output_path.chmod(0o600)
-                except Exception:
-                    pass
+          for env_var, output_path in files.items():
+              value = os.environ.get(env_var)
+              if not value:
+                  sys.stderr.write(
+                      f"::error ::Missing signing secret {env_var}.\n"
+                  )
+                  sys.exit(1)
+              try:
+                  decoded = base64.b64decode(value, validate=True)
+              except binascii.Error as exc:
+                  sys.stderr.write(
+                      f"::error ::Secret {env_var} is not valid base64: {exc}\n"
+                  )
+                  sys.exit(1)
+              if not decoded:
+                  sys.stderr.write(
+                      f"::error ::Secret {env_var} decoded to 0 bytes.\n"
+                  )
+                  sys.exit(1)
+              output_path.parent.mkdir(parents=True, exist_ok=True)
+              output_path.write_bytes(decoded)
+              try:
+                  output_path.chmod(0o600)
+              except Exception:
+                  pass
           PY
 
       - name: Import certificate & provisioning profile
