@@ -6,8 +6,43 @@ on:
     branches: [main]
 
 jobs:
+  signing_precheck:
+    runs-on: ubuntu-latest
+    outputs:
+      ready: ${{ steps.evaluate.outputs.ready }}
+    steps:
+      - name: Evaluate signing secrets
+        id: evaluate
+        env:
+          P12_BASE64: ${{ secrets.P12_BASE64 }}
+          MOBILEPROVISION_BASE64: ${{ secrets.MOBILEPROVISION_BASE64 }}
+          P12_PASSWORD: ${{ secrets.P12_PASSWORD }}
+          KEYCHAIN_PASSWORD: ${{ secrets.KEYCHAIN_PASSWORD }}
+          APPLE_TEAM_ID: ${{ secrets.APPLE_TEAM_ID }}
+        run: |
+          set -euo pipefail
+          missing=()
+
+          [[ -z "${P12_BASE64}" ]] && missing+=("P12_BASE64")
+          [[ -z "${MOBILEPROVISION_BASE64}" ]] && missing+=("MOBILEPROVISION_BASE64")
+          [[ -z "${P12_PASSWORD}" ]] && missing+=("P12_PASSWORD")
+          [[ -z "${KEYCHAIN_PASSWORD}" ]] && missing+=("KEYCHAIN_PASSWORD")
+          [[ -z "${APPLE_TEAM_ID}" ]] && missing+=("APPLE_TEAM_ID")
+
+          if [[ ${#missing[@]} -gt 0 ]]; then
+            IFS=", "
+            joined="${missing[*]}"
+            unset IFS
+            printf 'ready=false\n' >>"$GITHUB_OUTPUT"
+            printf '::warning ::Skipping signed build because the following secrets are not configured: %s\n' "$joined"
+          else
+            printf 'ready=true\n' >>"$GITHUB_OUTPUT"
+            printf '::notice ::All signing secrets detected; continuing with signed build.\n'
+          fi
+
   build:
-    if: ${{ github.event_name != 'pull_request' || github.event.pull_request.head.repo.full_name == github.repository }}
+    needs: signing_precheck
+    if: ${{ (github.event_name != 'pull_request' || github.event.pull_request.head.repo.full_name == github.repository) && needs.signing_precheck.outputs.ready == 'true' }}
     runs-on: macos-15
     timeout-minutes: 60
 
