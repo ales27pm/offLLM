@@ -26,7 +26,6 @@ jobs:
     env:
       WORKING_DIR: ios
       KEYCHAIN_NAME: build-${{ github.run_id }}.keychain-db
-      KEYCHAIN_PATH: ${{ runner.temp }}/build-${{ github.run_id }}.keychain-db
     steps:
       - name: Checkout (shallow)
         uses: actions/checkout@v4
@@ -71,13 +70,17 @@ jobs:
           KEYCHAIN_PASSWORD: ${{ secrets.KEYCHAIN_PASSWORD }}
         run: |
           set -euo pipefail
-          security create-keychain -p "$KEYCHAIN_PASSWORD" "$KEYCHAIN_NAME"
+          KEYCHAIN_PATH="$RUNNER_TEMP/$KEYCHAIN_NAME"
+
+          security create-keychain -p "$KEYCHAIN_PASSWORD" "$KEYCHAIN_PATH"
           security set-keychain-settings "$KEYCHAIN_PATH"
           security unlock-keychain -p "$KEYCHAIN_PASSWORD" "$KEYCHAIN_PATH"
 
           # Save originals so we can restore on cleanup
           echo "ORIGINAL_DEFAULT_KEYCHAIN=$(security default-keychain | sed 's/.*"\(.*\)".*/\1/')" >> $GITHUB_ENV
           echo "ORIGINAL_KEYCHAIN_LIST=$(security list-keychains -d user | sed 's/.*"\(.*\)".*/\1/')" >> $GITHUB_ENV
+
+          echo "KEYCHAIN_PATH=$KEYCHAIN_PATH" >> $GITHUB_ENV
 
           # Put temp keychain first
           security list-keychains -d user -s "$KEYCHAIN_PATH" $ORIGINAL_KEYCHAIN_LIST
