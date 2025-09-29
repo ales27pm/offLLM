@@ -24,8 +24,8 @@ jobs:
     permissions:
       contents: read
     outputs:
-      ready: ${{ steps.precheck_result.outputs.ready }}
-      message: ${{ steps.precheck_result.outputs.message }}
+      ready: ${{ toJSON(steps.precheck_result.outputs.ready == 'true') }}
+      message: ${{ steps.precheck_result.outputs.message || 'Signed build readiness unavailable.' }}
     steps:
       - name: Determine signing requirement
         id: require_signing
@@ -119,7 +119,7 @@ jobs:
 
   build:
     needs: signing_precheck
-    if: ${{ (github.event_name != 'pull_request' || github.event.pull_request.head.repo.full_name == github.repository) && needs.signing_precheck.result == 'success' && needs.signing_precheck.outputs.ready == 'true' }}
+    if: ${{ (github.event_name != 'pull_request' || github.event.pull_request.head.repo.full_name == github.repository) && needs.signing_precheck.result == 'success' && fromJSON(needs.signing_precheck.outputs.ready) }}
     runs-on: macos-15
     timeout-minutes: 60
 
