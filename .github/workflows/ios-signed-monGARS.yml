@@ -49,13 +49,16 @@ jobs:
         uses: actions/setup-node@v4
         with:
           node-version: "20"
-          cache: "yarn"
+
+      - name: Setup Bun
+        if: hashFiles('bun.lockb') != ''
+        uses: oven-sh/setup-bun@v1
 
       - name: Install JS deps
         run: |
           if [ -f yarn.lock ]; then yarn install --frozen-lockfile; fi
           if [ -f pnpm-lock.yaml ]; then corepack enable && pnpm i --frozen-lockfile; fi
-          if [ -f bun.lockb ]; then curl -fsSL https://bun.sh/install | bash && ~/.bun/bin/bun install --no-save; fi
+          if [ -f bun.lockb ]; then bun install --no-save; fi
 
       - name: Install Ruby & CocoaPods
         run: |
