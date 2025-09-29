@@ -4,15 +4,24 @@ on:
   workflow_dispatch:
   push:
     branches: [main, master]
-  pull_request:
 
 jobs:
   build-adhoc:
-    runs-on: macos-15
+    permissions:
+      contents: read
+    runs-on: macos-latest
+    timeout-minutes: 60
+    concurrency:
+      group: ios-adhoc-${{ github.ref }}
+      cancel-in-progress: true
 
     env:
+      NODE_VERSION: "20"
+      RUBY_VERSION: "3.2"
+      XCODE_VERSION: "16.4"
       SCHEME: monGARS
       CONFIGURATION: Release
+      WORKSPACE: ios/monGARS.xcworkspace
       ARCHIVE_PATH: build/monGARS.xcarchive
       DERIVED_DATA: build/DerivedData
       RESULT_BUNDLE: build/DerivedData/ResultBundle_build.xcresult
@@ -32,66 +41,88 @@ jobs:
       - name: Checkout
         uses: actions/checkout@v4
 
-      - name: Prepare scripts
-        run: |
-          mkdir -p scripts signing
-          cat > scripts/import_signing.sh <<'BASH'
-          #!/usr/bin/env bash
-          set -euo pipefail
-          P12_PATH="$1"; P12_PASSWORD="$2"; MP_PATH="$3"; KC_NAME="$4"; KC_PASS="$5"
-          security create-keychain -p "$KC_PASS" "$KC_NAME"
-          security set-keychain-settings -lut 21600 "$KC_NAME"
-          security unlock-keychain -p "$KC_PASS" "$KC_NAME"
-          security import "$P12_PATH" -k "$KC_NAME" -P "$P12_PASSWORD" -T /usr/bin/codesign -T /usr/bin/security
-          security set-key-partition-list -S apple-tool:,apple: -s -k "$KC_PASS" "$KC_NAME" || true
-          security list-keychains -d user -s "$KC_NAME"
-          security default-keychain -s "$KC_NAME"
-          PP_DIR="$HOME/Library/MobileDevice/Provisioning Profiles"; mkdir -p "$PP_DIR"
-          PLIST_TMP=$(mktemp); security cms -D -i "$MP_PATH" > "$PLIST_TMP"
-          UUID=$(/usr/libexec/PlistBuddy -c 'Print UUID' "$PLIST_TMP")
-          cp "$MP_PATH" "$PP_DIR/$UUID.mobileprovision"
-          echo "PROFILE_UUID=$UUID" >> "$GITHUB_ENV"
-          BASH
-          chmod +x scripts/import_signing.sh
+      - name: Select Xcode ${{ env.XCODE_VERSION }}
+        uses: maxim-lobanov/setup-xcode@v1
+        with:
+          xcode-version: ${{ env.XCODE_VERSION }}
 
-          cat > scripts/export_ipa.sh <<'BASH'
-          #!/usr/bin/env bash
+      - name: Setup Node.js
+        uses: actions/setup-node@v5
+        with:
+          node-version: ${{ env.NODE_VERSION }}
+          cache: npm
+
+      - name: Install Node dependencies
+        run: npm ci
+
+      - name: Setup Ruby ${{ env.RUBY_VERSION }}
+        uses: ruby/setup-ruby@v1
+        with:
+          ruby-version: ${{ env.RUBY_VERSION }}
+          bundler-cache: true
+        working-directory: ios
+
+      - name: Install XcodeGen
+        run: |
+          if ! command -v xcodegen >/dev/null 2>&1; then
+            brew install xcodegen
+          fi
+
+      - name: Download bundled MLX model
+        run: ./scripts/ci/download-mlx-model.sh
+
+      - name: Cache CocoaPods
+        uses: actions/cache@v4
+        with:
+          path: |
+            ios/Pods
+            ios/monGARS.xcworkspace
+          key: pods-${{ runner.os }}-${{ hashFiles('ios/Podfile.lock') }}
+          restore-keys: |
+            pods-${{ runner.os }}-
+
+      - name: Generate Xcode project
+        working-directory: ios
+        run: xcodegen generate
+
+      - name: Install CocoaPods
+        working-directory: ios
+        run: |
           set -euo pipefail
-          ARCHIVE_PATH="$1"; EXPORT_OPTS="$2"; EXPORT_DIR="$3"
-          mkdir -p "$EXPORT_DIR"
-          xcodebuild -exportArchive -archivePath "$ARCHIVE_PATH" -exportPath "$EXPORT_DIR" -exportOptionsPlist "$EXPORT_OPTS" -allowProvisioningUpdates
-          ls -la "$EXPORT_DIR"
-          BASH
-          chmod +x scripts/export_ipa.sh
+          bundle exec pod install --repo-update
+
+      - name: Restore DerivedData cache
+        uses: actions/cache@v4
+        with:
+          path: build/DerivedData
+          key: derived-${{ runner.os }}-${{ env.XCODE_VERSION }}-${{ hashFiles('ios/project.yml', 'ios/Podfile.lock') }}
+          restore-keys: |
+            derived-${{ runner.os }}-${{ env.XCODE_VERSION }}-
+
+      - name: Prepare signing workspace
+        run: mkdir -p signing
 
       - name: Decode signing files
         run: |
-          echo "$P12_BASE64" | base64 --decode > signing/cert.p12
-          echo "$MOBILEPROVISION_BASE64" | base64 --decode > signing/profile.mobileprovision
+          echo "$P12_BASE64" | base64 -D > signing/cert.p12
+          echo "$MOBILEPROVISION_BASE64" | base64 -D > signing/profile.mobileprovision
 
       - name: Import certificate & provisioning profile
         run: |
-          bash scripts/import_signing.sh \
+          ./scripts/ci/import_signing.sh \
             signing/cert.p12 \
             "$P12_PASSWORD" \
             signing/profile.mobileprovision \
             "$KEYCHAIN_NAME" \
             "$KEYCHAIN_PASSWORD"
 
-      - name: Resolve profile name
-        id: profile
-        run: |
-          PROFILE_PLIST=$(mktemp)
-          /usr/bin/security cms -D -i signing/profile.mobileprovision > "$PROFILE_PLIST"
-          PROFILE_NAME=$(/usr/libexec/PlistBuddy -c 'Print Name' "$PROFILE_PLIST")
-          echo "name=$PROFILE_NAME" >> $GITHUB_OUTPUT
-
       - name: Xcode Archive (manual signing)
         run: |
-          set -euxo pipefail
-          rm -rf "$ARCHIVE_PATH" "$DERIVED_DATA" "$RESULT_BUNDLE" || true
+          set -euo pipefail
+          rm -rf "$ARCHIVE_PATH" "$RESULT_BUNDLE" || true
           BUNDLE_ID="${BUNDLE_ID_PREFIX}.${BUNDLE_ID_SUFFIX}"
           xcodebuild \
+            -workspace "$WORKSPACE" \
             -scheme "$SCHEME" \
             -configuration "$CONFIGURATION" \
             -archivePath "$ARCHIVE_PATH" \
@@ -102,7 +133,8 @@ jobs:
             CODE_SIGN_STYLE=Manual \
             DEVELOPMENT_TEAM="${TEAM_ID}" \
             PRODUCT_BUNDLE_IDENTIFIER="$BUNDLE_ID" \
-            PROVISIONING_PROFILE_SPECIFIER="${{ steps.profile.outputs.name }}" \
+            PROVISIONING_PROFILE_SPECIFIER="$PROFILE_NAME" \
+            CODE_SIGN_IDENTITY="Apple Distribution" \
             OTHER_CODE_SIGN_FLAGS="--keychain $KEYCHAIN_NAME"
 
       - name: Create exportOptions.plist
@@ -120,7 +152,7 @@ jobs:
             <key>destination</key><string>export</string>
             <key>provisioningProfiles</key>
             <dict>
-              <key>${BUNDLE_ID_PREFIX}.${BUNDLE_ID_SUFFIX}</key><string>${{ steps.profile.outputs.name }}</string>
+              <key>${BUNDLE_ID_PREFIX}.${BUNDLE_ID_SUFFIX}</key><string>${PROFILE_NAME}</string>
             </dict>
           </dict>
           </plist>
@@ -128,7 +160,7 @@ jobs:
 
       - name: Export IPA
         run: |
-          bash scripts/export_ipa.sh "$ARCHIVE_PATH" exportOptions.plist export
+          ./scripts/ci/export_ipa.sh "$ARCHIVE_PATH" exportOptions.plist export
 
       - name: Upload IPA
         uses: actions/upload-artifact@v4
@@ -139,4 +171,35 @@ jobs:
       - name: Cleanup keychain
         if: always()
         run: |
-          security delete-keychain "$KEYCHAIN_NAME" || true
+          set -euo pipefail
+          rm -rf signing export exportOptions.plist || true
+          if [ -n "${ORIG_KEYCHAINS_B64:-}" ]; then
+            RESTORE_ARGS=()
+            if ORIG_KEYCHAINS_DECODED=$(python3 - <<'PY'
+import base64, os, sys
+data = os.environ.get("ORIG_KEYCHAINS_B64", "")
+try:
+    sys.stdout.write(base64.b64decode(data.encode()).decode())
+except Exception:
+    sys.exit(1)
+PY
+); then
+              while IFS= read -r keychain; do
+                [ -z "$keychain" ] && continue
+                RESTORE_ARGS+=("$keychain")
+              done <<< "$ORIG_KEYCHAINS_DECODED"
+              if [ ${#RESTORE_ARGS[@]} -gt 0 ]; then
+                security list-keychains -d user -s "${RESTORE_ARGS[@]}"
+              fi
+            else
+              echo "::warning title=Keychain restore failed::Unable to decode original keychain search list." >&2
+            fi
+          fi
+          if [ -n "${ORIG_DEFAULT_KEYCHAIN:-}" ]; then
+            security default-keychain -s "$ORIG_DEFAULT_KEYCHAIN" || true
+          else
+            security default-keychain -s login.keychain-db || true
+          fi
+          if ! security delete-keychain "$KEYCHAIN_NAME"; then
+            echo "::warning title=Keychain cleanup failed::Failed to delete $KEYCHAIN_NAME; investigate runner cleanup." >&2
+          fi
