@@ -339,12 +339,51 @@ project_path =
 raise "No .xcodeproj found near Podfile (#{__dir__})" unless project_path
 project File.basename(project_path)
 
+def command_available?(command)
+  system("command -v #{command} >/dev/null 2>&1")
+end
+
+def ensure_react_native_pods_helper!
+  project_root = File.expand_path('..', __dir__)
+  rn_path = File.join(project_root, 'node_modules', 'react-native')
+  helper = File.join(rn_path, 'scripts', 'react_native_pods.rb')
+  return helper if File.exist?(helper)
+
+  Pod::UI.puts "[Podfile] React Native pod helpers missing; attempting to install JavaScript dependencies…"
+
+  install_command =
+    if File.exist?(File.join(project_root, 'package-lock.json')) && command_available?('npm')
+      'npm ci'
+    elsif File.exist?(File.join(project_root, 'yarn.lock')) && command_available?('yarn')
+      'yarn install --frozen-lockfile'
+    elsif File.exist?(File.join(project_root, 'pnpm-lock.yaml')) && command_available?('pnpm')
+      'pnpm install --frozen-lockfile'
+    elsif File.exist?(File.join(project_root, 'bun.lockb')) && command_available?('bun')
+      'bun install --frozen-lockfile'
+    else
+      nil
+    end
+
+  if install_command
+    Pod::UI.puts "[Podfile] Running '#{install_command}' in #{project_root}…"
+    success = system("cd #{project_root} && #{install_command}")
+    Pod::UI.puts "[Podfile] '#{install_command}' #{success ? 'succeeded' : 'failed'}"
+  else
+    Pod::UI.puts "[Podfile] No supported package manager detected; skipping automatic JavaScript install."
+  end
+
+  unless File.exist?(helper)
+    raise "React Native pod helpers not found at #{helper}."
+  end
+
+  helper
+end
+
 begin
-  rn_path = File.join(__dir__, '..', 'node_modules', 'react-native')
-  require File.join(rn_path, 'scripts', 'react_native_pods')
+  require ensure_react_native_pods_helper!
 rescue => e
   abort "[Podfile] Could not load React Native pod helpers: #{e.message}\n" \
-        "[Podfile] Hint: run 'npm ci' (or 'yarn install') at repo root before 'pod install'."
+        "[Podfile] Hint: bootstrap JS dependencies before running 'pod install'."
 end
 
 prepare_react_native_project!
