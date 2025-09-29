@@ -22,6 +22,7 @@ env:
 jobs:
   missing-signing-secrets:
     runs-on: ubuntu-latest
+    environment: offLLM
     if: ${{ secrets.P12_BASE64 == '' || secrets.MOBILEPROVISION_BASE64 == '' || secrets.TEAM_ID == '' }}
     steps:
       - name: Skip signed build
@@ -31,6 +32,7 @@ jobs:
   build-signed-ipa:
     if: ${{ secrets.P12_BASE64 != '' && secrets.MOBILEPROVISION_BASE64 != '' && secrets.TEAM_ID != '' }}
     runs-on: macos-15
+    environment: offLLM
     timeout-minutes: 60
 
     steps:
