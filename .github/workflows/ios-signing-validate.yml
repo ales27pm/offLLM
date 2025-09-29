@@ -23,8 +23,7 @@ on:
 jobs:
   validate-signing:
     runs-on: macos-15
-    # 👇 Attach this job to the GitHub Environment named "offLLM"
-    environment: offLLM
+    environment: offLLM   # 👈 attaches the job to your GitHub Environment
     env:
       WORKING_DIR: ios
       KEYCHAIN_NAME: build-${{ github.run_id }}.keychain-db
@@ -41,7 +40,6 @@ jobs:
           P12_PASSWORD: ${{ secrets.P12_PASSWORD }}
           MOBILEPROVISION_BASE64: ${{ secrets.MOBILEPROVISION_BASE64 }}
           KEYCHAIN_PASSWORD: ${{ secrets.KEYCHAIN_PASSWORD }}
-        shell: bash
         run: |
           set -euo pipefail
           missing=0
@@ -61,7 +59,6 @@ jobs:
         env:
           P12_BASE64: ${{ secrets.P12_BASE64 }}
           MOBILEPROVISION_BASE64: ${{ secrets.MOBILEPROVISION_BASE64 }}
-        shell: bash
         run: |
           set -euo pipefail
           mkdir -p signing
@@ -72,7 +69,6 @@ jobs:
       - name: Create & unlock temporary keychain
         env:
           KEYCHAIN_PASSWORD: ${{ secrets.KEYCHAIN_PASSWORD }}
-        shell: bash
         run: |
           set -euo pipefail
           KEYCHAIN_PATH="$RUNNER_TEMP/${KEYCHAIN_NAME}"
@@ -82,20 +78,19 @@ jobs:
           security unlock-keychain -p "$KEYCHAIN_PASSWORD" "$KEYCHAIN_PATH"
 
           # Save originals so we can restore on cleanup
-          echo "ORIGINAL_DEFAULT_KEYCHAIN=$(security default-keychain | sed 's/.*"\(.*\)".*/\1/')" >> $GITHUB_ENV
-          echo "ORIGINAL_KEYCHAIN_LIST=$(security list-keychains -d user | sed 's/.*"\(.*\)".*/\1/')" >> $GITHUB_ENV
+          echo "ORIGINAL_DEFAULT_KEYCHAIN=$(security default-keychain | sed 's/.*\"\(.*\)\".*/\1/')" >> $GITHUB_ENV
+          echo "ORIGINAL_KEYCHAIN_LIST=$(security list-keychains -d user | sed 's/.*\"\(.*\)\".*/\1/')" >> $GITHUB_ENV
 
           echo "KEYCHAIN_PATH=$KEYCHAIN_PATH" >> $GITHUB_ENV
 
-          # Put temp keychain first
-          security list-keychains -d user -s "$KEYCHAIN_PATH" $ORIGINAL_KEYCHAIN_LIST
+          # Put temp keychain first, guard with defaults
+          security list-keychains -d user -s "$KEYCHAIN_PATH" ${ORIGINAL_KEYCHAIN_LIST:-}
           security default-keychain -s "$KEYCHAIN_PATH"
 
       - name: Import certificate into keychain
         working-directory: ${{ env.WORKING_DIR }}
         env:
           P12_PASSWORD: ${{ secrets.P12_PASSWORD }}
-        shell: bash
         run: |
           set -euo pipefail
           security import signing/cert.p12 -k "$KEYCHAIN_PATH" -P "$P12_PASSWORD" -T /usr/bin/codesign -T /usr/bin/security
@@ -108,7 +103,6 @@ jobs:
           INPUT_TEAM_ID: ${{ github.event.inputs.team_id }}
           INPUT_BUNDLE_ID: ${{ github.event.inputs.bundle_id }}
           INPUT_UDID: ${{ github.event.inputs.device_udid }}
-        shell: bash
         run: |
           set -euo pipefail
           TMP_PLIST=$(mktemp)
@@ -125,17 +119,15 @@ jobs:
           echo "Input Team ID    : $INPUT_TEAM_ID"
           echo "Input Bundle ID  : $INPUT_BUNDLE_ID"
 
-          # Validate team id
           if [[ -n "$INPUT_TEAM_ID" && "$PROFILE_TEAM" != "$INPUT_TEAM_ID" ]]; then
             echo "::error ::Provisioning profile team ($PROFILE_TEAM) does not match input team ($INPUT_TEAM_ID)"
             exit 1
           fi
 
-          # Validate bundle id match (wildcards allowed)
           case "$APP_ID_FULL" in
             "$INPUT_TEAM_ID.$INPUT_BUNDLE_ID") ;;
             "$INPUT_TEAM_ID.*")
-              echo "::warning ::Profile is wildcard; ensure it truly matches entitlements at export time"
+              echo "::warning ::Profile is wildcard; ensure it matches entitlements at export time"
               ;;
             *)
               echo "::error ::Provisioning profile App ID ($APP_ID_FULL) does not cover $INPUT_TEAM_ID.$INPUT_BUNDLE_ID"
@@ -143,7 +135,6 @@ jobs:
               ;;
           esac
 
-          # If a UDID was provided, ensure it is present
           if /usr/libexec/PlistBuddy -c 'Print :ProvisionedDevices' "$TMP_PLIST" >/dev/null 2>&1; then
             if [[ -n "$INPUT_UDID" ]]; then
               if ! /usr/libexec/PlistBuddy -c 'Print :ProvisionedDevices' "$TMP_PLIST" | grep -qi "$INPUT_UDID"; then
@@ -153,7 +144,7 @@ jobs:
                 echo "UDID present in profile ✅"
               fi
             else
-              echo "ProvisionedDevices present; UDID check skipped (no UDID provided)."
+              echo "ProvisionedDevices present; UDID check skipped."
             fi
           else
             echo "::error ::Provisioning profile has no ProvisionedDevices (not valid for dev/ad-hoc install)."
@@ -169,62 +160,42 @@ jobs:
           EXPORT_METHOD_IN: ${{ github.event.inputs.export_method }}
           KEYCHAIN_PATH: ${{ env.KEYCHAIN_PATH }}
           PROFILE_NAME: monGARS
-        shell: bash
         run: |
           set -euo pipefail
-
-          # Detect identity labels (modern + legacy)
-          IDS=$(security find-identity -p codesigning -v "$KEYCHAIN_PATH" 2>/dev/null | sed -n 's/.*"\(.*\)".*/\1/p' || true)
+          IDS=$(security find-identity -p codesigning -v "$KEYCHAIN_PATH" 2>/dev/null | sed -n 's/.*\"\(.*\)\".*/\1/p' || true)
           echo "Identities found:"
           echo "$IDS"
 
           HAVE_DISTRIBUTION=0
-          echo "$IDS" | grep -Eq '^(Apple|iOS|iPhone) Distribution(:|$)' && HAVE_DISTRIBUTION=1 || true
-
+          echo "$IDS" | grep -Eq 'Distribution' && HAVE_DISTRIBUTION=1 || true
           HAVE_DEVELOPMENT=0
-          echo "$IDS" | grep -Eq '^(Apple Development|iPhone Developer)(:|$)' && HAVE_DEVELOPMENT=1 || true
-
-          DEV_LABEL=""
-          echo "$IDS" | grep -Eq '^Apple Development(:|$)' && DEV_LABEL="Apple Development" || true
-          [[ -z "$DEV_LABEL" ]] && (echo "$IDS" | grep -Eq '^iPhone Developer(:|$)' && DEV_LABEL="iPhone Developer" || true)
-
-          DIST_LABEL=""
-          echo "$IDS" | grep -Eq '^Apple Distribution(:|$)' && DIST_LABEL="Apple Distribution" || true
-          [[ -z "$DIST_LABEL" ]] && (echo "$IDS" | grep -Eq '^iPhone Distribution(:|$)' && DIST_LABEL="iPhone Distribution" || true)
-          [[ -z "$DIST_LABEL" ]] && (echo "$IDS" | grep -Eq '^iOS Distribution(:|$)' && DIST_LABEL="iOS Distribution" || true)
+          echo "$IDS" | grep -Eq 'Developer' && HAVE_DEVELOPMENT=1 || true
 
           METHOD="${EXPORT_METHOD_IN:-development}"
           [[ "$METHOD" == "ad-hoc" ]] && METHOD="release-testing"
 
           if [[ "$METHOD" == "release-testing" || "$METHOD" == "app-store" ]]; then
-            if [[ $HAVE_DISTRIBUTION -eq 0 ]]; then
-              echo "::warning ::No Distribution identity; falling back to development for validation"
-              METHOD="development"
-            fi
+            [[ $HAVE_DISTRIBUTION -eq 0 ]] && METHOD="development"
           fi
           if [[ "$METHOD" == "development" && $HAVE_DEVELOPMENT -eq 0 ]]; then
-            echo "::error ::No Development identity found in temp keychain"
+            echo "::error ::No Development identity found"
             exit 1
           fi
 
-          # Build a valid ExportOptions.plist and ensure dotted bundle ID is handled
           rm -f ExportOptions.plist
           plutil -create xml1 ExportOptions.plist
           plutil -replace : -xml '<dict/>' ExportOptions.plist
           plutil -insert method -string "$METHOD" ExportOptions.plist
           plutil -insert signingStyle -string "manual" ExportOptions.plist
           [[ -n "$TEAM_ID" ]] && plutil -insert teamID -string "$TEAM_ID" ExportOptions.plist || true
-          CERT_LABEL=""
           if [[ "$METHOD" == "development" ]]; then
-            CERT_LABEL="${DEV_LABEL:-Apple Development}"
+            plutil -insert signingCertificate -string "Apple Development" ExportOptions.plist
           else
-            CERT_LABEL="${DIST_LABEL:-Apple Distribution}"
+            plutil -insert signingCertificate -string "Apple Distribution" ExportOptions.plist
           fi
-          plutil -insert signingCertificate -string "$CERT_LABEL" ExportOptions.plist
           plutil -insert stripSwiftSymbols -bool true ExportOptions.plist
           plutil -insert compileBitcode -bool false ExportOptions.plist
 
-          # provisioningProfiles with dotted key via PlistBuddy
           /usr/libexec/PlistBuddy -c "Add :provisioningProfiles dict" ExportOptions.plist 2>/dev/null || true
           /usr/libexec/PlistBuddy -c "Add :provisioningProfiles:${BUNDLE_ID} string ${PROFILE_NAME}" ExportOptions.plist 2>/dev/null || \
           /usr/libexec/PlistBuddy -c "Set :provisioningProfiles:${BUNDLE_ID} ${PROFILE_NAME}" ExportOptions.plist
@@ -234,7 +205,6 @@ jobs:
 
       - name: Cleanup keychain
         if: always()
-        shell: bash
         run: |
           set -euo pipefail
           if [[ -n "${ORIGINAL_DEFAULT_KEYCHAIN:-}" ]]; then
