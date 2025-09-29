@@ -23,6 +23,7 @@ on:
 jobs:
   validate-signing:
     runs-on: macos-15
+    environment: offLLM
     env:
       WORKING_DIR: ios
       KEYCHAIN_NAME: build-${{ github.run_id }}.keychain-db
