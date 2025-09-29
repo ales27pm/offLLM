@@ -24,121 +24,25 @@ jobs:
     permissions:
       contents: read
     outputs:
-      ready: ${{ toJSON(steps.precheck_result.outputs.ready == 'true') }}
-      message: ${{ steps.precheck_result.outputs.message || 'Signed build readiness unavailable.' }}
+      ready: ${{ steps.signing_gate.outputs.ready }}
+      message: ${{ steps.signing_gate.outputs.message }}
+      missing: ${{ steps.signing_gate.outputs.missing }}
     steps:
-      - name: Determine signing requirement
-        id: require_signing
-        shell: bash
-        env:
-          EVENT_NAME: ${{ github.event_name }}
-          INPUT_REQUIRE_SIGNING: ${{ github.event_name == 'workflow_dispatch' && github.event.inputs.require_signing || '' }}
-        run: |
-          set -euo pipefail
-
-          raw_input="$INPUT_REQUIRE_SIGNING"
-          if [[ "$EVENT_NAME" != "workflow_dispatch" || -z "$raw_input" ]]; then
-            raw_input="true"
-          fi
-
-          normalized="$(printf '%s' "$raw_input" | tr '[:upper:]' '[:lower:]')"
-          case "$normalized" in
-            true|1|yes|on)
-              normalized="true"
-              ;;
-            false|0|no|off)
-              normalized="false"
-              ;;
-            *)
-              echo "::warning ::Unknown require_signing value '$raw_input'; defaulting to true."
-              normalized="true"
-              ;;
-          esac
-
-          echo "require_signing=$normalized" >>"$GITHUB_OUTPUT"
-
       - name: Checkout repository
-        if: ${{ steps.require_signing.outputs.require_signing == 'true' }}
         uses: actions/checkout@v4
-        with:
-          fetch-depth: 0
 
-      - name: Evaluate signing secrets
-        if: ${{ steps.require_signing.outputs.require_signing == 'true' }}
-        id: evaluate
+      - name: Evaluate signing readiness
+        id: signing_gate
         uses: ./.github/actions/signing-secrets-check
         with:
           required-secrets: ${{ env.SIGNING_SECRET_NAMES }}
+          require-signing: ${{ github.event_name == 'workflow_dispatch' && github.event.inputs.require_signing || 'true' }}
         env:
           P12_BASE64: ${{ secrets.P12_BASE64 }}
           MOBILEPROVISION_BASE64: ${{ secrets.MOBILEPROVISION_BASE64 }}
           P12_PASSWORD: ${{ secrets.P12_PASSWORD }}
           KEYCHAIN_PASSWORD: ${{ secrets.KEYCHAIN_PASSWORD }}
           APPLE_TEAM_ID: ${{ secrets.APPLE_TEAM_ID }}
-
-      - name: Finalize signing precheck result
-        id: precheck_result
-        shell: bash
-        env:
-          REQUIRE_SIGNING: ${{ steps.require_signing.outputs.require_signing }}
-          READY: ${{ steps.evaluate.outputs.ready }}
-          MISSING: ${{ steps.evaluate.outputs.missing }}
-        run: |
-          set -euo pipefail
-
-          python3 - <<'PY'
-          import os
-
-          require_signing = os.environ.get("REQUIRE_SIGNING", "").lower() == "true"
-          ready_raw = os.environ.get("READY", "")
-          missing_raw = os.environ.get("MISSING", "")
-          output_path = os.environ["GITHUB_OUTPUT"]
-
-          def normalize_missing(raw: str) -> str:
-              parts = [item.strip() for item in raw.split(",") if item.strip()]
-              return ", ".join(parts)
-
-          if not require_signing:
-              ready_value = "false"
-              message = "Signed build skipped via workflow input."
-              formatted_missing = ""
-          else:
-              ready_value = "true" if ready_raw == "true" else "false"
-              formatted_missing = normalize_missing(missing_raw)
-
-              if ready_value == "true":
-                  message = "All signing secrets detected; continuing with signed build."
-              elif formatted_missing:
-                  message = (
-                      "Signed build skipped; configure the following secrets to enable it: "
-                      f"{formatted_missing}."
-                  )
-              else:
-                  message = "Signed build skipped; required signing secrets are missing."
-
-          with open(output_path, "a", encoding="utf-8") as handle:
-              handle.write(f"ready={ready_value}\n")
-              handle.write(f"message={message}\n")
-              handle.write(f"missing_formatted={formatted_missing}\n")
-          PY
-
-      - name: Summarize signing gate
-        if: ${{ always() }}
-        env:
-          READY: ${{ steps.precheck_result.outputs.ready }}
-          SUMMARY_MESSAGE: ${{ steps.precheck_result.outputs.message }}
-          MISSING: ${{ steps.precheck_result.outputs.missing_formatted }}
-        run: |
-          {
-            echo "## Signing precheck"
-            echo ""
-            echo "- Ready: \`$READY\`"
-            echo "- Details: $SUMMARY_MESSAGE"
-            missing_list="${MISSING:-}"
-            if [[ -n "${missing_list// }" ]]; then
-              echo "- Missing secrets: $missing_list"
-            fi
-          } >>"$GITHUB_STEP_SUMMARY"
 
   build:
     needs: signing_precheck
