@@ -179,35 +179,57 @@ jobs:
             rm -f "$TMP_PLIST"
           fi
 
-          # Determine available codesigning identities
+          # Determine available codesigning identities (support modern + legacy labels)
           IDS=""
           if [[ -n "${KEYCHAIN_PATH:-}" && -e "${KEYCHAIN_PATH}" ]]; then
             IDS=$(security find-identity -p codesigning -v "${KEYCHAIN_PATH}" 2>/dev/null | sed -n 's/.*"\(.*\)".*/\1/p' || true)
           else
             IDS=$(security find-identity -p codesigning -v 2>/dev/null | sed -n 's/.*"\(.*\)".*/\1/p' || true)
           fi
+
           HAVE_DISTRIBUTION=0
-          if echo "$IDS" | grep -qE '^(Apple|iOS) Distribution(:|$)'; then HAVE_DISTRIBUTION=1; fi
+          if echo "$IDS" | grep -Eq '^(Apple|iOS|iPhone) Distribution(:|$)'; then HAVE_DISTRIBUTION=1; fi
+
           HAVE_DEVELOPMENT=0
-          if echo "$IDS" | grep -qE '^Apple Development(:|$)'; then HAVE_DEVELOPMENT=1; fi
+          if echo "$IDS" | grep -Eq '^(Apple Development|iPhone Developer)(:|$)'; then HAVE_DEVELOPMENT=1; fi
+
+          # Capture concrete label to hint ExportOptions correctly
+          DEV_LABEL=""
+          if echo "$IDS" | grep -Eq '^Apple Development(:|$)'; then
+            DEV_LABEL="Apple Development"
+          elif echo "$IDS" | grep -Eq '^iPhone Developer(:|$)'; then
+            DEV_LABEL="iPhone Developer"
+          fi
+
+          DIST_LABEL=""
+          if echo "$IDS" | grep -Eq '^Apple Distribution(:|$)'; then
+            DIST_LABEL="Apple Distribution"
+          elif echo "$IDS" | grep -Eq '^iPhone Distribution(:|$)'; then
+            DIST_LABEL="iPhone Distribution"
+          elif echo "$IDS" | grep -Eq '^iOS Distribution(:|$)'; then
+            DIST_LABEL="iOS Distribution"
+          fi
 
           METHOD="${EXPORT_METHOD_IN:-development}"
-          # Xcode 16: "ad-hoc" is deprecated -> "release-testing"
+          # Xcode 16: "ad-hoc" -> "release-testing"
           if [[ "$METHOD" == "ad-hoc" ]]; then METHOD="release-testing"; fi
 
-          # Guard rails: fall back if required identity is missing
+          # Guard rails on method vs identities
           if [[ "$METHOD" == "release-testing" || "$METHOD" == "app-store" ]]; then
             if [[ $HAVE_DISTRIBUTION -eq 0 ]]; then
-              echo "::warning ::No Apple Distribution identity; falling back to development export"
+              echo "::warning ::No Distribution identity; falling back to development export"
               METHOD="development"
             fi
           fi
+
+          # If user asked for development but only a distribution identity exists, prefer release-testing
           if [[ "$METHOD" == "development" && $HAVE_DEVELOPMENT -eq 0 && $HAVE_DISTRIBUTION -eq 1 ]]; then
-            echo "::warning ::No Apple Development identity, but Distribution exists; switching to release-testing"
+            echo "::warning ::No Development identity, but Distribution exists; switching to release-testing"
             METHOD="release-testing"
           fi
+
           if [[ "$METHOD" == "development" && $HAVE_DEVELOPMENT -eq 0 ]]; then
-            echo "::error ::No Apple Development identity found"
+            echo "::error ::No Development identity found"
             exit 1
           fi
 
@@ -219,10 +241,20 @@ jobs:
           fi
           /usr/libexec/PlistBuddy -c "Add :provisioningProfiles dict" ExportOptions.plist
           /usr/libexec/PlistBuddy -c "Add :provisioningProfiles:${BUNDLE_ID} string ${PROFILE_NAME}" ExportOptions.plist
+
+          # Use a signingCertificate hint that matches what's actually in the keychain
           if [[ "$METHOD" == "development" ]]; then
-            /usr/libexec/PlistBuddy -c "Add :signingCertificate string Apple Development" ExportOptions.plist
+            if [[ -n "$DEV_LABEL" ]]; then
+              /usr/libexec/PlistBuddy -c "Add :signingCertificate string ${DEV_LABEL}" ExportOptions.plist
+            else
+              /usr/libexec/PlistBuddy -c "Add :signingCertificate string Apple Development" ExportOptions.plist
+            fi
           else
-            /usr/libexec/PlistBuddy -c "Add :signingCertificate string Apple Distribution" ExportOptions.plist
+            if [[ -n "$DIST_LABEL" ]]; then
+              /usr/libexec/PlistBuddy -c "Add :signingCertificate string ${DIST_LABEL}" ExportOptions.plist
+            else
+              /usr/libexec/PlistBuddy -c "Add :signingCertificate string Apple Distribution" ExportOptions.plist
+            fi
           fi
           /usr/libexec/PlistBuddy -c "Add :stripSwiftSymbols bool true" ExportOptions.plist
           /usr/libexec/PlistBuddy -c "Add :compileBitcode bool false" ExportOptions.plist
