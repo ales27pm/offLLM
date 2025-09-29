@@ -21,6 +21,8 @@ env:
 jobs:
   signing_precheck:
     runs-on: ubuntu-latest
+    permissions:
+      contents: read
     outputs:
       ready: ${{ steps.precheck_result.outputs.ready }}
       message: ${{ steps.precheck_result.outputs.message }}
@@ -58,6 +60,8 @@ jobs:
       - name: Checkout repository
         if: ${{ steps.require_signing.outputs.require_signing == 'true' }}
         uses: actions/checkout@v4
+        with:
+          fetch-depth: 0
 
       - name: Evaluate signing secrets
         if: ${{ steps.require_signing.outputs.require_signing == 'true' }}
