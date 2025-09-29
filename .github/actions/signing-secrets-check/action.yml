@@ -1,0 +1,41 @@
+name: signing-secrets-check
+description: Validate that all required signing secrets are populated before running signing workflows.
+inputs:
+  required-secrets:
+    description: |-
+      Newline-delimited list of environment variable names that must be populated for signing to proceed.
+    required: true
+outputs:
+  ready:
+    description: Indicates whether all required secrets were found.
+    value: ${{ steps.evaluate.outputs.ready }}
+runs:
+  using: composite
+  steps:
+    - id: evaluate
+      shell: bash
+      env:
+        REQUIRED_SECRETS: ${{ inputs.required-secrets }}
+      run: |
+        set -euo pipefail
+        python3 - <<'PY'
+        import os
+        import sys
+
+        required = [line.strip() for line in os.environ["REQUIRED_SECRETS"].splitlines() if line.strip()]
+        missing = [name for name in required if not os.environ.get(name)]
+
+        output_path = os.environ["GITHUB_OUTPUT"]
+        with open(output_path, "a", encoding="utf-8") as fh:
+            fh.write(f"ready={'false' if missing else 'true'}\n")
+
+        if missing:
+            joined = ", ".join(missing)
+            sys.stdout.write(
+                f"::warning ::Skipping signed build because the following secrets are not configured: {joined}\n"
+            )
+        else:
+            sys.stdout.write(
+                "::notice ::All signing secrets detected; continuing with signed build.\n"
+            )
+        PY

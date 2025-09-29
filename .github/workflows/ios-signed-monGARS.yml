@@ -2,43 +2,40 @@ name: Build iOS App (monGARS)
 
 on:
   workflow_dispatch:
+    inputs:
+      require_signing:
+        description: Skip secret validation and signed build when set to "false".
+        required: false
+        default: "true"
   push:
     branches: [main]
 
+env:
+  SIGNING_SECRET_NAMES: |
+    P12_BASE64
+    MOBILEPROVISION_BASE64
+    P12_PASSWORD
+    KEYCHAIN_PASSWORD
+    APPLE_TEAM_ID
+
 jobs:
   signing_precheck:
+    if: github.event_name != 'workflow_dispatch' || inputs.require_signing == 'true'
     runs-on: ubuntu-latest
     outputs:
       ready: ${{ steps.evaluate.outputs.ready }}
     steps:
       - name: Evaluate signing secrets
         id: evaluate
+        uses: ./.github/actions/signing-secrets-check
+        with:
+          required-secrets: ${{ env.SIGNING_SECRET_NAMES }}
         env:
           P12_BASE64: ${{ secrets.P12_BASE64 }}
           MOBILEPROVISION_BASE64: ${{ secrets.MOBILEPROVISION_BASE64 }}
           P12_PASSWORD: ${{ secrets.P12_PASSWORD }}
           KEYCHAIN_PASSWORD: ${{ secrets.KEYCHAIN_PASSWORD }}
           APPLE_TEAM_ID: ${{ secrets.APPLE_TEAM_ID }}
-        run: |
-          set -euo pipefail
-          missing=()
-
-          [[ -z "${P12_BASE64}" ]] && missing+=("P12_BASE64")
-          [[ -z "${MOBILEPROVISION_BASE64}" ]] && missing+=("MOBILEPROVISION_BASE64")
-          [[ -z "${P12_PASSWORD}" ]] && missing+=("P12_PASSWORD")
-          [[ -z "${KEYCHAIN_PASSWORD}" ]] && missing+=("KEYCHAIN_PASSWORD")
-          [[ -z "${APPLE_TEAM_ID}" ]] && missing+=("APPLE_TEAM_ID")
-
-          if [[ ${#missing[@]} -gt 0 ]]; then
-            IFS=", "
-            joined="${missing[*]}"
-            unset IFS
-            printf 'ready=false\n' >>"$GITHUB_OUTPUT"
-            printf '::warning ::Skipping signed build because the following secrets are not configured: %s\n' "$joined"
-          else
-            printf 'ready=true\n' >>"$GITHUB_OUTPUT"
-            printf '::notice ::All signing secrets detected; continuing with signed build.\n'
-          fi
 
   build:
     needs: signing_precheck
