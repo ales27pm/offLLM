@@ -1,25 +1,32 @@
-name: Generate iOS CSR
+name: Generate CSR for Apple Developer
 
 on:
-  workflow_dispatch:
+  workflow_dispatch:  # Manual trigger
 
 jobs:
   generate-csr:
     runs-on: macos-latest
+
     steps:
-      - name: Checkout (optional)
+      - name: Checkout
         uses: actions/checkout@v4
 
-      - name: Generate CSR and Private Key
-        run: |
-          mkdir certs
-          openssl req -new -newkey rsa:2048 -nodes \
-            -keyout certs/ios_dev.key \
-            -out certs/ios_dev.csr \
-            -subj "/emailAddress=ales27pm@hotmail.com, CN=Alexis Boulet, C=CA"
+      - name: Create working directory
+        run: mkdir -p certs
 
-      - name: Upload CSR and Private Key as artifacts
+      - name: Generate private key
+        run: |
+          openssl genrsa -out certs/ios_dev.key 2048
+
+      - name: Generate CSR
+        run: |
+          openssl req -new -key certs/ios_dev.key -out certs/ios_dev.csr -subj "/CN=monGARS Dev Certificate/OU=Development/O=Self"
+
+      - name: Show CSR
+        run: cat certs/ios_dev.csr
+
+      - name: Upload CSR and Private Key as Artifacts
         uses: actions/upload-artifact@v4
         with:
-          name: ios-csr-artifacts
+          name: ios_certificate_files
           path: certs/
