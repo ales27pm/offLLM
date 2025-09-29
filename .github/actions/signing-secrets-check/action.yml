@@ -5,10 +5,31 @@ inputs:
     description: |-
       Newline-delimited list of environment variable names that must be populated for signing to proceed.
     required: true
+  require-signing-input:
+    description: |-
+      Raw require_signing value supplied via workflow_dispatch. Empty values default to "true".
+    required: false
+    default: ""
+  event-name:
+    description: GitHub event name triggering the workflow (e.g., push, workflow_dispatch).
+    required: false
+    default: ""
 outputs:
   ready:
     description: Indicates whether all required secrets were found.
     value: ${{ steps.evaluate.outputs.ready }}
+  missing:
+    description: Comma-separated list of any secrets that were not populated.
+    value: ${{ steps.evaluate.outputs.missing }}
+  message:
+    description: Human-readable summary of the signing readiness state.
+    value: ${{ steps.evaluate.outputs.message }}
+  missing_formatted:
+    description: Comma-space separated list of missing secrets for reuse in summaries.
+    value: ${{ steps.evaluate.outputs.missing_formatted }}
+  require_signing:
+    description: Normalized boolean string indicating whether signing was requested.
+    value: ${{ steps.evaluate.outputs.require_signing }}
 runs:
   using: composite
   steps:
@@ -16,26 +37,79 @@ runs:
       shell: bash
       env:
         REQUIRED_SECRETS: ${{ inputs.required-secrets }}
+        REQUIRE_SIGNING_INPUT: ${{ inputs.require-signing-input }}
+        EVENT_NAME: ${{ inputs.event-name }}
       run: |
         set -euo pipefail
         python3 - <<'PY'
         import os
         import sys
 
-        required = [line.strip() for line in os.environ["REQUIRED_SECRETS"].splitlines() if line.strip()]
-        missing = [name for name in required if not os.environ.get(name)]
+        TRUE_VALUES = {"true", "1", "yes", "on"}
+        FALSE_VALUES = {"false", "0", "no", "off"}
+
+        required_raw = os.environ.get("REQUIRED_SECRETS", "")
+        required = [line.strip() for line in required_raw.splitlines() if line.strip()]
+
+        raw_input = os.environ.get("REQUIRE_SIGNING_INPUT", "")
+        event_name = os.environ.get("EVENT_NAME", "")
+
+        if event_name != "workflow_dispatch" or not raw_input.strip():
+            normalized_request = "true"
+        else:
+            normalized_request = raw_input.strip().lower()
+
+        if normalized_request in TRUE_VALUES:
+            require_signing = True
+        elif normalized_request in FALSE_VALUES:
+            require_signing = False
+        else:
+            sys.stdout.write(
+                f"::warning ::Unknown require_signing value '{raw_input}'; defaulting to true.\n"
+            )
+            require_signing = True
+
+        missing = [name for name in required if not os.environ.get(name)] if require_signing else []
+        joined_missing = ", ".join(missing)
+
+        if not require_signing:
+            ready_value = "false"
+            message = "Signed build skipped via workflow input."
+            notice = message
+            joined_missing = ""
+        elif missing:
+            ready_value = "false"
+            message = (
+                "Signed build skipped; configure the following secrets to enable it: "
+                f"{joined_missing}."
+            )
+            notice = message
+        else:
+            ready_value = "true"
+            message = "All signing secrets detected; continuing with signed build."
+            notice = message
+
+        sys.stdout.write(f"::notice ::{notice}\n")
 
         output_path = os.environ["GITHUB_OUTPUT"]
         with open(output_path, "a", encoding="utf-8") as fh:
-            fh.write(f"ready={'false' if missing else 'true'}\n")
+            fh.write(f"ready={ready_value}\n")
+            fh.write(f"missing={joined_missing}\n")
+            fh.write(f"message={message}\n")
+            fh.write(f"missing_formatted={joined_missing}\n")
+            fh.write(f"require_signing={'true' if require_signing else 'false'}\n")
 
-        if missing:
-            joined = ", ".join(missing)
-            sys.stdout.write(
-                f"::warning ::Skipping signed build because the following secrets are not configured: {joined}\n"
-            )
-        else:
-            sys.stdout.write(
-                "::notice ::All signing secrets detected; continuing with signed build.\n"
-            )
+        summary_path = os.environ.get("GITHUB_STEP_SUMMARY")
+        if summary_path:
+            lines = [
+                "## Signing precheck",
+                "",
+                f"- Ready: `{ready_value}`",
+                f"- Details: {message}",
+            ]
+            if joined_missing:
+                lines.append(f"- Missing secrets: {joined_missing}")
+
+            with open(summary_path, "a", encoding="utf-8") as summary:
+                summary.write("\n".join(lines) + "\n")
         PY
