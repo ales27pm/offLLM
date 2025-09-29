@@ -28,6 +28,9 @@ jobs:
       message: ${{ steps.signing_gate.outputs.message }}
       missing: ${{ steps.signing_gate.outputs.missing }}
     steps:
+      - name: Checkout repository
+        uses: actions/checkout@v4
+
       - name: Evaluate signing readiness
         id: signing_gate
         uses: ./.github/actions/signing-secrets-check
