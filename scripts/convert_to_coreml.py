@@ -1,12 +1,14 @@
-import os
-import json
 import argparse
-import numpy as np
-import torch
+import json
+import os
 import warnings
+
 import coremltools as ct
 import coremltools.optimize as cto
-from transformers import AutoModelForCausalLM, AutoConfig
+import numpy as np
+import torch
+from huggingface_hub import login
+from transformers import AutoConfig, AutoModelForCausalLM
 from transformers.cache_utils import Cache
 
 warnings.filterwarnings("ignore", category=FutureWarning)
@@ -63,7 +65,17 @@ def convert(
     hf_model_path: str,
     out_prefix: str,
     artifacts_path: str = "coreml_artifacts.json",
+    hf_token: str | None = None,
 ):
+    if hf_token:
+        try:
+            login(token=hf_token)
+            print("Authenticated with Hugging Face Hub")
+        except Exception as exc:  # pragma: no cover - hub failures bubble up
+            raise RuntimeError(
+                "Failed to authenticate with Hugging Face Hub"
+            ) from exc
+
     config = AutoConfig.from_pretrained(hf_model_path)
     base_model = AutoModelForCausalLM.from_pretrained(
         hf_model_path,
@@ -195,7 +207,13 @@ def convert(
     ]
 
     for suffix, quantize in quantization_steps:
-        model_to_save = quantize(mlpackage_model)
+        try:
+            model_to_save = quantize(mlpackage_model)
+        except Exception as exc:
+            print(
+                f"Quantization '{suffix}' failed ({exc}); exporting previous precision."
+            )
+            model_to_save = mlpackage_model
         save_package(model_to_save, suffix)
 
     with open(artifacts_path, "w") as f:
@@ -211,5 +229,7 @@ if __name__ == "__main__":
     ap.add_argument("--hf_model", required=True)
     ap.add_argument("--out_prefix", required=True)
     ap.add_argument("--artifacts_path", default="coreml_artifacts.json")
+    ap.add_argument("--hf_token")
     args = ap.parse_args()
-    convert(args.hf_model, args.out_prefix, args.artifacts_path)
+    token = args.hf_token or os.getenv("HF_TOKEN")
+    convert(args.hf_model, args.out_prefix, args.artifacts_path, token)
