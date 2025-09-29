@@ -20,7 +20,16 @@ env:
   XCODE_PROJECT_NAME: monGARS.xcodeproj
 
 jobs:
+  missing-signing-secrets:
+    runs-on: ubuntu-latest
+    if: ${{ secrets.P12_BASE64 == '' || secrets.MOBILEPROVISION_BASE64 == '' || secrets.TEAM_ID == '' }}
+    steps:
+      - name: Skip signed build
+        run: |
+          echo "::warning ::Skipping signed iOS build because one or more signing secrets (P12_BASE64, MOBILEPROVISION_BASE64, TEAM_ID) are not configured."
+
   build-signed-ipa:
+    if: ${{ secrets.P12_BASE64 != '' && secrets.MOBILEPROVISION_BASE64 != '' && secrets.TEAM_ID != '' }}
     runs-on: macos-15
     timeout-minutes: 60
 
