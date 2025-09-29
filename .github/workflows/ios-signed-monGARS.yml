@@ -20,17 +20,38 @@ env:
   XCODE_PROJECT_NAME: monGARS.xcodeproj
 
 jobs:
-  missing-signing-secrets:
+  signing-guard:
     runs-on: ubuntu-latest
     environment: offLLM
-    if: ${{ secrets.P12_BASE64 == '' || secrets.MOBILEPROVISION_BASE64 == '' || secrets.TEAM_ID == '' }}
+    outputs:
+      should-run: ${{ steps.check.outputs.should-run }}
     steps:
-      - name: Skip signed build
+      - name: Check signing secrets
+        id: check
+        env:
+          P12_BASE64: ${{ secrets.P12_BASE64 }}
+          MOBILEPROVISION_BASE64: ${{ secrets.MOBILEPROVISION_BASE64 }}
+          TEAM_ID: ${{ secrets.TEAM_ID }}
         run: |
-          echo "::warning ::Skipping signed iOS build because one or more signing secrets (P12_BASE64, MOBILEPROVISION_BASE64, TEAM_ID) are not configured."
+          set -euo pipefail
+          missing=()
+          for name in P12_BASE64 MOBILEPROVISION_BASE64 TEAM_ID; do
+            if [ -z "${!name:-}" ]; then
+              missing+=("$name")
+            fi
+          done
+
+          if [ "${#missing[@]}" -eq 0 ]; then
+            echo "should-run=true" >> "$GITHUB_OUTPUT"
+            echo "All signing secrets are configured."
+          else
+            printf '::warning ::Skipping signed iOS build because the following secrets are not configured: %s\n' "$(IFS=,; echo "${missing[*]}")"
+            echo "should-run=false" >> "$GITHUB_OUTPUT"
+          fi
 
   build-signed-ipa:
-    if: ${{ secrets.P12_BASE64 != '' && secrets.MOBILEPROVISION_BASE64 != '' && secrets.TEAM_ID != '' }}
+    needs: signing-guard
+    if: ${{ needs.signing-guard.outputs.should-run == 'true' }}
     runs-on: macos-15
     environment: offLLM
     timeout-minutes: 60
