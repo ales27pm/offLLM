@@ -2,12 +2,44 @@ name: Build iOS App (monGARS)
 
 on:
   workflow_dispatch:
+    inputs:
+      require_signing:
+        description: Skip secret validation and signed build when set to "false".
+        required: false
+        default: "true"
   push:
     branches: [main]
 
+env:
+  SIGNING_SECRET_NAMES: |
+    P12_BASE64
+    MOBILEPROVISION_BASE64
+    P12_PASSWORD
+    KEYCHAIN_PASSWORD
+    APPLE_TEAM_ID
+
 jobs:
+  signing_precheck:
+    if: github.event_name != 'workflow_dispatch' || inputs.require_signing == 'true'
+    runs-on: ubuntu-latest
+    outputs:
+      ready: ${{ steps.evaluate.outputs.ready }}
+    steps:
+      - name: Evaluate signing secrets
+        id: evaluate
+        uses: ./.github/actions/signing-secrets-check
+        with:
+          required-secrets: ${{ env.SIGNING_SECRET_NAMES }}
+        env:
+          P12_BASE64: ${{ secrets.P12_BASE64 }}
+          MOBILEPROVISION_BASE64: ${{ secrets.MOBILEPROVISION_BASE64 }}
+          P12_PASSWORD: ${{ secrets.P12_PASSWORD }}
+          KEYCHAIN_PASSWORD: ${{ secrets.KEYCHAIN_PASSWORD }}
+          APPLE_TEAM_ID: ${{ secrets.APPLE_TEAM_ID }}
+
   build:
-    if: ${{ github.event_name != 'pull_request' || github.event.pull_request.head.repo.full_name == github.repository }}
+    needs: signing_precheck
+    if: ${{ (github.event_name != 'pull_request' || github.event.pull_request.head.repo.full_name == github.repository) && needs.signing_precheck.outputs.ready == 'true' }}
     runs-on: macos-15
     timeout-minutes: 60
 
