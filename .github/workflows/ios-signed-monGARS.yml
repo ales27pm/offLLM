@@ -82,6 +82,7 @@ jobs:
         env:
           REQUIRE_SIGNING: ${{ steps.require_signing.outputs.require_signing }}
           READY: ${{ steps.evaluate.outputs.ready }}
+          MISSING: ${{ steps.evaluate.outputs.missing }}
         run: |
           set -euo pipefail
 
@@ -96,10 +97,16 @@ jobs:
             ready_value="false"
           fi
 
+          missing_value="${MISSING:-}"
+
           if [[ "$ready_value" == "true" ]]; then
             echo "message=All signing secrets detected; proceeding with signed build." >>"$GITHUB_OUTPUT"
           else
-            echo "message=Missing signing secrets; skipping signed build." >>"$GITHUB_OUTPUT"
+            summary="Missing signing secrets; skipping signed build."
+            if [[ -n "${missing_value// }" ]]; then
+              summary+=" Missing: ${missing_value}."
+            fi
+            echo "message=${summary}" >>"$GITHUB_OUTPUT"
           fi
 
           echo "ready=$ready_value" >>"$GITHUB_OUTPUT"
@@ -109,12 +116,18 @@ jobs:
         env:
           READY: ${{ steps.precheck_result.outputs.ready }}
           SUMMARY_MESSAGE: ${{ steps.precheck_result.outputs.message }}
+          MISSING: ${{ steps.evaluate.outputs.missing }}
         run: |
           {
             echo "## Signing precheck"
             echo ""
             echo "- Ready: \`$READY\`"
             echo "- Details: $SUMMARY_MESSAGE"
+            missing_list="${MISSING:-}"
+            if [[ -n "${missing_list// }" ]]; then
+              missing_list="$(printf '%s' "$missing_list" | tr ',' ', ')"
+              echo "- Missing secrets: $missing_list"
+            fi
           } >>"$GITHUB_STEP_SUMMARY"
 
   build:
