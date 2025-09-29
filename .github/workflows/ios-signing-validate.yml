@@ -23,10 +23,12 @@ on:
 jobs:
   validate-signing:
     runs-on: macos-15
+    # 👇 Attach this job to the GitHub Environment named "offLLM"
     environment: offLLM
     env:
       WORKING_DIR: ios
       KEYCHAIN_NAME: build-${{ github.run_id }}.keychain-db
+
     steps:
       - name: Checkout (shallow)
         uses: actions/checkout@v4
@@ -39,6 +41,7 @@ jobs:
           P12_PASSWORD: ${{ secrets.P12_PASSWORD }}
           MOBILEPROVISION_BASE64: ${{ secrets.MOBILEPROVISION_BASE64 }}
           KEYCHAIN_PASSWORD: ${{ secrets.KEYCHAIN_PASSWORD }}
+        shell: bash
         run: |
           set -euo pipefail
           missing=0
@@ -52,13 +55,13 @@ jobs:
           if [[ $missing -ne 0 ]]; then
             exit $missing
           fi
-        shell: bash
 
       - name: Prepare signing files
         working-directory: ${{ env.WORKING_DIR }}
         env:
           P12_BASE64: ${{ secrets.P12_BASE64 }}
           MOBILEPROVISION_BASE64: ${{ secrets.MOBILEPROVISION_BASE64 }}
+        shell: bash
         run: |
           set -euo pipefail
           mkdir -p signing
@@ -69,6 +72,7 @@ jobs:
       - name: Create & unlock temporary keychain
         env:
           KEYCHAIN_PASSWORD: ${{ secrets.KEYCHAIN_PASSWORD }}
+        shell: bash
         run: |
           set -euo pipefail
           KEYCHAIN_PATH="$RUNNER_TEMP/${KEYCHAIN_NAME}"
@@ -91,6 +95,7 @@ jobs:
         working-directory: ${{ env.WORKING_DIR }}
         env:
           P12_PASSWORD: ${{ secrets.P12_PASSWORD }}
+        shell: bash
         run: |
           set -euo pipefail
           security import signing/cert.p12 -k "$KEYCHAIN_PATH" -P "$P12_PASSWORD" -T /usr/bin/codesign -T /usr/bin/security
@@ -103,6 +108,7 @@ jobs:
           INPUT_TEAM_ID: ${{ github.event.inputs.team_id }}
           INPUT_BUNDLE_ID: ${{ github.event.inputs.bundle_id }}
           INPUT_UDID: ${{ github.event.inputs.device_udid }}
+        shell: bash
         run: |
           set -euo pipefail
           TMP_PLIST=$(mktemp)
@@ -163,6 +169,7 @@ jobs:
           EXPORT_METHOD_IN: ${{ github.event.inputs.export_method }}
           KEYCHAIN_PATH: ${{ env.KEYCHAIN_PATH }}
           PROFILE_NAME: monGARS
+        shell: bash
         run: |
           set -euo pipefail
 
@@ -177,16 +184,16 @@ jobs:
           HAVE_DEVELOPMENT=0
           echo "$IDS" | grep -Eq '^(Apple Development|iPhone Developer)(:|$)' && HAVE_DEVELOPMENT=1 || true
 
-          DEV_LABEL=""; DIST_LABEL=""
+          DEV_LABEL=""
           echo "$IDS" | grep -Eq '^Apple Development(:|$)' && DEV_LABEL="Apple Development" || true
           [[ -z "$DEV_LABEL" ]] && (echo "$IDS" | grep -Eq '^iPhone Developer(:|$)' && DEV_LABEL="iPhone Developer" || true)
 
+          DIST_LABEL=""
           echo "$IDS" | grep -Eq '^Apple Distribution(:|$)' && DIST_LABEL="Apple Distribution" || true
           [[ -z "$DIST_LABEL" ]] && (echo "$IDS" | grep -Eq '^iPhone Distribution(:|$)' && DIST_LABEL="iPhone Distribution" || true)
           [[ -z "$DIST_LABEL" ]] && (echo "$IDS" | grep -Eq '^iOS Distribution(:|$)' && DIST_LABEL="iOS Distribution" || true)
 
-          METHOD="${{ github.event.inputs.export_method }}"
-          [[ -z "$METHOD" ]] && METHOD="development"
+          METHOD="${EXPORT_METHOD_IN:-development}"
           [[ "$METHOD" == "ad-hoc" ]] && METHOD="release-testing"
 
           if [[ "$METHOD" == "release-testing" || "$METHOD" == "app-store" ]]; then
@@ -207,29 +214,35 @@ jobs:
           plutil -insert method -string "$METHOD" ExportOptions.plist
           plutil -insert signingStyle -string "manual" ExportOptions.plist
           [[ -n "$TEAM_ID" ]] && plutil -insert teamID -string "$TEAM_ID" ExportOptions.plist || true
+          CERT_LABEL=""
           if [[ "$METHOD" == "development" ]]; then
-            plutil -insert signingCertificate -string "${{ '{{' }} DEV_LABEL:-Apple Development {{ '}}' }}" ExportOptions.plist
+            CERT_LABEL="${DEV_LABEL:-Apple Development}"
           else
-            plutil -insert signingCertificate -string "${{ '{{' }} DIST_LABEL:-Apple Distribution {{ '}}' }}" ExportOptions.plist
+            CERT_LABEL="${DIST_LABEL:-Apple Distribution}"
           fi
+          plutil -insert signingCertificate -string "$CERT_LABEL" ExportOptions.plist
           plutil -insert stripSwiftSymbols -bool true ExportOptions.plist
           plutil -insert compileBitcode -bool false ExportOptions.plist
 
           # provisioningProfiles with dotted key via PlistBuddy
           /usr/libexec/PlistBuddy -c "Add :provisioningProfiles dict" ExportOptions.plist 2>/dev/null || true
-          /usr/libexec/PlistBuddy -c "Add :provisioningProfiles:${{ github.event.inputs.bundle_id }} string ${PROFILE_NAME}" ExportOptions.plist 2>/dev/null ||           /usr/libexec/PlistBuddy -c "Set :provisioningProfiles:${{ github.event.inputs.bundle_id }} ${PROFILE_NAME}" ExportOptions.plist
+          /usr/libexec/PlistBuddy -c "Add :provisioningProfiles:${BUNDLE_ID} string ${PROFILE_NAME}" ExportOptions.plist 2>/dev/null || \
+          /usr/libexec/PlistBuddy -c "Set :provisioningProfiles:${BUNDLE_ID} ${PROFILE_NAME}" ExportOptions.plist
 
           echo "==== ExportOptions.plist ===="
           /usr/libexec/PlistBuddy -c "Print" ExportOptions.plist || plutil -p ExportOptions.plist
 
       - name: Cleanup keychain
         if: always()
+        shell: bash
         run: |
           set -euo pipefail
-          if [[ -n "${{ env.ORIGINAL_DEFAULT_KEYCHAIN }}" ]]; then
-            security default-keychain -s "${{ env.ORIGINAL_DEFAULT_KEYCHAIN }}" || true
+          if [[ -n "${ORIGINAL_DEFAULT_KEYCHAIN:-}" ]]; then
+            security default-keychain -s "${ORIGINAL_DEFAULT_KEYCHAIN}" || true
           fi
-          if [[ -n "${{ env.ORIGINAL_KEYCHAIN_LIST }}" ]]; then
-            security list-keychains -d user -s "${{ env.ORIGINAL_KEYCHAIN_LIST }}" || true
+          if [[ -n "${ORIGINAL_KEYCHAIN_LIST:-}" ]]; then
+            security list-keychains -d user -s ${ORIGINAL_KEYCHAIN_LIST} || true
           fi
-          [[ -e "$KEYCHAIN_PATH" ]] && security delete-keychain "$KEYCHAIN_PATH" || true
+          if [[ -n "${KEYCHAIN_PATH:-}" ]]; then
+            security delete-keychain "$KEYCHAIN_PATH" || true
+          fi
