@@ -8,6 +8,9 @@
 #   PROFILE_UUID              - Provisioning profile UUID to resolve a team identifier from disk
 #   PRODUCT_BUNDLE_IDENTIFIER - Bundle identifier to associate with the provisioning profile
 #   PROFILE_NAME              - Provisioning profile name recorded in export options for signing
+#   EXPORT_METHOD             - (Optional) Export method to record in ExportOptions.plist (defaults to "development")
+#   DEV_LABEL                 - (Optional) Apple Development signing certificate label hint
+#   DIST_LABEL                - (Optional) Apple Distribution signing certificate label hint
 
 set -euo pipefail
 if [[ $# -ne 3 ]]; then
@@ -24,28 +27,8 @@ if [[ ! -d "$ARCHIVE_PATH" ]]; then
   exit 1
 fi
 
-if [[ ! -f "$EXPORT_OPTS" ]]; then
-  echo "::error ::exportOptions.plist not found: $EXPORT_OPTS" >&2
-  exit 1
-fi
-
-TMP_EXPORT_OPTS=""
-
-cleanup() {
-  if [[ -n "$TMP_EXPORT_OPTS" && -f "$TMP_EXPORT_OPTS" ]]; then
-    rm -f "$TMP_EXPORT_OPTS"
-  fi
-}
-
-trap cleanup EXIT
-
-ensure_export_opts_copy() {
-  if [[ -z "$TMP_EXPORT_OPTS" ]]; then
-    TMP_EXPORT_OPTS="$(mktemp -t exportOptions.XXXXXX.plist)"
-    cp "$EXPORT_OPTS" "$TMP_EXPORT_OPTS"
-    EXPORT_OPTS="$TMP_EXPORT_OPTS"
-  fi
-}
+EXPORT_OPTS_DIR="$(dirname "$EXPORT_OPTS")"
+mkdir -p "$EXPORT_OPTS_DIR"
 
 resolve_bundle_identifier_from_archive() {
   local archive="$1"
@@ -125,45 +108,110 @@ if [[ -z "${TEAM_ID// }" ]]; then
   TEAM_ID="$(resolve_team_id_from_profile)"
 fi
 
-if [[ -n "${TEAM_ID// }" && -x /usr/libexec/PlistBuddy ]]; then
-  ensure_export_opts_copy
-  if /usr/libexec/PlistBuddy -c 'Print teamID' "$EXPORT_OPTS" >/dev/null 2>&1; then
-    /usr/libexec/PlistBuddy -c "Set teamID $TEAM_ID" "$EXPORT_OPTS" >/dev/null 2>&1 || true
-  else
-    /usr/libexec/PlistBuddy -c "Add teamID string $TEAM_ID" "$EXPORT_OPTS" >/dev/null 2>&1 || \
-      /usr/libexec/PlistBuddy -c "Set teamID $TEAM_ID" "$EXPORT_OPTS" >/dev/null 2>&1 || true
-  fi
-elif [[ -z "${TEAM_ID// }" ]]; then
-  echo "::warning ::No team identifier resolved for export; xcodebuild may fail with 'No Team Found in Archive'" >&2
-elif [[ ! -x /usr/libexec/PlistBuddy ]]; then
-  echo "::warning ::/usr/libexec/PlistBuddy not available; unable to inject teamID into export options" >&2
-fi
-
-BUNDLE_IDENTIFIER="${PRODUCT_BUNDLE_IDENTIFIER:-}" 
+BUNDLE_IDENTIFIER="${PRODUCT_BUNDLE_IDENTIFIER:-}"
 if [[ -z "${BUNDLE_IDENTIFIER// }" ]]; then
   BUNDLE_IDENTIFIER="$(resolve_bundle_identifier_from_archive "$ARCHIVE_PATH" || true)"
 fi
 
 PROFILE_NAME="${PROFILE_NAME:-}"
-if [[ -n "${PROFILE_NAME// }" && -n "${BUNDLE_IDENTIFIER// }" ]]; then
-  if command -v plutil >/dev/null 2>&1; then
-    ensure_export_opts_copy
-    if ! plutil -extract ':provisioningProfiles' xml1 -o - "$EXPORT_OPTS" >/dev/null 2>&1; then
-      if ! plutil -replace ':provisioningProfiles' -xml '<dict/>' "$EXPORT_OPTS" >/dev/null 2>&1; then
-        echo "::warning ::Failed to initialise provisioningProfiles dictionary in export options" >&2
-      fi
-    fi
 
-    if ! plutil -replace ":provisioningProfiles:${BUNDLE_IDENTIFIER}" -string "$PROFILE_NAME" "$EXPORT_OPTS" >/dev/null 2>&1; then
-      echo "::warning ::Failed to record provisioning profile ${PROFILE_NAME} for ${BUNDLE_IDENTIFIER} in export options" >&2
-    fi
-  elif [[ -x /usr/libexec/PlistBuddy ]]; then
-    echo "::warning ::plutil not available; unable to safely record provisioning profile ${PROFILE_NAME}" >&2
-  else
-    echo "::warning ::Required tools unavailable; unable to record provisioning profile ${PROFILE_NAME}" >&2
+if [[ -z "${BUNDLE_IDENTIFIER// }" ]]; then
+  echo "::error ::BUNDLE_IDENTIFIER is empty; cannot build ExportOptions.plist" >&2
+  exit 1
+fi
+
+if [[ -z "${PROFILE_NAME// }" ]]; then
+  echo "::error ::PROFILE_NAME is empty; cannot build ExportOptions.plist" >&2
+  exit 1
+fi
+
+validate_profile_team_alignment() {
+  local uuid="${PROFILE_UUID:-}"
+  if [[ -z "${uuid// }" ]]; then
+    return 0
   fi
-elif [[ -n "${PROFILE_NAME// }" ]]; then
-  echo "::warning ::Provisioning profile ${PROFILE_NAME} provided but bundle identifier could not be determined" >&2
+
+  local profile_path="$HOME/Library/MobileDevice/Provisioning Profiles/${uuid}.mobileprovision"
+  if [[ ! -f "$profile_path" ]]; then
+    return 0
+  fi
+
+  if ! command -v security >/dev/null 2>&1; then
+    return 0
+  fi
+
+  local tmp_plist
+  tmp_plist="$(mktemp)"
+  if ! security cms -D -i "$profile_path" >"$tmp_plist" 2>/dev/null; then
+    rm -f "$tmp_plist"
+    return 0
+  fi
+
+  local app_id=""
+  if [[ -x /usr/libexec/PlistBuddy ]]; then
+    app_id=$(/usr/libexec/PlistBuddy -c 'Print :Entitlements:application-identifier' "$tmp_plist" 2>/dev/null || true)
+  fi
+
+  rm -f "$tmp_plist"
+
+  if [[ -n "${app_id// }" ]]; then
+    local profile_team
+    profile_team="${app_id%%.*}"
+    if [[ -n "${TEAM_ID// }" && "$profile_team" != "$TEAM_ID" ]]; then
+      echo "::error ::Provisioning profile team ($profile_team) does not match TEAM_ID ($TEAM_ID)" >&2
+      exit 1
+    fi
+  fi
+}
+
+validate_profile_team_alignment
+
+if ! command -v plutil >/dev/null 2>&1; then
+  echo "::error ::plutil command is required to build ExportOptions.plist" >&2
+  exit 1
+fi
+
+METHOD="${EXPORT_METHOD:-${METHOD:-development}}"
+if [[ -z "${METHOD// }" ]]; then
+  METHOD="development"
+fi
+
+rm -f "$EXPORT_OPTS"
+plutil -create xml1 "$EXPORT_OPTS"
+plutil -replace : -xml '<dict/>' "$EXPORT_OPTS"
+
+plutil -insert method -string "$METHOD" "$EXPORT_OPTS"
+plutil -insert signingStyle -string "manual" "$EXPORT_OPTS"
+
+if [[ -n "${TEAM_ID// }" ]]; then
+  plutil -insert teamID -string "$TEAM_ID" "$EXPORT_OPTS"
+fi
+
+plutil -insert provisioningProfiles -xml '<dict/>' "$EXPORT_OPTS" || true
+plutil -insert "provisioningProfiles.${BUNDLE_IDENTIFIER}" -string "$PROFILE_NAME" "$EXPORT_OPTS"
+
+if [[ "$METHOD" == "development" ]]; then
+  cert_label="${DEV_LABEL:-}"
+  if [[ -z "${cert_label// }" ]]; then
+    cert_label="Apple Development"
+  fi
+  plutil -insert signingCertificate -string "$cert_label" "$EXPORT_OPTS"
+else
+  cert_label="${DIST_LABEL:-}"
+  if [[ -z "${cert_label// }" ]]; then
+    cert_label="Apple Distribution"
+  fi
+  plutil -insert signingCertificate -string "$cert_label" "$EXPORT_OPTS"
+fi
+
+plutil -insert stripSwiftSymbols -bool true "$EXPORT_OPTS"
+plutil -insert compileBitcode -bool false "$EXPORT_OPTS"
+
+echo "==== ExportOptions.plist ===="
+if [[ -x /usr/libexec/PlistBuddy ]]; then
+  /usr/libexec/PlistBuddy -c "Print" "$EXPORT_OPTS" || plutil -p "$EXPORT_OPTS"
+else
+  plutil -p "$EXPORT_OPTS"
 fi
 
 set -x
