@@ -1,273 +1,213 @@
-name: Build iOS App (monGARS)
+name: iOS Signed – monGARS
 
 on:
   workflow_dispatch:
     inputs:
-      require_signing:
-        description: Skip secret validation and signed build when set to "false".
+      export_method:
+        description: "Export method: ad-hoc | development | app-store"
         required: false
-        default: "true"
+        default: "ad-hoc"
   push:
-    branches: [main]
+    branches: [main, master]
 
 env:
-  SIGNING_SECRET_NAMES: |
-    P12_BASE64
-    MOBILEPROVISION_BASE64
-    P12_PASSWORD
-    KEYCHAIN_PASSWORD
-    APPLE_TEAM_ID
+  SCHEME: monGARS
+  WORKING_DIR: ios
+  DERIVED_DATA: build/DerivedData
+  ARCHIVE_PATH: build/monGARS.xcarchive
+  EXPORT_DIR: build/export
+  RESULT_BUNDLE: build/DerivedData/ResultBundle_build.xcresult
+  XCODE_PROJECT_NAME: monGARS.xcodeproj
 
 jobs:
-  signing_precheck:
-    runs-on: ubuntu-latest
-    permissions:
-      contents: read
-    outputs:
-      ready: ${{ steps.signing_gate.outputs.ready }}
-      message: ${{ steps.signing_gate.outputs.message }}
-      missing: ${{ steps.signing_gate.outputs.missing }}
-    steps:
-      - name: Checkout repository
-        uses: actions/checkout@v4
-
-      - name: Evaluate signing readiness
-        id: signing_gate
-        uses: ./.github/actions/signing-secrets-check
-        with:
-          required-secrets: ${{ env.SIGNING_SECRET_NAMES }}
-          require-signing: ${{ github.event_name == 'workflow_dispatch' && github.event.inputs.require_signing || 'true' }}
-        env:
-          P12_BASE64: ${{ secrets.P12_BASE64 }}
-          MOBILEPROVISION_BASE64: ${{ secrets.MOBILEPROVISION_BASE64 }}
-          P12_PASSWORD: ${{ secrets.P12_PASSWORD }}
-          KEYCHAIN_PASSWORD: ${{ secrets.KEYCHAIN_PASSWORD }}
-          APPLE_TEAM_ID: ${{ secrets.APPLE_TEAM_ID }}
-
-  build:
-    needs: signing_precheck
-    if: ${{ (github.event_name != 'pull_request' || github.event.pull_request.head.repo.full_name == github.repository) && needs.signing_precheck.result == 'success' && fromJSON(needs.signing_precheck.outputs.ready) }}
+  build-signed-ipa:
     runs-on: macos-15
     timeout-minutes: 60
 
-    env:
-      APP_NAME: monGARS
-      SCHEME: monGARS
-      CONFIGURATION: Release
-      TEAM_ID: ${{ secrets.APPLE_TEAM_ID }}
-      BUNDLE_ID: com.27pm.monGARS
-      PROFILE_NAME: monGARS_Profile.mobileprovision
-      KEYCHAIN_NAME: build-signing.keychain-db
-      KEYCHAIN_PASSWORD: ${{ secrets.KEYCHAIN_PASSWORD }}
-      P12_PASSWORD: ${{ secrets.P12_PASSWORD }}
-      SIGNING_CERTIFICATE: Apple Distribution
-
     steps:
-      - name: Checkout Repository
+      - name: Checkout
         uses: actions/checkout@v4
 
-      - name: Set up Node.js
+      - name: Select latest Xcode 16 on macOS 15
+        run: |
+          XCODE_PATH="$(/usr/bin/mdfind 'kMDItemCFBundleIdentifier = "com.apple.dt.Xcode" && kMDItemVersion >= "16.0"' | head -n 1)"
+          sudo xcode-select -s "$XCODE_PATH"
+          xcodebuild -version
+
+      - name: Verify required secrets
+        run: |
+          set -euo pipefail
+          for name in P12_BASE64 MOBILEPROVISION_BASE64 TEAM_ID; do
+            if [ -z "${!name:-}" ]; then echo "::error ::Missing secret: $name"; exit 1; fi
+          done
+        env:
+          P12_BASE64: ${{ secrets.P12_BASE64 }}
+          MOBILEPROVISION_BASE64: ${{ secrets.MOBILEPROVISION_BASE64 }}
+          TEAM_ID: ${{ secrets.TEAM_ID }}
+
+      - name: Setup Node
         uses: actions/setup-node@v4
         with:
           node-version: "20"
-          cache: "npm"
+          cache: "yarn"
 
-      - name: Set up Ruby
-        uses: ruby/setup-ruby@0481980f17b760ef6bca5e8c55809102a0af1e5a # v1
-        with:
-          ruby-version: "3.2"
-          bundler-cache: true
-
-      - name: Capture original keychain state
+      - name: Install JS deps
         run: |
-          set -euo pipefail
-          DEFAULT_LINE="$(security default-keychain -d user 2>/dev/null || true)"
-          if [[ -n "${DEFAULT_LINE// }" ]]; then
-            DEFAULT_LINE="$(printf '%s' "$DEFAULT_LINE" | sed -e 's/^[[:space:]]*"//' -e 's/"$//')"
-            if [[ -n "$DEFAULT_LINE" ]]; then
-              {
-                echo "ORIGINAL_DEFAULT_KEYCHAIN<<EOF"
-                echo "$DEFAULT_LINE"
-                echo "EOF"
-              } >>"$GITHUB_ENV"
-            fi
-          fi
+          if [ -f yarn.lock ]; then yarn install --frozen-lockfile; fi
+          if [ -f pnpm-lock.yaml ]; then corepack enable && pnpm i --frozen-lockfile; fi
+          if [ -f bun.lockb ]; then curl -fsSL https://bun.sh/install | bash && ~/.bun/bin/bun install --no-save; fi
 
-          LIST_OUTPUT="$(security list-keychains -d user 2>/dev/null || true)"
-          if [[ -n "${LIST_OUTPUT// }" ]]; then
-            CLEANED="$(printf '%s\n' "$LIST_OUTPUT" | sed -e 's/^[[:space:]]*"//' -e 's/"$//')"
-            CLEANED="$(printf '%s\n' "$CLEANED" | sed '/^$/d')"
-            if [[ -n "$CLEANED" ]]; then
-              {
-                echo "ORIGINAL_KEYCHAIN_LIST<<EOF"
-                echo "$CLEANED"
-                echo "EOF"
-              } >>"$GITHUB_ENV"
-            fi
-          fi
-
-      - name: Cache CocoaPods
-        uses: actions/cache@0057852bfaa89a56745cba8c7296529d2fc39830 # v4
-        with:
-          path: |
-            ios/Pods
-            ~/Library/Caches/CocoaPods
-          key: ${{ runner.os }}-pods-${{ hashFiles('ios/Podfile.lock') }}
-          restore-keys: ${{ runner.os }}-pods-
-
-      - name: Install Dependencies (Node + Pods)
+      - name: Install Ruby & CocoaPods
         run: |
-          set -euxo pipefail
-          if ! brew list xcodegen >/dev/null 2>&1; then
-            HOMEBREW_NO_AUTO_UPDATE=1 brew install xcodegen
-          fi
-          npm ci
-          xcodegen generate --spec ios/project.yml --project ios
-          bundle exec pod install --project-directory=ios --repo-update
+          ruby -v
+          gem install bundler -N || true
+          sudo gem install cocoapods -N
+          pod --version
 
-      - name: Decode signing assets
+      - name: Generate Xcode project (XcodeGen)
+        working-directory: ${{ env.WORKING_DIR }}
+        run: |
+          if ! command -v xcodegen >/dev/null 2>&1; then brew install xcodegen; fi
+          xcodegen generate
+          test -d "${{ env.XCODE_PROJECT_NAME }}" || { echo "::error ::XcodeGen failed"; exit 1; }
+
+      - name: Pod install
+        working-directory: ${{ env.WORKING_DIR }}
+        run: |
+          pod repo update
+          pod install --verbose
+
+      - name: (Optional) Pre-archive prep
+        run: |
+          bash scripts/ci/prep-ios-unsigned-archive.sh || true
+
+      - name: Write signing files
+        id: files
+        working-directory: ${{ env.WORKING_DIR }}
         env:
           P12_BASE64: ${{ secrets.P12_BASE64 }}
           MOBILEPROVISION_BASE64: ${{ secrets.MOBILEPROVISION_BASE64 }}
         run: |
           set -euo pipefail
           mkdir -p signing
-          python3 - <<'PY'
-          import base64
-          import binascii
-          import os
-          import sys
-          from pathlib import Path
+          echo "$P12_BASE64" | base64 -d > signing/cert.p12
+          echo "$MOBILEPROVISION_BASE64" | base64 -d > signing/profile.mobileprovision
+          ls -la signing
 
-          files = {
-              "P12_BASE64": Path("signing/cert.p12"),
-              "MOBILEPROVISION_BASE64": Path(
-                  f"signing/{os.environ['PROFILE_NAME']}"
-              ),
-          }
-
-          for env_var, output_path in files.items():
-              value = os.environ.get(env_var)
-              if not value:
-                  sys.stderr.write(
-                      f"::error ::Missing signing secret {env_var}.\n"
-                  )
-                  sys.exit(1)
-              try:
-                  decoded = base64.b64decode(value, validate=True)
-              except binascii.Error as exc:
-                  sys.stderr.write(
-                      f"::error ::Secret {env_var} is not valid base64: {exc}\n"
-                  )
-                  sys.exit(1)
-              if not decoded:
-                  sys.stderr.write(
-                      f"::error ::Secret {env_var} decoded to 0 bytes.\n"
-                  )
-                  sys.exit(1)
-              output_path.parent.mkdir(parents=True, exist_ok=True)
-              output_path.write_bytes(decoded)
-              try:
-                  output_path.chmod(0o600)
-              except Exception:
-                  pass
-          PY
-
-      - name: Import certificate & provisioning profile
+      - name: Import signing into temp keychain
+        id: signing
+        working-directory: ${{ env.WORKING_DIR }}
         env:
-          KEYCHAIN_PASSWORD: ${{ env.KEYCHAIN_PASSWORD }}
-          PROFILE_NAME: ${{ env.PROFILE_NAME }}
+          P12_PASSWORD: ${{ secrets.P12_PASSWORD }}
         run: |
           set -euo pipefail
-          bash scripts/ci/import_signing.sh \
-            signing/cert.p12 \
-            "$P12_PASSWORD" \
-            "signing/${PROFILE_NAME}" \
-            "$KEYCHAIN_NAME" \
-            "$KEYCHAIN_PASSWORD"
+          KEYCHAIN_NAME="build-signing.keychain-db"
+          KEYCHAIN_PWD="$(uuidgen)"
+          bash ../scripts/ci/import_signing.sh \
+            signing/cert.p12 "${P12_PASSWORD:-}" signing/profile.mobileprovision \
+            "$KEYCHAIN_NAME" "$KEYCHAIN_PWD"
 
-      - name: Sanitize signing workspace
-        run: |
-          rm -rf signing || true
-
-      - name: Build and Archive
-        run: |
-          set -euo pipefail
-          : "${TEAM_ID:?Missing TEAM_ID secret}"
-          : "${BUNDLE_ID:?Missing BUNDLE_ID}"
-          : "${KEYCHAIN_PATH:?KEYCHAIN_PATH not set by signing import step}"
-          : "${PROFILE_NAME:?Provisioning profile name unavailable}"
-          xcodebuild \
-            -workspace ios/monGARS.xcworkspace \
-            -scheme "$SCHEME" \
-            -configuration "$CONFIGURATION" \
-            -sdk iphoneos \
-            -archivePath build/$SCHEME.xcarchive \
-            -derivedDataPath build/DerivedData \
-            -destination "generic/platform=iOS" \
-            CODE_SIGN_STYLE=Manual \
-            DEVELOPMENT_TEAM="$TEAM_ID" \
-            PRODUCT_BUNDLE_IDENTIFIER="$BUNDLE_ID" \
-            PROVISIONING_PROFILE_SPECIFIER="$PROFILE_NAME" \
-            CODE_SIGN_IDENTITY="$SIGNING_CERTIFICATE" \
-            OTHER_CODE_SIGN_FLAGS="--keychain $KEYCHAIN_PATH" \
-            archive
-
-      - name: Create exportOptions.plist
+      - name: Determine bundle id & export method
+        id: meta
+        env:
+          BUNDLE_ID: ${{ secrets.BUNDLE_ID }}
+          INPUT_METHOD: ${{ github.event.inputs.export_method }}
+          SECRET_METHOD: ${{ secrets.EXPORT_METHOD }}
         run: |
           set -euo pipefail
-          cat > exportOptions.plist <<EOF
-          <?xml version="1.0" encoding="UTF-8"?>
-          <!DOCTYPE plist PUBLIC "-//Apple//DTD PLIST 1.0//EN" "http://www.apple.com/DTDs/PropertyList-1.0.dtd">
-          <plist version="1.0">
-          <dict>
+          BUNDLE_ID="${BUNDLE_ID:-com.offllm.monGARS}"
+          METHOD="${INPUT_METHOD:-${SECRET_METHOD:-ad-hoc}}"
+          echo "bundle_id=$BUNDLE_ID" >> "$GITHUB_OUTPUT"
+          echo "method=$METHOD" >> "$GITHUB_OUTPUT"
+          echo "Using bundle id: $BUNDLE_ID, method: $METHOD"
+
+      - name: Patch ExportOptions.plist with provisioning mapping
+        working-directory: ${{ env.WORKING_DIR }}
+        env:
+          BUNDLE_ID: ${{ steps.meta.outputs.bundle_id }}
+          METHOD: ${{ steps.meta.outputs.method }}
+        run: |
+          set -euo pipefail
+          # Prefer repo file if present, otherwise create a minimal one
+          if [ -f export-options.plist ]; then
+            cp export-options.plist ExportOptions.plist
+          else
+            cat > ExportOptions.plist <<'PLIST'
+            <?xml version="1.0" encoding="UTF-8"?>
+            <!DOCTYPE plist PUBLIC "-//Apple//DTD PLIST 1.0//EN" "http://www.apple.com/DTDs/PropertyList-1.0.dtd">
+            <plist version="1.0"><dict>
             <key>method</key><string>ad-hoc</string>
-            <key>teamID</key><string>${TEAM_ID}</string>
-            <key>provisioningProfiles</key>
-            <dict>
-              <key>${BUNDLE_ID}</key><string>${PROFILE_NAME}</string>
-            </dict>
-            <key>signingCertificate</key><string>${SIGNING_CERTIFICATE}</string>
             <key>signingStyle</key><string>manual</string>
             <key>stripSwiftSymbols</key><true/>
             <key>compileBitcode</key><false/>
-            <key>destination</key><string>export</string>
-          </dict>
-          </plist>
-          EOF
+            </dict></plist>
+            PLIST
+          fi
+          # Set method
+          /usr/libexec/PlistBuddy -c "Set :method ${METHOD}" ExportOptions.plist || true
+          # Map provisioningProfiles: { <bundle_id>: <profile_name> }
+          PROFILE_NAME=$(security cms -D -i signing/profile.mobileprovision | /usr/libexec/PlistBuddy -c 'Print :Name' /dev/stdin 2>/dev/null || true)
+          [ -z "$PROFILE_NAME" ] && PROFILE_NAME="$BUNDLE_ID"
+          /usr/libexec/PlistBuddy -c "Add :provisioningProfiles dict" ExportOptions.plist 2>/dev/null || true
+          /usr/libexec/PlistBuddy -c "Add :provisioningProfiles:${BUNDLE_ID} string ${PROFILE_NAME}" ExportOptions.plist 2>/dev/null || \
+          /usr/libexec/PlistBuddy -c "Set :provisioningProfiles:${BUNDLE_ID} ${PROFILE_NAME}" ExportOptions.plist
+          /usr/libexec/PlistBuddy -c "Print" ExportOptions.plist
 
-      - name: Export IPA
+      - name: Build & Archive (signed)
+        working-directory: ${{ env.WORKING_DIR }}
+        env:
+          TEAM_ID: ${{ secrets.TEAM_ID }}
+          KEYCHAIN_PATH: ${{ env.KEYCHAIN_PATH }}
+          BUNDLE_ID: ${{ steps.meta.outputs.bundle_id }}
         run: |
           set -euo pipefail
-          xcodebuild -exportArchive \
-            -archivePath build/$SCHEME.xcarchive \
-            -exportOptionsPlist exportOptions.plist \
-            -exportPath build/export
+          test -n "$TEAM_ID"
+          # Prefer the workspace made by CocoaPods
+          PROJECT_FLAG="-workspace monGARS.xcworkspace"
+          mkdir -p "${DERIVED_DATA}"
+          xcodebuild \
+            $PROJECT_FLAG \
+            -scheme "${SCHEME}" \
+            -configuration Release \
+            -destination "generic/platform=iOS" \
+            -archivePath "${ARCHIVE_PATH}" \
+            -derivedDataPath "${DERIVED_DATA}" \
+            -resultBundlePath "${RESULT_BUNDLE}" \
+            CODE_SIGN_STYLE=Manual \
+            DEVELOPMENT_TEAM="${TEAM_ID}" \
+            PRODUCT_BUNDLE_IDENTIFIER="${BUNDLE_ID}" \
+            OTHER_CODE_SIGN_FLAGS="--keychain ${KEYCHAIN_PATH}" \
+            clean archive | xcpretty && exit ${PIPESTATUS[0]}
 
-      - name: Upload IPA artifact
+      - name: Export signed IPA
+        working-directory: ${{ env.WORKING_DIR }}
+        run: |
+          set -euo pipefail
+          rm -rf "${EXPORT_DIR}"
+          bash ../scripts/ci/export_ipa.sh "${ARCHIVE_PATH}" "ExportOptions.plist" "${EXPORT_DIR}"
+
+      - name: Upload IPA & logs
+        if: always()
         uses: actions/upload-artifact@v4
         with:
-          name: monGARS.ipa
-          path: build/export/*.ipa
+          name: monGARS-signed-ipa
+          path: |
+            ios/build/export/*.ipa
+            ios/ExportOptions.plist
+            ios/build/DerivedData/ResultBundle_build.xcresult
+          if-no-files-found: warn
 
-      - name: Cleanup signing keychain
+      - name: Cleanup keychain
         if: always()
         run: |
           set -euo pipefail
-          rm -rf signing || true
+          # variables exported by import_signing.sh in GITHUB_ENV
           if [[ -n "${ORIGINAL_DEFAULT_KEYCHAIN:-}" ]]; then
             security default-keychain -s "${ORIGINAL_DEFAULT_KEYCHAIN}" || true
           fi
           if [[ -n "${ORIGINAL_KEYCHAIN_LIST:-}" ]]; then
             RESTORE_KEYCHAINS=()
-            while IFS= read -r kc; do
-              [[ -z "$kc" ]] && continue
-              RESTORE_KEYCHAINS+=("$kc")
-            done <<<"${ORIGINAL_KEYCHAIN_LIST}"
-            if [[ ${#RESTORE_KEYCHAINS[@]} -gt 0 ]]; then
-              security list-keychains -d user -s "${RESTORE_KEYCHAINS[@]}" || true
-            fi
+            while IFS= read -r kc; do [[ -z "$kc" ]] || RESTORE_KEYCHAINS+=("$kc"); done <<<"${ORIGINAL_KEYCHAIN_LIST}"
+            [[ ${#RESTORE_KEYCHAINS[@]} -gt 0 ]] && security list-keychains -d user -s "${RESTORE_KEYCHAINS[@]}" || true
           fi
-          if [[ -n "${KEYCHAIN_PATH:-}" && -e "${KEYCHAIN_PATH}" ]]; then
-            security delete-keychain "${KEYCHAIN_PATH}" || true
-          fi
+          [[ -n "${KEYCHAIN_PATH:-}" && -e "${KEYCHAIN_PATH}" ]] && security delete-keychain "${KEYCHAIN_PATH}" || true
