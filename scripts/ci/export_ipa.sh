@@ -1,6 +1,13 @@
 #!/usr/bin/env bash
 # Export an Xcode archive to an IPA with the provided export options.
 # Usage: export_ipa.sh <archive-path> <export-options-plist> <export-directory>
+#
+# Environment variables:
+#   EXPORT_TEAM_ID            - Preferred team identifier injected into export options
+#   DEVELOPMENT_TEAM          - Fallback team identifier when EXPORT_TEAM_ID is unset
+#   PROFILE_UUID              - Provisioning profile UUID to resolve a team identifier from disk
+#   PRODUCT_BUNDLE_IDENTIFIER - Bundle identifier to associate with the provisioning profile
+#   PROFILE_NAME              - Provisioning profile name recorded in export options for signing
 
 set -euo pipefail
 if [[ $# -ne 3 ]]; then
@@ -38,13 +45,6 @@ ensure_export_opts_copy() {
     cp "$EXPORT_OPTS" "$TMP_EXPORT_OPTS"
     EXPORT_OPTS="$TMP_EXPORT_OPTS"
   fi
-}
-
-escape_for_plistbuddy() {
-  local value="$1"
-  value="${value//\\/\\\\}"
-  value="${value//"/\\\"}"
-  printf '%s' "$value"
 }
 
 resolve_bundle_identifier_from_archive() {
@@ -146,15 +146,21 @@ fi
 
 PROFILE_NAME="${PROFILE_NAME:-}"
 if [[ -n "${PROFILE_NAME// }" && -n "${BUNDLE_IDENTIFIER// }" ]]; then
-  if [[ -x /usr/libexec/PlistBuddy ]]; then
+  if command -v plutil >/dev/null 2>&1; then
     ensure_export_opts_copy
-    /usr/libexec/PlistBuddy -c 'Add :provisioningProfiles dict' "$EXPORT_OPTS" >/dev/null 2>&1 || true
-    escaped_profile="$(escape_for_plistbuddy "$PROFILE_NAME")"
-    if ! /usr/libexec/PlistBuddy -c "Set :provisioningProfiles:${BUNDLE_IDENTIFIER} \"${escaped_profile}\"" "$EXPORT_OPTS" >/dev/null 2>&1; then
-      /usr/libexec/PlistBuddy -c "Add :provisioningProfiles:${BUNDLE_IDENTIFIER} string \"${escaped_profile}\"" "$EXPORT_OPTS" >/dev/null 2>&1 || true
+    if ! plutil -extract ':provisioningProfiles' xml1 -o - "$EXPORT_OPTS" >/dev/null 2>&1; then
+      if ! plutil -replace ':provisioningProfiles' -xml '<dict/>' "$EXPORT_OPTS" >/dev/null 2>&1; then
+        echo "::warning ::Failed to initialise provisioningProfiles dictionary in export options" >&2
+      fi
     fi
+
+    if ! plutil -replace ":provisioningProfiles:${BUNDLE_IDENTIFIER}" -string "$PROFILE_NAME" "$EXPORT_OPTS" >/dev/null 2>&1; then
+      echo "::warning ::Failed to record provisioning profile ${PROFILE_NAME} for ${BUNDLE_IDENTIFIER} in export options" >&2
+    fi
+  elif [[ -x /usr/libexec/PlistBuddy ]]; then
+    echo "::warning ::plutil not available; unable to safely record provisioning profile ${PROFILE_NAME}" >&2
   else
-    echo "::warning ::/usr/libexec/PlistBuddy not available; unable to record provisioning profile ${PROFILE_NAME}" >&2
+    echo "::warning ::Required tools unavailable; unable to record provisioning profile ${PROFILE_NAME}" >&2
   fi
 elif [[ -n "${PROFILE_NAME// }" ]]; then
   echo "::warning ::Provisioning profile ${PROFILE_NAME} provided but bundle identifier could not be determined" >&2
