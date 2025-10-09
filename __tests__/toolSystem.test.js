@@ -117,7 +117,9 @@ describe("builtInTools.webSearch", () => {
 
 describe("builtInTools.fileSystem", () => {
   it("reads files from the Node filesystem when the path is safe", async () => {
-    const readFile = jest.fn().mockResolvedValue("file-content");
+    const unicodeContent = "Hello 🌍";
+    const expectedBytes = Buffer.byteLength(unicodeContent, "utf8");
+    const readFile = jest.fn().mockResolvedValue(unicodeContent);
     mockGetNodeFs.mockReturnValue({ promises: { readFile } });
     mockGetReactNativeFs.mockReturnValue(null);
     mockResolveSafePath.mockReturnValue({
@@ -142,8 +144,46 @@ describe("builtInTools.fileSystem", () => {
       success: true,
       operation: "read",
       path: "/safe/root/file.txt",
-      content: "file-content",
-      bytesRead: "file-content".length,
+      content: unicodeContent,
+      bytesRead: expectedBytes,
+    });
+  });
+
+  it("writes files with UTF-8 byte accounting", async () => {
+    const unicodeContent = "A🌍B";
+    const expectedBytes = Buffer.byteLength(unicodeContent, "utf8");
+    const writeFile = jest.fn().mockResolvedValue(undefined);
+    mockGetNodeFs.mockReturnValue({ promises: { writeFile } });
+    mockGetReactNativeFs.mockReturnValue(null);
+    mockResolveSafePath.mockReturnValue({
+      absolutePath: "/safe/root/log.txt",
+      isSafe: true,
+      root: "/safe/root",
+    });
+    mockEnsureDirectoryExists.mockResolvedValue(undefined);
+
+    const { builtInTools } = require("../src/architecture/toolSystem");
+
+    const result = await builtInTools.fileSystem.execute({
+      operation: "write",
+      path: "log.txt",
+      content: unicodeContent,
+    });
+
+    expect(mockResolveSafePath).toHaveBeenCalledWith("log.txt");
+    expect(mockEnsureDirectoryExists).toHaveBeenCalledWith(
+      "/safe/root/log.txt",
+    );
+    expect(writeFile).toHaveBeenCalledWith(
+      "/safe/root/log.txt",
+      unicodeContent,
+      "utf8",
+    );
+    expect(result).toEqual({
+      success: true,
+      operation: "write",
+      path: "/safe/root/log.txt",
+      bytesWritten: expectedBytes,
     });
   });
 
