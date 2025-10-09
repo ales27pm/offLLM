@@ -34,6 +34,30 @@ import {
 } from "../utils/fsUtils";
 
 const RNFS = getReactNativeFs();
+
+let cachedTextEncoder = null;
+
+const computeUtf8ByteLength = (value) => {
+  if (typeof value !== "string") {
+    return undefined;
+  }
+
+  if (
+    typeof Buffer !== "undefined" &&
+    typeof Buffer.byteLength === "function"
+  ) {
+    return Buffer.byteLength(value, "utf8");
+  }
+
+  if (typeof TextEncoder === "function") {
+    if (!cachedTextEncoder) {
+      cachedTextEncoder = new TextEncoder();
+    }
+    return cachedTextEncoder.encode(value).length;
+  }
+
+  return value.length;
+};
 const summarizeResult = (result) => {
   if (!result || typeof result !== "object") {
     return result;
@@ -314,15 +338,20 @@ export const builtInTools = {
               throw new Error(`File not found at ${absolutePath}`);
             }
 
-            if (RNFS) {
-              const data = await RNFS.readFile(absolutePath, "utf8");
+            const buildReadResult = (data) => {
+              const bytesRead = computeUtf8ByteLength(data);
               return {
                 success: true,
                 operation,
                 path: absolutePath,
                 content: data,
-                bytesRead: typeof data === "string" ? data.length : undefined,
+                ...(bytesRead !== undefined ? { bytesRead } : {}),
               };
+            };
+
+            if (RNFS) {
+              const data = await RNFS.readFile(absolutePath, "utf8");
+              return buildReadResult(data);
             }
 
             if (nodeFsModule) {
@@ -330,13 +359,7 @@ export const builtInTools = {
                 absolutePath,
                 "utf8",
               );
-              return {
-                success: true,
-                operation,
-                path: absolutePath,
-                content: data,
-                bytesRead: typeof data === "string" ? data.length : undefined,
-              };
+              return buildReadResult(data);
             }
 
             throw new Error("No file system implementation available");
@@ -365,11 +388,12 @@ export const builtInTools = {
               throw new Error("No file system implementation available");
             }
 
+            const bytesWritten = computeUtf8ByteLength(content);
             return {
               success: true,
               operation,
               path: absolutePath,
-              bytesWritten: content.length,
+              ...(bytesWritten !== undefined ? { bytesWritten } : {}),
             };
           }
           case "list": {
