@@ -116,6 +116,10 @@ jobs:
           mkdir -p "$HOME/Library/MobileDevice/Provisioning Profiles"
           echo "$PROFILE_B64" | base64 --decode > "$HOME/Library/MobileDevice/Provisioning Profiles/app.mobileprovision"
           PROFILE_UUID=$(/usr/libexec/PlistBuddy -c "Print:UUID" /dev/stdin <<< $(security cms -D -i "$HOME/Library/MobileDevice/Provisioning Profiles/app.mobileprovision"))
+          if [[ -z "$PROFILE_UUID" || ! "$PROFILE_UUID" =~ ^[A-Fa-f0-9]{8}-[A-Fa-f0-9]{4}-[A-Fa-f0-9]{4}-[A-Fa-f0-9]{4}-[A-Fa-f0-9]{12}$ ]]; then
+            echo "::error::Invalid provisioning profile UUID extracted; verify the IOS_PROVISIONING_PROFILE_BASE64 secret." >&2
+            exit 1
+          fi
           mv "$HOME/Library/MobileDevice/Provisioning Profiles/app.mobileprovision" "$HOME/Library/MobileDevice/Provisioning Profiles/$PROFILE_UUID.mobileprovision"
           echo "Installed profile UUID: $PROFILE_UUID"
           echo "PROFILE_UUID=$PROFILE_UUID" >> $GITHUB_ENV
@@ -218,9 +222,9 @@ jobs:
             exit "$status"
           fi
           ls -lah "$EXPORT_DIR"
-          IPA_PATH="$(/usr/bin/find "$EXPORT_DIR" -name "*.ipa" -maxdepth 1 -print -quit)"
+          IPA_PATH="$(/usr/bin/find "$EXPORT_DIR" -name "*.ipa" -print -quit)"
           if [ -z "$IPA_PATH" ]; then
-            echo "::error::Failed to locate the exported IPA in $EXPORT_DIR" >&2
+            echo "::error::Failed to locate the exported IPA in $EXPORT_DIR (recursive search)" >&2
             exit 1
           fi
           echo "IPA_PATH=$IPA_PATH" >> $GITHUB_ENV
@@ -231,8 +235,15 @@ jobs:
           set -euo pipefail
           DSYM_DIR="$GITHUB_WORKSPACE/build/${APP_NAME}/dSYMs"
           mkdir -p "$DSYM_DIR"
-          find "$ARCHIVE_PATH" -name "*.dSYM" -exec cp -R {} "$DSYM_DIR" \; || true
-          du -sh "$DSYM_DIR" || true
+          if ! find "$ARCHIVE_PATH" -name "*.dSYM" -exec cp -R {} "$DSYM_DIR" \; ; then
+            echo "::warning::Failed to collect dSYM files from $ARCHIVE_PATH"
+          fi
+
+          if [ -z "$(ls -A "$DSYM_DIR")" ]; then
+            echo "::warning::No dSYM files were collected in $DSYM_DIR"
+          else
+            du -sh "$DSYM_DIR"
+          fi
 
       - name: 📄 Upload build logs
         if: always()
